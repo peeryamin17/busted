@@ -14,7 +14,7 @@
  *   --max-tokens <n>      global LLM token budget (default: 120000)
  *   --timeout-min <n>     wall-clock cap in minutes (default: 10)
  *   --allow-private       allow private/internal targets (self-hosted labs)
- *   --specialists a,b,c   force specialist set (ids: recon,secrets,headers,cors,xss,idor,auth,graphql)
+ *   --specialists a,b,c   force specialist set (ids: recon,secrets,headers,cors,xss,idor,auth,graphql,sourcemap)
  *   --out <file.md>       write Markdown report to file (default: stdout)
  *   --mock                use the mock LLM provider (no API key, for testing)
  *

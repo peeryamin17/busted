@@ -113,6 +113,11 @@ export function generatePdfReport(input: ReportInput): Promise<Buffer> {
       doc.moveDown(0.25);
       doc.fontSize(10).fillColor('#111827').text('Remediation:');
       doc.fillColor('#374151').text(f.remediation);
+      if (f.suggestedFix) {
+        doc.moveDown(0.25);
+        doc.fontSize(10).fillColor('#111827').text('Suggested fix (AI-generated — review before applying):');
+        doc.fillColor('#374151').text(f.suggestedFix);
+      }
       if (f.references.length > 0) {
         doc.moveDown(0.25);
         doc.fontSize(10).fillColor('#111827').text('References:');

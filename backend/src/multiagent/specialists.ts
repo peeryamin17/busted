@@ -128,6 +128,16 @@ const defs: SpecialistDef[] = [
     maxActions: 8,
     maxEscalations: 2,
   },
+  {
+    id: 'sourcemap',
+    name: 'Source-Map Miner',
+    expertise:
+      'exposed JavaScript source maps: resolving sourceMappingURL references, reconstructing original sources, and hunting leaked secrets, credentials in comments, and hidden routes inside them.',
+    systemPrompt: '',
+    tools: ['fetch_url', 'fetch_js', 'fetch_sourcemap'],
+    maxActions: 8,
+    maxEscalations: 2,
+  },
 ];
 
 for (const d of defs) {
@@ -151,4 +161,4 @@ export function allSpecialists(): SpecialistDef[] {
 
 /** Specialists the head considers "always useful" vs conditional. */
 export const ALWAYS_SPAWN: SpecialistId[] = ['headers', 'cors', 'secrets'];
-export const CONDITIONAL_SPAWN: SpecialistId[] = ['xss', 'idor', 'auth', 'graphql'];
+export const CONDITIONAL_SPAWN: SpecialistId[] = ['xss', 'idor', 'auth', 'graphql', 'sourcemap'];

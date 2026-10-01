@@ -115,6 +115,12 @@ export async function generateDocxReport(input: ReportInput): Promise<Buffer> {
       f.reproSteps.forEach((s, i) => children.push(p(`${i + 1}. ${s}`)));
     }
     children.push(p('Remediation:', { bold: true }), p(f.remediation));
+    if (f.suggestedFix) {
+      children.push(
+        p('Suggested fix (AI-generated — review before applying):', { bold: true }),
+        p(f.suggestedFix)
+      );
+    }
     if (f.references.length > 0) {
       children.push(p('References:', { bold: true }));
       f.references.forEach((r) => children.push(p(r, { color: '1E40AF' })));

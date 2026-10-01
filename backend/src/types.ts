@@ -127,6 +127,11 @@ export interface Finding {
   evidence?: string;
   reproSteps: string[];
   remediation: string;
+  /**
+   * AI-generated concrete code fix (Phase 3, developer persona). Always
+   * labeled as unverified in reports — a wrong auto-fix is worse than none.
+   */
+  suggestedFix?: string;
   references: string[];
   createdAt: string; // ISO
 }

@@ -20,7 +20,7 @@ AI-powered security reconnaissance for bug bounty hunters. A Chrome extension (M
 - CVSS v3.1 scoring on every finding, honeypot/trap detection, and attack-chain narratives that link findings into bigger stories
 - Deep Inspect mode: opt-in capture of response bodies via the Chrome DevTools protocol, for hunting secrets and debug output leaked in API responses
 
-**AI agent swarm** (backend) — a head agent deploys specialist worker agents (recon, secrets, headers, CORS, XSS, IDOR, auth, GraphQL) that probe the target autonomously and report back. The head agent dedupes their findings, chains them, and writes the summary.
+**AI agent swarm** (backend) — a head agent deploys specialist worker agents (recon, secrets, headers, CORS, XSS, IDOR, auth, GraphQL, source-map miner) that probe the target autonomously and report back. The head agent dedupes their findings, chains them, and writes the summary. High and critical findings also get AI-generated suggested code fixes in the report.
 
 ```bash
 cd backend && npx tsx src/multiagent/cli.ts --target https://example.com

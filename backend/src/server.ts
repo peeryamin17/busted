@@ -10,6 +10,7 @@ import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { scanRoutes, type ScanRouteDeps } from './routes/scans.js';
 import { reportRoutes } from './routes/reports.js';
+import { oastRoutes } from './routes/oast.js';
 import { swarmRoutes } from './routes/multiagent.js';
 import { v1CompatRoutes } from './routes/v1compat.js';
 
@@ -53,6 +54,7 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
     await swarmRoutes(instance, routeDeps);
     await v1CompatRoutes(instance, routeDeps);
     await reportRoutes(instance, routeDeps);
+    await oastRoutes(instance, routeDeps);
   });
 
   return app;

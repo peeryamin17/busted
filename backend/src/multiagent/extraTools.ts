@@ -18,6 +18,10 @@ import { redactText } from '../guardrails/redact.js';
  *                  secret-shaped strings (patterns only, values redacted).
  * - probe_graphql: send a minimal introspection query and report whether it
  *                  is enabled, plus whether mutations/batch are advertised.
+ * - fetch_sourcemap: resolve and parse an exposed JavaScript source map
+ *                  (via sourceMappingURL or url+".map"), then report source
+ *                  counts, secret-shaped strings and interesting paths from
+ *                  the reconstructed original sources.
  */
 
 function fail(error: unknown) {
@@ -166,7 +170,85 @@ const probeGraphql: AgentTool = {
   },
 };
 
+const SOURCE_MAP_URL_RE = /\/\/#\s*sourceMappingURL=([^\s*]+)/;
+const INTERESTING_PATH_RE =
+  /\/(admin|debug|internal|staging|test|dev|backup|config|\.env|wp-admin|phpmyadmin|api\/docs)/i;
+
+const fetchSourcemap: AgentTool = {
+  name: 'fetch_sourcemap',
+  description:
+    'Fetch and parse an exposed JavaScript source map. Args: {url} (a .js URL). Resolves sourceMappingURL if present, otherwise tries url+".map". Returns source count, secret-shaped strings (redacted) and interesting paths from the original sources.',
+  async run(args, ctx) {
+    try {
+      const jsUrl = args['url'] as string;
+      // 1. Fetch the JS and look for a sourceMappingURL comment (usually in the tail).
+      let mapUrl: string | null = null;
+      try {
+        const jsRes = await guardedFetch(jsUrl, ctx);
+        const jsText = await jsRes.text().catch(() => '');
+        const m =
+          jsText.slice(-4000).match(SOURCE_MAP_URL_RE) ?? jsText.match(SOURCE_MAP_URL_RE);
+        if (m && !m[1].startsWith('data:')) {
+          try {
+            mapUrl = new URL(m[1], jsUrl).toString();
+          } catch {
+            /* unresolvable — fall through to the .map guess */
+          }
+        }
+      } catch {
+        /* JS fetch failed; still try the conventional .map location */
+      }
+      const candidates = mapUrl && mapUrl !== jsUrl + '.map' ? [mapUrl, jsUrl + '.map'] : [jsUrl + '.map'];
+      for (const candidate of candidates) {
+        try {
+          const res = await guardedFetch(candidate, ctx);
+          const text = await res.text().catch(() => '');
+          let map: unknown = null;
+          try {
+            map = JSON.parse(text);
+          } catch {
+            continue; // not a map — try the next candidate
+          }
+          if (!map || typeof map !== 'object' || !Array.isArray((map as { sources?: unknown }).sources)) {
+            continue;
+          }
+          const parsed = map as { sources: unknown[]; sourcesContent?: unknown[] };
+          const sources = parsed.sources.filter((s): s is string => typeof s === 'string');
+          const sourcesContent = Array.isArray(parsed.sourcesContent)
+            ? parsed.sourcesContent.filter((s): s is string => typeof s === 'string')
+            : [];
+          const corpus = sourcesContent.join('\n').slice(0, 500_000);
+          const secretShapes = new Set<string>();
+          const sre = new RegExp(SECRET_SHAPE_RE.source, 'g');
+          let sm: RegExpExecArray | null;
+          while ((sm = sre.exec(corpus)) !== null && secretShapes.size < 10) {
+            secretShapes.add(sm[1].slice(0, 8) + '…(redacted)');
+          }
+          const interestingPaths = [...new Set(sources.filter((s) => INTERESTING_PATH_RE.test(s)))].slice(0, 20);
+          const result = await readResult(res, ctx);
+          result.data = {
+            mapFound: true,
+            mapUrl: candidate,
+            sourceCount: sources.length,
+            hasSourcesContent: sourcesContent.length > 0,
+            secretShapes: [...secretShapes],
+            interestingPaths,
+            sampleSources: sources.slice(0, 20),
+          };
+          result.bodySnippet = redactText(corpus.slice(0, 500), 500);
+          return result;
+        } catch {
+          /* try the next candidate */
+        }
+      }
+      return { ok: true, data: { mapFound: false, tried: candidates }, honeypotSignals: [] as string[] };
+    } catch (e) {
+      return fail(e);
+    }
+  },
+};
+
 /** New tools available to multi-agent specialists (in addition to defaultTools). */
 export function extraTools(): AgentTool[] {
-  return [probeIdor, fetchJs, probeGraphql];
+  return [probeIdor, fetchJs, probeGraphql, fetchSourcemap];
 }

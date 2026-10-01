@@ -15,6 +15,7 @@
 import type { DomScanData, Finding, ScanMessage, ScanResult } from './lib/types';
 import { SEVERITY_ORDER } from './lib/types';
 import { scanSecrets, type ScriptSource } from './scanners/secretScanner';
+import { fetchSourceMaps, scanSourceMaps } from './scanners/sourceMapScanner';
 import { auditCookies } from './scanners/cookieAuditor';
 import { checkHeaders } from './scanners/headerChecker';
 import { analyzeDom } from './scanners/domAnalyzer';
@@ -93,6 +94,13 @@ async function runScan(tabId: number): Promise<void> {
     ];
     const secretFindings: Finding[] = scanSecrets(scriptSources);
 
+    sendProgress('Checking for exposed source maps…');
+    const exposedMaps = await fetchSourceMaps(
+      externalCode.map((s) => ({ url: s.label, code: s.code })),
+      url,
+    );
+    const sourceMapFindings: Finding[] = scanSourceMaps(exposedMaps);
+
     sendProgress('Checking security headers…');
     const headers = getMainFrameHeaders(tabId) ?? (await fetchHeadersFallback(url));
     const headerFindings = checkHeaders(headers, url.startsWith('https://'));
@@ -105,6 +113,7 @@ async function runScan(tabId: number): Promise<void> {
 
     const findings = [
       ...secretFindings,
+      ...sourceMapFindings,
       ...cookieFindings,
       ...headerFindings,
       ...domFindings,

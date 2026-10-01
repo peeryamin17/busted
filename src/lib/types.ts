@@ -41,7 +41,8 @@ export type FindingCategory =
   | 'idor'
   | 'auth'
   | 'graphql'
-  | 'chain';
+  | 'chain'
+  | 'sourcemap';
 
 export interface Finding {
   id: string;

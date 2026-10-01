@@ -72,6 +72,16 @@ export function generateMarkdownReport(input: ReportInput): string {
       lines.push('');
     }
     lines.push('**Remediation:**', '', f.remediation, '');
+    if (f.suggestedFix) {
+      lines.push(
+        '**Suggested fix (AI-generated — review before applying):**',
+        '',
+        '```',
+        f.suggestedFix,
+        '```',
+        ''
+      );
+    }
     if (f.references.length > 0) {
       lines.push('**References:**', '');
       f.references.forEach((r) => lines.push(`- ${r}`));

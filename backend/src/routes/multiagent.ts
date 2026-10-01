@@ -6,6 +6,8 @@ import { verifyAndRecordAuthorization } from '../guardrails/authorization.js';
 import { normalizeTargetUrl } from '../guardrails/scope.js';
 import { redactFindingEvidence } from '../guardrails/redact.js';
 import { estimateCvss } from '../reports/cvss.js';
+import { suggestFixes } from '../reports/remediation.js';
+import { createLLMProvider } from '../llm/index.js';
 import type { RouteDeps } from './health.js';
 import { runMultiAgentScan } from '../multiagent/orchestrator.js';
 import type { Confidence, Severity } from '../types.js';
@@ -46,8 +48,8 @@ const swarmScanSchema = z.object({
   timeoutMinutes: z.number().min(1).max(20).optional(),
   allowPrivateTargets: z.boolean().optional(),
   specialists: z
-    .array(z.enum(['recon', 'secrets', 'headers', 'cors', 'xss', 'idor', 'auth', 'graphql']))
-    .max(8)
+    .array(z.enum(['recon', 'secrets', 'headers', 'cors', 'xss', 'idor', 'auth', 'graphql', 'sourcemap']))
+    .max(9)
     .optional(),
 });
 
@@ -137,15 +139,19 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
         },
         specialists: d.specialists,
       });
+      // AI remediation suggestions for high/critical findings (Phase 3, best-effort).
+      const fixes = await suggestFixes(outcome.findings, createLLMProvider());
       // Server-side re-redaction + CVSS before persisting (same contract as scan findings).
-      const findings = outcome.findings.map((f) => {
+      const findings = outcome.findings.map((f, idx) => {
         const cvss = estimateCvss(f.severity as Severity, f.category);
+        const suggestedFix = fixes.get(idx);
         return redactFindingEvidence({
           ...f,
           severity: f.severity as Severity,
           confidence: (f.confidence ?? 'low') as Confidence,
           cvssScore: cvss.score,
           cvssVector: cvss.vector,
+          ...(suggestedFix ? { suggestedFix } : {}),
         });
       });
       for (const f of findings) {

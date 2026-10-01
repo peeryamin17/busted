@@ -60,7 +60,7 @@ export function redactFindingEvidence<T extends { evidence?: string; location?: 
     location: finding.location ? redactText(finding.location, 300) : finding.location,
   };
   // Free-text fields that LLMs (or extension clients) fill in — scrub too.
-  for (const key of ['title', 'description', 'remediation', 'note'] as const) {
+  for (const key of ['title', 'description', 'remediation', 'suggestedFix', 'note'] as const) {
     const v = (finding as Record<string, unknown>)[key];
     if (typeof v === 'string' && v) {
       out[key] = redactText(v, key === 'title' ? 300 : 5000);

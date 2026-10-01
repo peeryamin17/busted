@@ -39,7 +39,8 @@ export type SpecialistId =
   | 'xss'
   | 'idor'
   | 'auth'
-  | 'graphql';
+  | 'graphql'
+  | 'sourcemap';
 
 export interface SpecialistDef {
   id: SpecialistId;

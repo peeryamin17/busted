@@ -182,7 +182,8 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
               `Decide which of these CONDITIONAL specialists to spawn, based on recon:\n${catalog}\n\n` +
               `Rules: max ${limits.maxWorkers} total workers. Spawn 'graphql' only if GraphQL was referenced. ` +
               `Spawn 'auth' only if login/session behavior was observed. Spawn 'xss' if user-input reflections or forms exist. ` +
-              `Spawn 'idor' if numeric object IDs were seen.\n` +
+              `Spawn 'idor' if numeric object IDs were seen. ` +
+              `Spawn 'sourcemap' if external JavaScript bundles were seen (source maps often ship alongside them).\n` +
               `Return JSON: {"specialists":["xss","idor"],"rationale":"..."}`,
           },
         ],
