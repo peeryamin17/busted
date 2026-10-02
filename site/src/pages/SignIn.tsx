@@ -175,7 +175,7 @@ export function SignIn({ mode = 'signin' }: { mode?: 'signin' | 'signup' }) {
 function SignedInRedirect() {
   const { isLoaded, isSignedIn } = useAuth();
   useEffect(() => {
-    if (isLoaded && isSignedIn) navigate('/app');
+    if (isLoaded && isSignedIn) window.location.replace('/app');
   }, [isLoaded, isSignedIn]);
   return null;
 }

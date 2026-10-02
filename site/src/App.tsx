@@ -52,7 +52,7 @@ function SsoCallback() {
         Signing you in…
       </p>
       <p className="mt-1.5 text-sm text-body/70">Completing the handshake with Google.</p>
-      <AuthenticateWithRedirectCallback afterSignInUrl="/app" afterSignUpUrl="/app" />
+      <AuthenticateWithRedirectCallback />
     </div>
   );
 }
