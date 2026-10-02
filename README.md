@@ -22,6 +22,8 @@ AI-powered security reconnaissance for bug bounty hunters. A Chrome extension (M
 
 **AI agent swarm** (backend) — a head agent deploys specialist worker agents (recon, secrets, headers, CORS, XSS, IDOR, auth, GraphQL, source-map miner) that probe the target autonomously and report back. The head agent dedupes their findings, chains them, and writes the summary. High and critical findings also get AI-generated suggested code fixes in the report.
 
+**Open-source engines** (backend) — BugSeek also drives the tools hunters already trust: run WhatWeb (fingerprinting), Nikto (server checks) and Nuclei (template scans) from the extension against targets you've authorised, or import existing OWASP ZAP, Nuclei, Nikto and SQLMap reports and have them normalised, deduplicated, CVSS-scored and merged into your BugSeek results — always labelled with the tool that found them.
+
 ```bash
 cd backend && npx tsx src/multiagent/cli.ts --target https://example.com
 ```

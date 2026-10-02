@@ -201,6 +201,45 @@
           <div id="throttle-status" class="throttle" role="status" hidden></div>
         </div>
 
+        <!-- Open-source engines (backend) + report import -->
+        <div id="engines-block" class="engines-block">
+          <h2>Open-source engines</h2>
+          <p class="engines-note">
+            Runs on the backend &middot; Hunter plan. Open-source scanners
+            orchestrated by BugSeek &mdash; findings merge into the results
+            below.
+          </p>
+          <div id="engines-list" class="engines-list"></div>
+          <div class="actions">
+            <button id="engines-run-btn" class="btn-primary" type="button">
+              Run engines
+            </button>
+          </div>
+
+          <div class="import-block">
+            <h3>Import a report</h3>
+            <p class="engines-note">
+              Already ran a scanner yourself? Import its report &mdash; ZAP,
+              Nuclei, Nikto or SQLMap (.json, .jsonl, .txt).
+            </p>
+            <div class="import-controls">
+              <select id="import-format" aria-label="Report format">
+                <option value="auto" selected>Auto-detect</option>
+                <option value="zap">ZAP</option>
+                <option value="nuclei">Nuclei</option>
+                <option value="nikto">Nikto</option>
+                <option value="sqlmap">SQLMap</option>
+              </select>
+              <input
+                id="import-file"
+                type="file"
+                accept=".json,.jsonl,.txt"
+                aria-label="Choose a scanner report file"
+              />
+            </div>
+          </div>
+        </div>
+
         <div id="active-status" class="status" role="status"></div>
         <div id="active-error" class="error" hidden></div>
 

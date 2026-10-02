@@ -183,6 +183,137 @@ export async function runSwarmScan(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Open-source engines + report import
+//
+// Unlike the best-effort calls above, these surface the backend's own error
+// string (plan gating 403, engine unavailable 503, validation 400) so the
+// popup can show the user WHY a run failed instead of a generic "offline".
+// ---------------------------------------------------------------------------
+
+/** Engine scans are subprocess-bound on the backend (Nikto/Nuclei take minutes). */
+const ENGINE_SCAN_TIMEOUT_MS = 10 * 60_000;
+const IMPORT_TIMEOUT_MS = 120_000;
+
+/**
+ * fetchJson variant that THROWS: the thrown Error's message is the server's
+ * `error` field when the backend sent one, or a backend-unreachable message
+ * when the request itself failed (offline / timeout).
+ */
+async function fetchJsonOrThrow<T>(
+  path: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<T> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  let res: Response;
+  try {
+    const apiKey = await getBackendApiKey();
+    res = await fetch(`${BACKEND_BASE_URL}${path}`, {
+      ...init,
+      signal: ctrl.signal,
+      headers: {
+        'content-type': 'application/json',
+        ...(apiKey ? { 'x-api-key': apiKey } : {}),
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch {
+    clearTimeout(timer);
+    throw new Error('Backend unreachable — is the BugSeek backend running?');
+  }
+  clearTimeout(timer);
+  if (!res.ok) {
+    let message = `Backend request failed (HTTP ${res.status})`;
+    try {
+      const body = (await res.json()) as { error?: unknown };
+      if (typeof body?.error === 'string' && body.error) message = body.error;
+    } catch {
+      /* non-JSON error body — keep the generic message */
+    }
+    throw new Error(message);
+  }
+  return (await res.json()) as T;
+}
+
+/** Finding shape shared by swarm scans, engine scans, and report imports. */
+export type BackendFinding = SwarmOutcome['findings'][number];
+
+export type EngineId = 'whatweb' | 'nikto' | 'nuclei';
+
+export interface EngineStatusEntry {
+  engine: EngineId;
+  available: boolean;
+  detail?: string;
+}
+
+export interface EngineScanOutcome {
+  scanId: string;
+  engine: EngineId;
+  findings: BackendFinding[];
+  score: { value: number; grade: string } | null;
+}
+
+export type ImportFormat = 'auto' | 'zap' | 'nuclei' | 'nikto' | 'sqlmap';
+
+export interface ImportOutcome {
+  scanId: string;
+  imported: number;
+  findings: BackendFinding[];
+  score: { value: number; grade: string } | null;
+}
+
+/** GET /api/engines/status — which open-source engines the backend can run. */
+export async function getEnginesStatus(): Promise<EngineStatusEntry[] | null> {
+  const res = await fetchJson<{ engines: EngineStatusEntry[] }>(
+    '/api/engines/status',
+    { method: 'GET' },
+    5000,
+  );
+  return res?.engines ?? null;
+}
+
+/**
+ * POST /api/engines/scans — run one open-source engine (WhatWeb / Nikto /
+ * Nuclei) on the backend against an authorized target (Hunter+). Throws with
+ * the server's error string on 403/503/400.
+ */
+export async function runEngineScan(
+  engine: EngineId,
+  targetUrl: string,
+  authorization: SwarmAuthorizationInput,
+): Promise<EngineScanOutcome> {
+  return fetchJsonOrThrow<EngineScanOutcome>(
+    '/api/engines/scans',
+    {
+      method: 'POST',
+      body: JSON.stringify({ engine, targetUrl, authorization }),
+    },
+    ENGINE_SCAN_TIMEOUT_MS,
+  );
+}
+
+/**
+ * POST /api/import/findings — import an external scanner report (ZAP /
+ * Nuclei / Nikto / SQLMap) as BugSeek findings. Throws with the server's
+ * error string when the report can't be parsed/validated.
+ */
+export async function importFindingsReport(
+  format: ImportFormat,
+  content: string,
+  targetUrl: string,
+): Promise<ImportOutcome> {
+  return fetchJsonOrThrow<ImportOutcome>(
+    '/api/import/findings',
+    {
+      method: 'POST',
+      body: JSON.stringify({ format, content, targetUrl }),
+    },
+    IMPORT_TIMEOUT_MS,
+  );
+}
+
 /**
  * Submit a finished scan for server-side history/reporting. Best-effort:
  * returns the server scan id, or null when offline. Findings are already

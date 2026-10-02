@@ -7,6 +7,8 @@
  */
 import type {
   AuthorizationRecord,
+  Finding,
+  FindingCategory,
   ScanMessage,
   ScanResult,
   Severity,
@@ -25,8 +27,23 @@ import {
   MIN_ACTIVE_REQUEST_GAP_MS,
   STORAGE_KEYS,
 } from '../lib/config';
-import { checkBackendStatus, getBackendApiKey, runSwarmScan, setBackendApiKey } from '../lib/apiClient';
-import type { SwarmAuthorizationInput, SwarmOutcome } from '../lib/apiClient';
+import {
+  checkBackendStatus,
+  getBackendApiKey,
+  getEnginesStatus,
+  importFindingsReport,
+  runEngineScan,
+  runSwarmScan,
+  setBackendApiKey,
+} from '../lib/apiClient';
+import type {
+  BackendFinding,
+  EngineId,
+  EngineStatusEntry,
+  ImportFormat,
+  SwarmAuthorizationInput,
+  SwarmOutcome,
+} from '../lib/apiClient';
 import { findingCard, renderFindings, renderSummary } from './render';
 
 const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
@@ -56,6 +73,11 @@ const el = {
   findings: document.getElementById('active-findings') as HTMLElement,
   swarmPanel: document.getElementById('swarm-panel') as HTMLElement,
   downloadBtn: document.getElementById('active-download-btn') as HTMLButtonElement,
+  // Open-source engines + report import
+  enginesList: document.getElementById('engines-list') as HTMLElement,
+  enginesRunBtn: document.getElementById('engines-run-btn') as HTMLButtonElement,
+  importFormat: document.getElementById('import-format') as HTMLSelectElement,
+  importFile: document.getElementById('import-file') as HTMLInputElement,
 };
 
 let currentTabId: number | null = null;
@@ -64,6 +86,9 @@ let currentTabUrl: string | null = null;
 let currentResult: ScanResult | null = null;
 let running = false;
 let swarmRunning = false;
+let enginesRunning = false;
+let importBusy = false;
+let engineStatusCache: EngineStatusEntry[] | null = null;
 let swarmTimers: number[] = [];
 let swarmFrame = 0;
 
@@ -82,6 +107,11 @@ export async function initActivePane(tabId: number, tabUrl: string): Promise<voi
   el.authzRevoke.addEventListener('click', revokeCurrent);
   el.runBtn.addEventListener('click', startActiveScan);
   el.swarmBtn.addEventListener('click', startSwarmScan);
+  el.enginesRunBtn.addEventListener('click', startEnginesRun);
+  el.importFile.addEventListener('change', () => {
+    const file = el.importFile.files?.[0];
+    if (file) void handleImportFile(file);
+  });
   el.downloadBtn.addEventListener('click', () => {
     // Delegated to popup.ts via a custom event to reuse the download helper.
     document.dispatchEvent(new CustomEvent('bugseek:download-active'));
@@ -90,6 +120,8 @@ export async function initActivePane(tabId: number, tabUrl: string): Promise<voi
   wireScopeModeRadios();
   void refreshBackendBadge();
   void initBackendKeyRow();
+  renderEnginesStatus(null);
+  void refreshEnginesStatus();
   await refreshAuthzState();
   await restoreLastResult();
 }
@@ -372,22 +404,7 @@ async function startSwarmScan(): Promise<void> {
       return;
     }
     // Map swarm findings onto the extension Finding shape for rendering.
-    const findings = outcome.findings.map((f, i) => ({
-      id: f.id || `swarm-${i}`,
-      category: f.category as import('../lib/types').FindingCategory,
-      title: f.title,
-      description: f.description,
-      severity: f.severity,
-      confidence: f.confidence,
-      location: f.location,
-      evidence: f.evidence,
-      remediation: f.remediation,
-      mode: 'active' as const,
-      cvssScore: f.cvssScore,
-      cvssVector: f.cvssVector,
-      trapProbability: f.trapProbability,
-      honeypotSuspect: f.honeypotSuspect,
-    }));
+    const findings = toExtensionFindings(outcome.findings, 'swarm');
     renderSwarmPlayback(outcome);
     el.results.hidden = false;
     el.chains.innerHTML = '';
@@ -400,10 +417,10 @@ async function startSwarmScan(): Promise<void> {
     sum.textContent = outcome.headSummary;
     el.chains.appendChild(sum);
 
-    renderSummary(el.summary, findings as import('../lib/types').Finding[]);
+    renderSummary(el.summary, findings);
     renderFindings(
       el.findings,
-      findings as import('../lib/types').Finding[],
+      findings,
       SEVERITIES,
       'No findings — the swarm came back clean.',
     );
@@ -420,6 +437,265 @@ async function startSwarmScan(): Promise<void> {
     swarmRunning = false;
     el.swarmBtn.disabled = false;
     el.swarmBtn.textContent = 'Run AI swarm';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Open-source engines + report import
+//
+// The backend orchestrates three open-source scanners (WhatWeb, Nikto,
+// Nuclei) and can import reports from external scanners (ZAP / Nuclei /
+// Nikto / SQLMap). Both flows render through the same results area and the
+// same finding cards as the swarm. All strings render via textContent.
+// ---------------------------------------------------------------------------
+
+/** Map backend findings (swarm / engines / import) onto the extension Finding shape. */
+function toExtensionFindings(raw: BackendFinding[], prefix: string): Finding[] {
+  return raw.map((f, i) => ({
+    id: f.id || `${prefix}-${i}`,
+    category: f.category as FindingCategory,
+    title: f.title,
+    description: f.description,
+    severity: f.severity,
+    confidence: f.confidence,
+    location: f.location,
+    evidence: f.evidence,
+    remediation: f.remediation,
+    mode: 'active' as const,
+    cvssScore: f.cvssScore,
+    cvssVector: f.cvssVector,
+    trapProbability: f.trapProbability,
+    honeypotSuspect: f.honeypotSuspect,
+  })) as Finding[];
+}
+
+const ENGINE_META: Array<{ id: EngineId; name: string; blurb: string }> = [
+  { id: 'whatweb', name: 'WhatWeb', blurb: 'fingerprinting' },
+  { id: 'nikto', name: 'Nikto', blurb: 'server checks' },
+  { id: 'nuclei', name: 'Nuclei', blurb: 'template scans' },
+];
+
+let enginesStatusLoaded = false;
+
+function renderEnginesStatus(entries: EngineStatusEntry[] | null): void {
+  el.enginesList.innerHTML = '';
+  for (const meta of ENGINE_META) {
+    const entry = entries?.find((e) => e.engine === meta.id);
+    const row = document.createElement('div');
+    row.className = 'engine-row';
+
+    const main = document.createElement('div');
+    main.className = 'engine-main';
+    const name = document.createElement('span');
+    name.className = 'engine-name';
+    name.textContent = meta.name;
+    main.appendChild(name);
+    const blurb = document.createElement('span');
+    blurb.className = 'engine-blurb';
+    blurb.textContent = `— ${meta.blurb}`;
+    main.appendChild(blurb);
+    row.appendChild(main);
+
+    const right = document.createElement('div');
+    right.className = 'engine-right';
+    const state = document.createElement('span');
+    let detail: string | undefined;
+    if (!enginesStatusLoaded) {
+      state.className = 'engine-state engine-state-unknown';
+      state.textContent = 'checking…';
+    } else if (!entries) {
+      state.className = 'engine-state engine-state-off';
+      state.textContent = 'Unavailable';
+      detail = 'Backend unreachable';
+    } else if (entry?.available) {
+      state.className = 'engine-state engine-state-on';
+      state.textContent = 'Available';
+      detail = entry.detail;
+    } else {
+      state.className = 'engine-state engine-state-off';
+      state.textContent = 'Unavailable';
+      detail = entry?.detail ?? 'Not reported by the backend';
+    }
+    right.appendChild(state);
+    if (detail) {
+      const d = document.createElement('span');
+      d.className = 'engine-detail';
+      d.textContent = detail;
+      right.appendChild(d);
+    }
+    row.appendChild(right);
+    el.enginesList.appendChild(row);
+  }
+}
+
+async function refreshEnginesStatus(): Promise<EngineStatusEntry[] | null> {
+  const entries = await getEnginesStatus();
+  engineStatusCache = entries;
+  enginesStatusLoaded = true;
+  renderEnginesStatus(entries);
+  return entries;
+}
+
+/** Render a heading + stat lines + findings into the shared active results area. */
+function renderBackendResults(
+  heading: string,
+  statLines: string[],
+  findings: Finding[],
+  emptyText: string,
+): void {
+  hideSwarmPanel();
+  el.results.hidden = false;
+  el.chains.innerHTML = '';
+  const h = document.createElement('h2');
+  h.className = 'chains-heading';
+  h.textContent = heading;
+  el.chains.appendChild(h);
+  for (const line of statLines) {
+    const div = document.createElement('div');
+    div.className = 'stat-line';
+    div.textContent = line;
+    el.chains.appendChild(div);
+  }
+  renderSummary(el.summary, findings);
+  renderFindings(el.findings, findings, SEVERITIES, emptyText);
+}
+
+/**
+ * Run every AVAILABLE open-source engine, in sequence, against the current
+ * target on the backend. Same gating as the swarm: a saved authorization
+ * record plus a backend API key are required (the backend re-validates).
+ */
+async function startEnginesRun(): Promise<void> {
+  if (enginesRunning || swarmRunning || running) return;
+  hideError();
+
+  const authz = currentHost ? await getAuthorization(currentHost) : null;
+  if (!authz || !currentTabUrl) {
+    showError(
+      !authz
+        ? 'Save an authorization record first — the engines need the same explicit confirmation as active testing.'
+        : 'No target page detected.',
+    );
+    return;
+  }
+  const apiKey = await getBackendApiKey();
+  if (!apiKey) {
+    showError('Save a backend API key first — the engines run on the backend (Hunter plan required).');
+    return;
+  }
+
+  const status = engineStatusCache ?? (await refreshEnginesStatus());
+  const available = ENGINE_META.filter((m) =>
+    status?.some((e) => e.engine === m.id && e.available),
+  );
+  if (available.length === 0) {
+    showError(
+      status
+        ? 'No open-source engines are available on the backend.'
+        : 'Backend unreachable — is the BugSeek backend running?',
+    );
+    return;
+  }
+
+  const authorization: SwarmAuthorizationInput = {
+    type: authz.type,
+    programName: authz.programName,
+    statement: authz.statement,
+    confirmed: true,
+  };
+
+  enginesRunning = true;
+  el.enginesRunBtn.disabled = true;
+  el.enginesRunBtn.textContent = 'Engines running…';
+
+  const merged: Finding[] = [];
+  const lines: string[] = [];
+  let failures = 0;
+  let firstError = '';
+  try {
+    for (const meta of available) {
+      setStatus(`Running ${meta.name} on the backend…`);
+      try {
+        const outcome = await runEngineScan(meta.id, currentTabUrl, authorization);
+        merged.push(...toExtensionFindings(outcome.findings, meta.id));
+        lines.push(
+          `${meta.name} — ${outcome.findings.length} finding(s)` +
+            (outcome.score
+              ? ` · score ${outcome.score.value}/100 (grade ${outcome.score.grade})`
+              : ''),
+        );
+      } catch (err) {
+        failures += 1;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!firstError) firstError = msg;
+        lines.push(`${meta.name} — failed: ${msg}`);
+      }
+    }
+    if (failures === available.length) {
+      showError(firstError || 'All engines failed.');
+      setStatus('');
+      return;
+    }
+    renderBackendResults(
+      'Open-source engines',
+      lines,
+      merged,
+      'No findings — the engines came back clean.',
+    );
+    setStatus(
+      `Engines complete — ${merged.length} finding(s) from ` +
+        `${available.length - failures} of ${available.length} engine(s).`,
+    );
+  } finally {
+    enginesRunning = false;
+    el.enginesRunBtn.disabled = false;
+    el.enginesRunBtn.textContent = 'Run engines';
+  }
+}
+
+const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
+
+/** Import an external scanner report file (ZAP / Nuclei / Nikto / SQLMap). */
+async function handleImportFile(file: File): Promise<void> {
+  if (importBusy) return;
+  hideError();
+  if (!currentTabUrl) {
+    showError('No target page detected.');
+    return;
+  }
+  if (file.size > MAX_IMPORT_BYTES) {
+    showError('That report is larger than 25 MB — trim it and try again.');
+    return;
+  }
+  importBusy = true;
+  el.importFile.disabled = true;
+  try {
+    const content = await file.text();
+    const format = (el.importFormat.value || 'auto') as ImportFormat;
+    setStatus(`Importing ${file.name}…`);
+    const outcome = await importFindingsReport(format, content, currentTabUrl);
+    const findings = toExtensionFindings(outcome.findings, 'import');
+    renderBackendResults(
+      'Imported findings',
+      [
+        `Imported ${outcome.imported} finding(s) from ${file.name}` +
+          (outcome.score
+            ? ` · score ${outcome.score.value}/100 (grade ${outcome.score.grade})`
+            : ''),
+      ],
+      findings,
+      'No findings were imported from that report.',
+    );
+    setStatus(`Import complete — ${outcome.imported} finding(s) from ${file.name}.`);
+  } catch (err) {
+    showError(
+      `Import failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    setStatus('');
+  } finally {
+    importBusy = false;
+    el.importFile.disabled = false;
+    el.importFile.value = '';
   }
 }
 
@@ -725,6 +1001,7 @@ async function initBackendKeyRow(): Promise<void> {
     await setBackendApiKey(v || null);
     input.value = v ? '••••••••' : '';
     void refreshBackendBadge();
+    void refreshEnginesStatus();
   };
   save.addEventListener('click', () => void doSave());
   input.addEventListener('keydown', (e) => {

@@ -11,6 +11,7 @@ import { authRoutes } from './routes/auth.js';
 import { scanRoutes, type ScanRouteDeps } from './routes/scans.js';
 import { reportRoutes } from './routes/reports.js';
 import { oastRoutes } from './routes/oast.js';
+import { engineRoutes } from './routes/engines.js';
 import { swarmRoutes } from './routes/multiagent.js';
 import { v1CompatRoutes } from './routes/v1compat.js';
 
@@ -55,6 +56,7 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
     await v1CompatRoutes(instance, routeDeps);
     await reportRoutes(instance, routeDeps);
     await oastRoutes(instance, routeDeps);
+    await engineRoutes(instance, routeDeps);
   });
 
   return app;
