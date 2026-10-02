@@ -152,6 +152,8 @@ export interface UserRecord {
   createdAt: string; // ISO
   /** Clerk `sub` when the account is backed by Clerk (Google sign-in). */
   clerkUserId?: string;
+  /** Most recent login (Clerk webhooks stamp this); ISO string. */
+  lastLoginAt?: string;
 }
 
 export interface ApiKeyRecord {

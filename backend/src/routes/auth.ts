@@ -89,6 +89,29 @@ export async function authRoutes(app: FastifyInstance, deps: RouteDeps): Promise
     return reply.status(201).send({ user: publicUser(user), linked: true });
   });
 
+  /**
+   * GET /api/admin/users — the operator's user list (emails, plans, last
+   * login). Gated to the single ADMIN_EMAIL account; everyone else 403s.
+   */
+  app.get('/api/admin/users', { preHandler: authenticate }, async (request, reply) => {
+    const user = requireUser(request);
+    const adminEmail = (process.env['ADMIN_EMAIL'] ?? '').trim().toLowerCase();
+    if (!adminEmail || user.email.toLowerCase() !== adminEmail) {
+      return reply.status(403).send({ error: 'Admin access only' });
+    }
+    const users = await db.listUsers(200);
+    return {
+      users: users.map((u) => ({
+        id: u.id,
+        email: u.email,
+        plan: u.plan,
+        createdAt: u.createdAt,
+        lastLoginAt: u.lastLoginAt ?? null,
+        viaClerk: Boolean(u.clerkUserId),
+      })),
+    };
+  });
+
   app.get('/api/auth/me', { preHandler: authenticate }, async (request) => {
     const user = requireUser(request);
     const full = await db.getUserById(user.id);

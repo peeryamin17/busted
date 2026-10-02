@@ -25,6 +25,35 @@ maps them onto BugSeek users (plans, credits, API keys).
   site's UI never offers it regardless). For production (`pk_live`), set
   the production domain in Clerk → Domains.
 
+## Who logged in — the operator's view
+
+Every sign-up and sign-in is recorded in **our own database**, two ways:
+
+1. **Link step** (above) — fires when a signed-in user reaches /welcome.
+2. **Clerk webhooks** — `POST /api/webhooks/clerk` receives Clerk's
+   `user.created` / `user.updated` (email upsert) and `session.created`
+   (stamps `users.last_login_at`) events, Svix-signature-verified
+   (`src/auth/clerkWebhook.ts`). This catches everyone, whatever page
+   they visited.
+
+To switch webhooks on (needs a publicly reachable backend):
+
+1. Clerk Dashboard → **Webhooks** → Add endpoint:
+   `https://<your-backend-host>/api/webhooks/clerk`
+2. Subscribe to `user.created`, `user.updated`, `session.created`.
+3. Copy the endpoint's **Signing Secret** (`whsec_...`) into the backend
+   env as `CLERK_WEBHOOK_SECRET`. Unset → the route answers 503.
+
+To read the list: `GET /api/admin/users` with a normal session token —
+only the account whose email matches the backend's `ADMIN_EMAIL` env var
+gets in (everyone else 403s). Returns email, plan, join date, last login,
+and whether the account came via Clerk. And the quick visual check is
+always Clerk Dashboard → **Users**.
+
+Durability note: records persist only when the backend runs against
+Postgres (`DATABASE_URL`, migrations `001`–`003`). In-memory mode keeps
+them until restart — fine for local testing, not for production.
+
 ## Extension session sync (planned, not yet built)
 
 Clerk offers `@clerk/chrome-extension`, which syncs the session from a

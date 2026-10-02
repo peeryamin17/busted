@@ -12,6 +12,7 @@ import { scanRoutes, type ScanRouteDeps } from './routes/scans.js';
 import { reportRoutes } from './routes/reports.js';
 import { oastRoutes } from './routes/oast.js';
 import { engineRoutes } from './routes/engines.js';
+import { webhookRoutes } from './routes/webhooks.js';
 import { swarmRoutes } from './routes/multiagent.js';
 import { v1CompatRoutes } from './routes/v1compat.js';
 
@@ -57,6 +58,12 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
     await reportRoutes(instance, routeDeps);
     await oastRoutes(instance, routeDeps);
     await engineRoutes(instance, routeDeps);
+  });
+
+  // Webhooks live in their own scope: they need the raw request body for
+  // signature verification, so their JSON parser must not leak globally.
+  app.register(async (instance) => {
+    await webhookRoutes(instance, routeDeps);
   });
 
   return app;

@@ -48,6 +48,13 @@ export interface Database {
   getUserByClerkId(clerkUserId: string): Promise<UserRecord | null>;
   createClerkUser(email: string, clerkUserId: string): Promise<UserRecord>;
   linkClerkUser(userId: string, clerkUserId: string): Promise<void>;
+  /**
+   * Webhook-fed upsert: record a Clerk sign-up/sign-in. Finds by Clerk id,
+   * else by email (linking), else creates the user; stamps lastLoginAt.
+   * Returns null when the event carries no email and the user is unknown.
+   */
+  recordClerkLogin(clerkUserId: string, email: string | null): Promise<UserRecord | null>;
+  listUsers(limit: number): Promise<UserRecord[]>;
   getUserByEmail(email: string): Promise<UserRecord | null>;
   getUserById(id: string): Promise<UserRecord | null>;
   setUserPlan(userId: string, plan: PlanTier): Promise<void>;
@@ -119,10 +126,14 @@ export class MemoryDatabase implements Database {
   }
 
   async createClerkUser(email: string, clerkUserId: string): Promise<UserRecord> {
-    const user = await this.createUser(email, '');
-    user.clerkUserId = clerkUserId;
-    this.usersByClerkId.set(clerkUserId, user);
-    return { ...user };
+    const created = await this.createUser(email, '');
+    // createUser returns a copy — mutate the STORED record so every
+    // lookup path (id, email, clerk id) sees the same user.
+    const stored = this.users.get(created.id);
+    if (!stored) return created;
+    stored.clerkUserId = clerkUserId;
+    this.usersByClerkId.set(clerkUserId, stored);
+    return { ...stored };
   }
 
   async linkClerkUser(userId: string, clerkUserId: string): Promise<void> {
@@ -131,6 +142,32 @@ export class MemoryDatabase implements Database {
     if (u.clerkUserId) this.usersByClerkId.delete(u.clerkUserId);
     u.clerkUserId = clerkUserId;
     this.usersByClerkId.set(clerkUserId, u);
+  }
+
+  async recordClerkLogin(clerkUserId: string, email: string | null): Promise<UserRecord | null> {
+    let user = this.usersByClerkId.get(clerkUserId) ?? null;
+    if (!user && email) {
+      const byEmail = this.usersByEmail.get(email.trim().toLowerCase()) ?? null;
+      if (byEmail) {
+        await this.linkClerkUser(byEmail.id, clerkUserId);
+        user = this.usersByClerkId.get(clerkUserId) ?? null;
+      }
+    }
+    if (!user) {
+      if (!email) return null;
+      await this.createClerkUser(email, clerkUserId);
+      user = this.usersByClerkId.get(clerkUserId) ?? null;
+    }
+    if (!user) return null;
+    user.lastLoginAt = nowIso();
+    return { ...user };
+  }
+
+  async listUsers(limit: number): Promise<UserRecord[]> {
+    return [...this.users.values()]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, Math.max(1, Math.min(1000, limit)))
+      .map((u) => ({ ...u }));
   }
 
   async getUserById(id: string): Promise<UserRecord | null> {
@@ -370,6 +407,7 @@ export class PostgresDatabase implements Database {
       plan: r.plan,
       createdAt: r.created_at.toISOString(),
       clerkUserId: (r.clerk_user_id as string) ?? undefined,
+      lastLoginAt: r.last_login_at ? (r.last_login_at as Date).toISOString() : undefined,
     };
   }
 
@@ -384,6 +422,7 @@ export class PostgresDatabase implements Database {
       plan: r.plan,
       createdAt: r.created_at.toISOString(),
       clerkUserId: (r.clerk_user_id as string) ?? undefined,
+      lastLoginAt: r.last_login_at ? (r.last_login_at as Date).toISOString() : undefined,
     };
   }
 
@@ -398,6 +437,7 @@ export class PostgresDatabase implements Database {
       plan: r.plan,
       createdAt: r.created_at.toISOString(),
       clerkUserId: (r.clerk_user_id as string) ?? undefined,
+      lastLoginAt: r.last_login_at ? (r.last_login_at as Date).toISOString() : undefined,
     };
   }
 
@@ -428,6 +468,39 @@ export class PostgresDatabase implements Database {
 
   async linkClerkUser(userId: string, clerkUserId: string): Promise<void> {
     await this.pool.query(`UPDATE users SET clerk_user_id = $2 WHERE id = $1`, [userId, clerkUserId]);
+  }
+
+  async recordClerkLogin(clerkUserId: string, email: string | null): Promise<UserRecord | null> {
+    let user = await this.getUserByClerkId(clerkUserId);
+    if (!user && email) {
+      user = await this.getUserByEmail(email);
+      if (user) await this.linkClerkUser(user.id, clerkUserId);
+    }
+    if (!user) {
+      if (!email) return null;
+      user = await this.createClerkUser(email, clerkUserId);
+    }
+    await this.pool.query(`UPDATE users SET last_login_at = now() WHERE id = $1`, [user.id]);
+    const fresh = await this.getUserById(user.id);
+    return fresh ?? user;
+  }
+
+  async listUsers(limit: number): Promise<UserRecord[]> {
+    const { rows } = await this.pool.query(`SELECT * FROM users ORDER BY created_at DESC LIMIT $1`, [
+      Math.max(1, Math.min(1000, limit)),
+    ]);
+    return rows.map((row: Record<string, unknown>) => {
+      const r = row;
+      return {
+        id: r['id'] as string,
+        email: r['email'] as string,
+        passwordHash: r['password_hash'] as string,
+        plan: r['plan'] as UserRecord['plan'],
+        createdAt: (r['created_at'] as Date).toISOString(),
+        clerkUserId: (r['clerk_user_id'] as string) ?? undefined,
+        lastLoginAt: r['last_login_at'] ? (r['last_login_at'] as Date).toISOString() : undefined,
+      };
+    });
   }
 
   async setUserPlan(userId: string, plan: PlanTier): Promise<void> {
