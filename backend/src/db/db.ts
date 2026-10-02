@@ -45,6 +45,9 @@ export interface Database {
   readonly kind: 'memory' | 'postgres';
 
   createUser(email: string, passwordHash: string): Promise<UserRecord>;
+  getUserByClerkId(clerkUserId: string): Promise<UserRecord | null>;
+  createClerkUser(email: string, clerkUserId: string): Promise<UserRecord>;
+  linkClerkUser(userId: string, clerkUserId: string): Promise<void>;
   getUserByEmail(email: string): Promise<UserRecord | null>;
   getUserById(id: string): Promise<UserRecord | null>;
   setUserPlan(userId: string, plan: PlanTier): Promise<void>;
@@ -84,6 +87,7 @@ export class MemoryDatabase implements Database {
   readonly kind = 'memory' as const;
   private users = new Map<string, UserRecord>();
   private usersByEmail = new Map<string, UserRecord>();
+  private usersByClerkId = new Map<string, UserRecord>();
   private apiKeys = new Map<string, ApiKeyRecord>();
   private apiKeysByHash = new Map<string, ApiKeyRecord>();
   private authorizations = new Map<string, AuthorizationRecord>();
@@ -108,6 +112,25 @@ export class MemoryDatabase implements Database {
 
   async getUserByEmail(email: string): Promise<UserRecord | null> {
     return this.usersByEmail.get(email.trim().toLowerCase()) ?? null;
+  }
+
+  async getUserByClerkId(clerkUserId: string): Promise<UserRecord | null> {
+    return this.usersByClerkId.get(clerkUserId) ?? null;
+  }
+
+  async createClerkUser(email: string, clerkUserId: string): Promise<UserRecord> {
+    const user = await this.createUser(email, '');
+    user.clerkUserId = clerkUserId;
+    this.usersByClerkId.set(clerkUserId, user);
+    return { ...user };
+  }
+
+  async linkClerkUser(userId: string, clerkUserId: string): Promise<void> {
+    const u = this.users.get(userId);
+    if (!u) return;
+    if (u.clerkUserId) this.usersByClerkId.delete(u.clerkUserId);
+    u.clerkUserId = clerkUserId;
+    this.usersByClerkId.set(clerkUserId, u);
   }
 
   async getUserById(id: string): Promise<UserRecord | null> {
@@ -346,6 +369,7 @@ export class PostgresDatabase implements Database {
       passwordHash: r.password_hash,
       plan: r.plan,
       createdAt: r.created_at.toISOString(),
+      clerkUserId: (r.clerk_user_id as string) ?? undefined,
     };
   }
 
@@ -359,7 +383,51 @@ export class PostgresDatabase implements Database {
       passwordHash: r.password_hash,
       plan: r.plan,
       createdAt: r.created_at.toISOString(),
+      clerkUserId: (r.clerk_user_id as string) ?? undefined,
     };
+  }
+
+  async getUserByClerkId(clerkUserId: string): Promise<UserRecord | null> {
+    const { rows } = await this.pool.query(`SELECT * FROM users WHERE clerk_user_id = $1`, [clerkUserId]);
+    if (!rows[0]) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      email: r.email,
+      passwordHash: r.password_hash,
+      plan: r.plan,
+      createdAt: r.created_at.toISOString(),
+      clerkUserId: (r.clerk_user_id as string) ?? undefined,
+    };
+  }
+
+  async createClerkUser(email: string, clerkUserId: string): Promise<UserRecord> {
+    const normalized = email.trim().toLowerCase();
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO users (email, password_hash, clerk_user_id) VALUES ($1, '', $2)
+         RETURNING id, email, password_hash, plan, created_at, clerk_user_id`,
+        [normalized, clerkUserId],
+      );
+      const r = rows[0];
+      return {
+        id: r.id,
+        email: r.email,
+        passwordHash: r.password_hash,
+        plan: r.plan,
+        createdAt: r.created_at.toISOString(),
+        clerkUserId: (r.clerk_user_id as string) ?? undefined,
+      };
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && (e as { code?: string }).code === '23505') {
+        throw new Error('email_taken');
+      }
+      throw e;
+    }
+  }
+
+  async linkClerkUser(userId: string, clerkUserId: string): Promise<void> {
+    await this.pool.query(`UPDATE users SET clerk_user_id = $2 WHERE id = $1`, [userId, clerkUserId]);
   }
 
   async setUserPlan(userId: string, plan: PlanTier): Promise<void> {

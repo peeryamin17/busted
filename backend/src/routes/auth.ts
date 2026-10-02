@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { hashPassword, verifyPassword, signSession, generateApiKey } from '../auth/auth.js';
+import { verifyClerkToken } from '../auth/clerk.js';
 import { buildAuthenticate, requireUser } from '../middleware/auth.js';
 import type { RouteDeps } from './health.js';
 
@@ -13,6 +14,10 @@ const loginSchema = registerSchema;
 
 const apiKeySchema = z.object({
   name: z.string().min(1).max(100).default('default'),
+});
+
+const clerkLinkSchema = z.object({
+  email: z.string().email().max(254),
 });
 
 function publicUser(u: { id: string; email: string; plan: string; createdAt: string }) {
@@ -50,6 +55,38 @@ export async function authRoutes(app: FastifyInstance, deps: RouteDeps): Promise
       return reply.status(401).send({ error: 'Invalid email or password' });
     }
     return reply.send({ user: publicUser(user), token: signSession(user) });
+  });
+
+  /**
+   * POST /api/auth/clerk/link — first call after a Clerk (Google) sign-in.
+   * The Clerk token itself is the credential (verified against Clerk's
+   * JWKS); the body's email comes from the Clerk profile on the client
+   * and is bound to the token's `sub`, which is the actual identity.
+   * Find-or-create: an existing BugSeek account with that email gets the
+   * Clerk identity attached; otherwise a fresh Clerk-backed user is made.
+   */
+  app.post('/api/auth/clerk/link', async (request, reply) => {
+    const auth = request.headers.authorization;
+    if (!auth?.startsWith('Bearer ')) {
+      return reply.status(401).send({ error: 'Clerk session token required' });
+    }
+    const claims = await verifyClerkToken(auth.slice(7));
+    if (!claims) {
+      return reply.status(401).send({ error: 'Invalid Clerk token' });
+    }
+    const body = clerkLinkSchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.status(400).send({ error: body.error.issues[0]?.message ?? 'Invalid input' });
+    }
+    const byClerk = await db.getUserByClerkId(claims.clerkUserId);
+    if (byClerk) return reply.send({ user: publicUser(byClerk), linked: true });
+    const byEmail = await db.getUserByEmail(body.data.email);
+    if (byEmail) {
+      await db.linkClerkUser(byEmail.id, claims.clerkUserId);
+      return reply.send({ user: publicUser(byEmail), linked: true });
+    }
+    const user = await db.createClerkUser(body.data.email, claims.clerkUserId);
+    return reply.status(201).send({ user: publicUser(user), linked: true });
   });
 
   app.get('/api/auth/me', { preHandler: authenticate }, async (request) => {

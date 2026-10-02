@@ -21,20 +21,3 @@ export function usePathname(): string {
   }, []);
   return path;
 }
-
-/** True when the (frontend-only) sign-in flow has been completed this session. */
-export function isSignedIn(): boolean {
-  try {
-    return sessionStorage.getItem('bugseek-signed-in') === '1';
-  } catch {
-    return false;
-  }
-}
-
-export function markSignedIn() {
-  try {
-    sessionStorage.setItem('bugseek-signed-in', '1');
-  } catch {
-    /* private mode — the chip just won't persist across pages */
-  }
-}

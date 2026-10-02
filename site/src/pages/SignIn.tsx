@@ -1,11 +1,11 @@
 import { motion, useReducedMotion } from 'framer-motion';
-import { ArrowLeft, Coins, History, Radar } from 'lucide-react';
+import { useSignIn } from '@clerk/clerk-react';
+import { ArrowLeft, Coins, History, Loader2, Radar } from 'lucide-react';
 import { useState } from 'react';
-import { LoaderScreen } from '../components/fx/LoaderScreen';
 import { SonarGrid } from '../components/fx/SonarGrid';
 import { LiquidGlassButton } from '../components/fx/LiquidGlassButton';
 import { springQuiet } from '../lib/motion';
-import { markSignedIn, navigate } from '../lib/router';
+import { navigate } from '../lib/router';
 
 /** The Google "G" — the one splash of brand colour allowed on the page. */
 function GoogleMark({ className = '' }: { className?: string }) {
@@ -41,23 +41,42 @@ const PERKS = [
  * Sign-in (after 21st.dev's @pulseawan/modern-login-signup): a modern
  * split auth card in black & white — brand story on the left, a single
  * Google button on the right. GOOGLE ONLY: no email field, no password,
- * nothing to phish or forget. The frontend flow hands off through an
- * intentional loader to /welcome; real Google OAuth wiring lands later.
+ * nothing to phish or forget. The button starts a real Clerk OAuth
+ * redirect (Google via Clerk); Clerk hands the browser back to
+ * /sso-callback, which completes the sign-in and lands on /welcome.
  */
 export function SignIn() {
   const reduce = useReducedMotion();
-  const [loading, setLoading] = useState(false);
+  const { isLoaded, signIn } = useSignIn();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const beginSignIn = () => setLoading(true);
-  const finishSignIn = () => {
-    markSignedIn();
-    navigate('/welcome');
+  const ready = isLoaded && !busy;
+
+  const beginSignIn = async () => {
+    if (!ready || !signIn) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await signIn.authenticateWithRedirect({
+        strategy: 'oauth_google',
+        redirectUrl: '/sso-callback',
+        redirectUrlComplete: '/welcome',
+      });
+      // On success the browser leaves for Google — nothing else to do.
+    } catch (err) {
+      setBusy(false);
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Something went wrong starting Google sign-in. Please try again.',
+      );
+    }
   };
 
   return (
     <div className="relative flex min-h-screen flex-col bg-ink">
       <SonarGrid />
-      {loading && <LoaderScreen onComplete={finishSignIn} />}
 
       {/* top bar */}
       <header className="relative z-10 flex items-center justify-between px-5 py-5 sm:px-8">
@@ -149,14 +168,32 @@ export function SignIn() {
               <LiquidGlassButton
                 variant="glass"
                 size="lg"
-                className="w-full"
+                className={`w-full ${ready ? '' : 'pointer-events-none opacity-60'}`}
                 onClick={beginSignIn}
                 ariaLabel="Continue with Google"
               >
-                <GoogleMark className="h-5 w-5" />
-                Continue with Google
+                {ready ? (
+                  <>
+                    <GoogleMark className="h-5 w-5" />
+                    Continue with Google
+                  </>
+                ) : (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                    {busy ? 'Sending you to Google…' : 'Loading sign-in…'}
+                  </>
+                )}
               </LiquidGlassButton>
             </div>
+
+            {error && (
+              <p
+                role="alert"
+                className="mt-5 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-center text-sm leading-relaxed text-bone"
+              >
+                {error}
+              </p>
+            )}
 
             <div className="mt-7 flex items-center gap-3" aria-hidden>
               <span className="h-px flex-1 bg-white/10" />

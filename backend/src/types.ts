@@ -150,6 +150,8 @@ export interface UserRecord {
   passwordHash: string;
   plan: PlanTier;
   createdAt: string; // ISO
+  /** Clerk `sub` when the account is backed by Clerk (Google sign-in). */
+  clerkUserId?: string;
 }
 
 export interface ApiKeyRecord {

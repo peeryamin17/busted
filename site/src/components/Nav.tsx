@@ -1,6 +1,7 @@
 import { motion, useScroll, useSpring, useMotionValueEvent } from 'framer-motion';
-import { Check } from 'lucide-react';
+import { SignedIn, SignedOut, UserButton } from '@clerk/clerk-react';
 import { useState, type MouseEvent } from 'react';
+import { clerkAppearance } from '../lib/clerk';
 import { springQuiet } from '../lib/motion';
 import { navigate } from '../lib/router';
 import { LiquidGlassButton } from './fx/LiquidGlassButton';
@@ -23,13 +24,7 @@ function scrollToHash(hash: string) {
  * tracks reading progress across the very top of the viewport.
  * Works on every route — section links hop home first when needed.
  */
-export function Nav({
-  home = true,
-  signedIn = false,
-}: {
-  home?: boolean;
-  signedIn?: boolean;
-}) {
+export function Nav({ home = true }: { home?: boolean }) {
   const [scrolled, setScrolled] = useState(false);
   const { scrollY, scrollYProgress } = useScroll();
   const progress = useSpring(scrollYProgress, { stiffness: 120, damping: 26, mass: 0.4 });
@@ -103,39 +98,33 @@ export function Nav({
             ))}
           </nav>
           <div className="flex shrink-0 items-center gap-2.5">
-            {signedIn ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-3.5 py-2 font-mono text-xs text-bone">
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white text-ink">
-                  <Check className="h-2.5 w-2.5" aria-hidden />
-                </span>
-                Signed in
-              </span>
-            ) : (
-              <>
-                <a
-                  href="/signin"
-                  onClick={(e) => {
+            <SignedIn>
+              <UserButton appearance={clerkAppearance} />
+            </SignedIn>
+            <SignedOut>
+              <a
+                href="/signin"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate('/signin');
+                }}
+                className="hidden px-2 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone sm:block"
+              >
+                Sign in
+              </a>
+              <LiquidGlassButton
+                href={home ? '#download' : '/#download'}
+                onClick={(e) => {
+                  if (home) {
                     e.preventDefault();
-                    navigate('/signin');
-                  }}
-                  className="hidden px-2 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone sm:block"
-                >
-                  Sign in
-                </a>
-                <LiquidGlassButton
-                  href={home ? '#download' : '/#download'}
-                  onClick={(e) => {
-                    if (home) {
-                      e.preventDefault();
-                      scrollToHash('#download');
-                    }
-                  }}
-                  size="sm"
-                >
-                  Get the extension
-                </LiquidGlassButton>
-              </>
-            )}
+                    scrollToHash('#download');
+                  }
+                }}
+                size="sm"
+              >
+                Get the extension
+              </LiquidGlassButton>
+            </SignedOut>
           </div>
         </div>
       </motion.header>

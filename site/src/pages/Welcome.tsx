@@ -1,4 +1,5 @@
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
+import { useAuth, useUser } from '@clerk/clerk-react';
 import {
   Braces,
   Check,
@@ -7,11 +8,12 @@ import {
   FileCode2,
   FileText,
   FileType,
+  Loader2,
   Radar,
   ScanSearch,
   ShieldCheck,
 } from 'lucide-react';
-import { useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Nav } from '../components/Nav';
 import { Footer } from '../components/Footer';
 import { Reveal } from '../components/Reveal';
@@ -237,18 +239,86 @@ function ScrollStage({
   );
 }
 
+const LINKED_KEY = 'bugseek-clerk-linked';
+
+/** Minimal black holding state while Clerk resolves or redirects. */
+function WelcomeGate({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-ink px-4 text-center text-body">
+      <img src="/bug.svg" alt="" className="h-12 w-12" />
+      <Loader2 className="mt-7 h-6 w-6 animate-spin text-white" aria-hidden />
+      <p className="mt-4 font-mono text-[11px] tracking-[0.3em] text-slate2">{label}</p>
+    </div>
+  );
+}
+
 /**
  * /welcome — the third screen (after 21st.dev's @jh3yy "you can scroll"):
  * a scroll-driven tour that tells the signed-in user what BugSeek does,
- * one sticky stage at a time, ending at the download.
+ * one sticky stage at a time, ending at the download. Guarded by Clerk:
+ * signed-out visitors are sent to /signin, and a signed-in user is
+ * linked to their BugSeek backend account once per session.
  */
 export function Welcome() {
   const reduce = useReducedMotion();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { user } = useUser();
+
+  // Signed-out visitors don't belong here.
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) navigate('/signin');
+  }, [isLoaded, isSignedIn]);
+
+  // Link the Clerk identity to a BugSeek backend user (find-or-create),
+  // once per session. Non-fatal: if the backend is offline the tour
+  // still renders, and the link is retried on a later visit.
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn || !user) return;
+    let already = false;
+    try {
+      already = sessionStorage.getItem(LINKED_KEY) === '1';
+    } catch {
+      /* private mode — link again, the backend call is idempotent */
+    }
+    if (already) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const email = user.primaryEmailAddress?.emailAddress;
+        if (!token || !email || cancelled) return;
+        const base = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3000';
+        const res = await fetch(`${base}/api/auth/clerk/link`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ email }),
+        });
+        if (res.ok) {
+          try {
+            sessionStorage.setItem(LINKED_KEY, '1');
+          } catch {
+            /* private mode — harmless to link again next time */
+          }
+        }
+      } catch (err) {
+        console.warn('BugSeek backend link skipped (backend offline?):', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, isSignedIn, user, getToken]);
+
+  if (!isLoaded) return <WelcomeGate label="LOADING" />;
+  if (!isSignedIn) return <WelcomeGate label="REDIRECTING TO SIGN IN" />;
 
   return (
     <div className="min-h-screen bg-ink text-body">
       <SonarGrid />
-      <Nav home={false} signedIn />
+      <Nav home={false} />
 
       {/* intro */}
       <section className="relative overflow-hidden px-4 pb-14 pt-40 text-center sm:px-6 sm:pt-48">

@@ -1,6 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import type { Database } from '../db/db.js';
 import { hashApiKey, verifySession } from '../auth/auth.js';
+import { verifyClerkToken } from '../auth/clerk.js';
 import { PLAN_QUOTAS } from '../auth/usage.js';
 import type { PlanTier } from '../types.js';
 
@@ -44,12 +45,29 @@ export function buildAuthenticate(db: Database) {
     }
 
     if (authHeader?.startsWith('Bearer ')) {
-      const claims = verifySession(authHeader.slice(7));
-      if (!claims) throw Object.assign(new Error('Invalid or expired token'), { statusCode: 401 });
-      const user = await db.getUserById(claims.sub);
-      if (!user) throw Object.assign(new Error('User not found'), { statusCode: 401 });
-      request.user = { id: user.id, email: user.email, plan: user.plan, viaApiKey: false };
-      return;
+      const token = authHeader.slice(7);
+      const claims = verifySession(token);
+      if (claims) {
+        const user = await db.getUserById(claims.sub);
+        if (!user) throw Object.assign(new Error('User not found'), { statusCode: 401 });
+        request.user = { id: user.id, email: user.email, plan: user.plan, viaApiKey: false };
+        return;
+      }
+      // Clerk session token (Google sign-in via the website/extension):
+      // verified against the Clerk app's public JWKS — no secret needed.
+      const clerk = await verifyClerkToken(token);
+      if (clerk) {
+        const user = await db.getUserByClerkId(clerk.clerkUserId);
+        if (!user) {
+          throw Object.assign(
+            new Error('Clerk account not linked yet — POST /api/auth/clerk/link first'),
+            { statusCode: 401 },
+          );
+        }
+        request.user = { id: user.id, email: user.email, plan: user.plan, viaApiKey: false };
+        return;
+      }
+      throw Object.assign(new Error('Invalid or expired token'), { statusCode: 401 });
     }
 
     throw Object.assign(new Error('Authentication required (Bearer token or x-api-key)'), {
