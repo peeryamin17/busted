@@ -67,8 +67,15 @@ export function Nav({
         transition={springQuiet}
         className="fixed inset-x-0 top-0 z-50 px-3 sm:px-6"
       >
+        {/* Scroll-edge blur: content dissolves as it passes under the nav */}
         <div
-          className={`glass mx-auto flex items-center justify-between gap-3 px-4 py-3 transition-all duration-300 sm:px-5 ${
+          aria-hidden
+          className={`nav-blur-strip pointer-events-none fixed inset-x-0 top-0 -z-10 h-32 transition-opacity duration-500 ${
+            scrolled ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+        <div
+          className={`glass nav-material mx-auto flex items-center justify-between gap-3 px-4 py-3 transition-all duration-300 sm:px-5 ${
             scrolled ? 'mt-3 max-w-3xl rounded-full' : 'mt-3 max-w-6xl rounded-3xl'
           }`}
         >

@@ -41,6 +41,26 @@ body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
+/* Nav material — heavier than card glass: floating chrome sits over
+   moving page content, so it gets a deeper tint and a stronger blur.
+   Content sliding underneath must dissolve, never ghost through. */
+.nav-material {
+  background: rgba(10, 10, 10, 0.72);
+  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+}
+
+/* Scroll-edge blur strip behind the nav: a full-width band whose blur
+   fades out downward (masked), so content melts away as it approaches
+   the pill instead of sliding visibly behind its edges. */
+.nav-blur-strip {
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  background: linear-gradient(to bottom, rgba(5, 5, 5, 0.55), rgba(5, 5, 5, 0));
+  mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+}
+
 /* ------------------------------------------------------------------ */
 /* Liquid glass (Designali liquid-glass-button energy): a glossy,     */
 /* refractive-feeling material — specular top edge, deep inner glow,  */
