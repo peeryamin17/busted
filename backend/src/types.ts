@@ -8,6 +8,9 @@
  * old clients keep working. The extension sibling may add fields but MUST NOT
  * rename or change the meaning of existing ones — see docs/schemas.md.
  */
+import type { ScopeCheckResult } from './scope/types.js';
+
+export type { ScopeCheckResult };
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
@@ -81,6 +84,12 @@ export interface Scan {
   scope: ScopePolicy;
   /** Authorization record id — REQUIRED for active scans (plan §8). */
   authorizationId?: string;
+  /**
+   * Programme scope verdict captured at creation when the caller named a
+   * HackerOne/Bugcrowd programme — recorded as authorisation evidence.
+   * A verdict never authorises a scan by itself.
+   */
+  scopeEvidence?: ScopeCheckResult;
   techStack: TechEntry[];
   progress: ScanProgress;
   error?: string;

@@ -176,10 +176,16 @@ export async function runSwarmScan(
   targetUrl: string,
   authorization: SwarmAuthorizationInput,
   scope?: SwarmScopeInput,
+  programme?: ProgrammeRef,
 ): Promise<SwarmOutcome | null> {
   return fetchJson<SwarmOutcome>('/api/swarm/scans', {
     method: 'POST',
-    body: JSON.stringify({ targetUrl, authorization, scope }),
+    body: JSON.stringify({
+      targetUrl,
+      authorization,
+      scope,
+      ...(programme ? { programme } : {}),
+    }),
   });
 }
 
@@ -283,12 +289,18 @@ export async function runEngineScan(
   engine: EngineId,
   targetUrl: string,
   authorization: SwarmAuthorizationInput,
+  programme?: ProgrammeRef,
 ): Promise<EngineScanOutcome> {
   return fetchJsonOrThrow<EngineScanOutcome>(
     '/api/engines/scans',
     {
       method: 'POST',
-      body: JSON.stringify({ engine, targetUrl, authorization }),
+      body: JSON.stringify({
+        engine,
+        targetUrl,
+        authorization,
+        ...(programme ? { programme } : {}),
+      }),
     },
     ENGINE_SCAN_TIMEOUT_MS,
   );
@@ -339,3 +351,105 @@ export async function submitScanResult(
   });
   return res?.id ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// Programme scope (HackerOne / Bugcrowd)
+//
+// The backend mirrors the public programme scope listings (the community
+// bounty-targets-data project) and answers "does this programme's published
+// scope cover this host?". Picking a programme is optional and never grants
+// authorisation by itself — the saved authorisation record still governs
+// every active check; the verdict is evidence alongside it. When a swarm or
+// engine scan names a programme, the backend re-checks and records the
+// verdict on the scan.
+// ---------------------------------------------------------------------------
+
+export type ScopePlatform = 'hackerone' | 'bugcrowd';
+
+export interface ProgrammeRef {
+  platform: ScopePlatform;
+  handle: string;
+}
+
+export interface ProgrammeSummary extends ProgrammeRef {
+  name: string;
+  url?: string;
+}
+
+export type ProgrammeScopeVerdict =
+  | 'in_scope'
+  | 'out_of_scope'
+  | 'programme_not_found'
+  | 'unknown';
+
+export interface ProgrammeScopeCheck extends ProgrammeRef {
+  programmeName?: string;
+  verdict: ProgrammeScopeVerdict;
+  /** The published scope line that decided the verdict, when one matched. */
+  matchedEntry?: string;
+  reason: string;
+  checkedAt?: string;
+}
+
+const PROGRAMME_STORAGE_KEY = 'bugseek:programme';
+
+export async function getStoredProgramme(): Promise<ProgrammeRef | null> {
+  try {
+    const stored = await chrome.storage.local.get(PROGRAMME_STORAGE_KEY);
+    const ref = stored[PROGRAMME_STORAGE_KEY] as ProgrammeRef | undefined;
+    if (
+      ref &&
+      (ref.platform === 'hackerone' || ref.platform === 'bugcrowd') &&
+      typeof ref.handle === 'string' &&
+      ref.handle.trim()
+    ) {
+      return { platform: ref.platform, handle: ref.handle };
+    }
+  } catch {
+    /* storage unavailable — no programme selected */
+  }
+  return null;
+}
+
+export async function setStoredProgramme(ref: ProgrammeRef | null): Promise<void> {
+  try {
+    if (ref) await chrome.storage.local.set({ [PROGRAMME_STORAGE_KEY]: ref });
+    else await chrome.storage.local.remove(PROGRAMME_STORAGE_KEY);
+  } catch {
+    /* selection simply won't persist */
+  }
+}
+
+/** GET /api/scope/programmes — find programmes by handle or name. */
+export async function searchProgrammes(
+  platform: ScopePlatform,
+  query: string,
+): Promise<ProgrammeSummary[] | null> {
+  const params = new URLSearchParams({ platform, q: query });
+  const res = await fetchJson<{ programmes: ProgrammeSummary[] }>(
+    `/api/scope/programmes?${params.toString()}`,
+    { method: 'GET' },
+    6000,
+  );
+  return res?.programmes ?? null;
+}
+
+/** POST /api/scope/check — verdict for this target against the programme's published scope. */
+export async function checkProgrammeScope(
+  ref: ProgrammeRef,
+  targetUrl: string,
+): Promise<ProgrammeScopeCheck | null> {
+  return fetchJson<ProgrammeScopeCheck>(
+    '/api/scope/check',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        platform: ref.platform,
+        handle: ref.handle,
+        targetUrl,
+      }),
+    },
+    10_000,
+  );
+}
+
