@@ -6,6 +6,7 @@ import { verifyAndRecordAuthorization } from '../guardrails/authorization.js';
 import { normalizeTargetUrl } from '../guardrails/scope.js';
 import { redactFindingEvidence } from '../guardrails/redact.js';
 import { estimateCvss } from '../reports/cvss.js';
+import { securityScore } from '../reports/score.js';
 import { suggestFixes } from '../reports/remediation.js';
 import { createLLMProvider } from '../llm/index.js';
 import type { RouteDeps } from './health.js';
@@ -178,11 +179,13 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
         scanId: scan.id,
         targetUrl: outcome.targetUrl,
         headSummary: outcome.headSummary,
+        score: securityScore(findings),
         findings,
         workerReports: outcome.workerReports.map((r) => ({
           specialistId: r.specialistId,
           specialistName: r.specialistName,
           summary: r.summary,
+          findings: r.findings.length,
           testsRun: r.testsRun,
           testsPlanned: r.testsPlanned,
           llmCalls: r.llmCalls,

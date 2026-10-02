@@ -3,7 +3,7 @@
  * It never modifies the page, never sends requests, and only runs a scan
  * when the user clicks "Scan" in the popup.
  */
-import type { DomScanData, ScanMessage } from './lib/types';
+import type { DomScanData, ScanMessage, StorageEntry } from './lib/types';
 
 const MAX_INLINE_SCRIPTS = 40;
 const MAX_INLINE_SCRIPT_CHARS = 200_000;
@@ -98,6 +98,68 @@ function collectSinks(inlineScripts: string[]): DomScanData['sinks'] {
   return [...hits.entries()].map(([sink, v]) => ({ sink, count: v.count, sample: v.sample }));
 }
 
+/**
+ * Classify a storage value by SHAPE only. The raw value never leaves this
+ * function — reports and findings carry the classification, not the secret.
+ */
+function classifyValueShape(v: string): StorageEntry['shape'] {
+  if (/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/.test(v)) return 'jwt';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) return 'uuid';
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'email';
+  if (/^https?:\/\//i.test(v)) return 'url';
+  if ((v.startsWith('{') && v.endsWith('}')) || (v.startsWith('[') && v.endsWith(']'))) return 'json';
+  if (v.length >= 24 && /^[A-Za-z0-9_\-+/.=]+$/.test(v)) return 'long-opaque';
+  if (v.length > 0 && v.length < 24 && !/\s/.test(v)) return 'short-opaque';
+  return 'text';
+}
+
+const MAX_STORAGE_ENTRIES = 200;
+
+/** Decode a JWT's STRUCTURE (header alg + claim names). Never returns claim values. */
+function decodeJwtStructure(v: string): StorageEntry['jwt'] {
+  try {
+    const [h, p] = v.split('.');
+    const dec = (s: string) =>
+      JSON.parse(atob(s.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>;
+    const header = dec(h);
+    const payload = dec(p);
+    return {
+      alg: typeof header['alg'] === 'string' ? header['alg'] : 'unknown',
+      hasExpiry: 'exp' in payload,
+      claimKeys: Object.keys(payload).slice(0, 12),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function collectStorage(store: Storage | null): StorageEntry[] {
+  const out: StorageEntry[] = [];
+  try {
+    if (!store) return out;
+    for (let i = 0; i < store.length && out.length < MAX_STORAGE_ENTRIES; i++) {
+      const key = store.key(i);
+      if (!key) continue;
+      let value = '';
+      try {
+        value = store.getItem(key) ?? '';
+      } catch {
+        /* unreadable value — record the key with an empty shape */
+      }
+      const shape = classifyValueShape(value);
+      out.push({
+        key,
+        valueLength: value.length,
+        shape,
+        ...(shape === 'jwt' ? { jwt: decodeJwtStructure(value) } : {}),
+      });
+    }
+  } catch {
+    /* storage blocked (privacy mode, opaque origin) — inventory stays empty */
+  }
+  return out;
+}
+
 function collectDom(): DomScanData {
   const forms = Array.from(document.forms).map((f) => ({
     action: f.action || '',
@@ -170,6 +232,10 @@ function collectDom(): DomScanData {
     sinks: collectSinks(inlineScripts),
     globals: probePageGlobals(),
     inlineHandlerCount,
+    storage: {
+      local: collectStorage(window.localStorage),
+      session: collectStorage(window.sessionStorage),
+    },
   };
 }
 

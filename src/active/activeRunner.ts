@@ -34,6 +34,8 @@ import { discoverApiEndpoints } from './apiDiscovery';
 import { testCors } from './corsTester';
 import { probeGraphql } from './graphqlProbe';
 import { testXss } from './xssTester';
+import { testCommerce } from './commerceTester';
+import { probeSensitiveFiles } from './sensitiveFiles';
 import { checkIdor } from './idorChecker';
 import { checkAuthentication } from './authChecker';
 import {
@@ -233,6 +235,29 @@ export async function runActiveScan(
       findings.push(...authFindings);
     } catch (err) {
       errors.push(`auth checks: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // Commerce surface (GET-only mapping; never places orders).
+    step('Mapping commerce & payment surface…');
+    try {
+      const { findings: commerceFindings } = await testCommerce(
+        http,
+        targetUrl,
+        dom,
+        apiEndpoints,
+      );
+      findings.push(...commerceFindings);
+    } catch (err) {
+      errors.push(`commerce checks: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // Sensitive files (.git, .env, backups, listings) — signature-verified.
+    step('Probing for exposed sensitive files…');
+    try {
+      const { findings: fileFindings } = await probeSensitiveFiles(http, targetUrl);
+      findings.push(...fileFindings);
+    } catch (err) {
+      errors.push(`sensitive file probes: ${err instanceof Error ? err.message : String(err)}`);
     }
   } finally {
     const tabEntries = stopTabCapture(tabId);

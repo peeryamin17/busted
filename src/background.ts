@@ -16,6 +16,7 @@ import type { DomScanData, Finding, ScanMessage, ScanResult } from './lib/types'
 import { SEVERITY_ORDER } from './lib/types';
 import { scanSecrets, type ScriptSource } from './scanners/secretScanner';
 import { fetchSourceMaps, scanSourceMaps } from './scanners/sourceMapScanner';
+import { scanDeepSurface } from './scanners/deepSurface';
 import { auditCookies } from './scanners/cookieAuditor';
 import { checkHeaders } from './scanners/headerChecker';
 import { analyzeDom } from './scanners/domAnalyzer';
@@ -111,12 +112,16 @@ async function runScan(tabId: number): Promise<void> {
     sendProgress('Analyzing page structure…');
     const domFindings = analyzeDom(dom);
 
+    sendProgress('Mapping cookies, storage, payments & integrations…');
+    const deepFindings = await scanDeepSurface(dom);
+
     const findings = [
       ...secretFindings,
       ...sourceMapFindings,
       ...cookieFindings,
       ...headerFindings,
       ...domFindings,
+      ...deepFindings,
     ].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 
     const result: ScanResult = {

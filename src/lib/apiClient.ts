@@ -168,6 +168,8 @@ export interface SwarmOutcome {
   testsRun: number;
   tokensUsed: number;
   durationMs: number;
+  /** Server-computed security score (0–100) + letter grade (A–F); null when the run was not scored. */
+  score?: { value: number; grade: string } | null;
 }
 
 export async function runSwarmScan(

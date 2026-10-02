@@ -26,7 +26,7 @@ import {
   STORAGE_KEYS,
 } from '../lib/config';
 import { checkBackendStatus, getBackendApiKey, runSwarmScan, setBackendApiKey } from '../lib/apiClient';
-import type { SwarmAuthorizationInput } from '../lib/apiClient';
+import type { SwarmAuthorizationInput, SwarmOutcome } from '../lib/apiClient';
 import { findingCard, renderFindings, renderSummary } from './render';
 
 const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
@@ -54,6 +54,7 @@ const el = {
   chains: document.getElementById('active-chains') as HTMLElement,
   summary: document.getElementById('active-summary') as HTMLElement,
   findings: document.getElementById('active-findings') as HTMLElement,
+  swarmPanel: document.getElementById('swarm-panel') as HTMLElement,
   downloadBtn: document.getElementById('active-download-btn') as HTMLButtonElement,
 };
 
@@ -63,6 +64,8 @@ let currentTabUrl: string | null = null;
 let currentResult: ScanResult | null = null;
 let running = false;
 let swarmRunning = false;
+let swarmTimers: number[] = [];
+let swarmFrame = 0;
 
 export async function initActivePane(tabId: number, tabUrl: string): Promise<void> {
   currentTabId = tabId;
@@ -354,6 +357,7 @@ async function startSwarmScan(): Promise<void> {
   el.swarmBtn.disabled = true;
   el.swarmBtn.textContent = 'Swarm running…';
   setStatus('AI swarm deployed — head agent coordinating specialist workers…');
+  showSwarmDeploying();
 
   try {
     const outcome = await runSwarmScan(currentTabUrl, authorization, {
@@ -363,6 +367,7 @@ async function startSwarmScan(): Promise<void> {
       excludedPaths: authz.scope.excludedPaths,
     });
     if (!outcome) {
+      hideSwarmPanel();
       showError('Backend unreachable — is the BugSeek backend running?');
       return;
     }
@@ -383,6 +388,7 @@ async function startSwarmScan(): Promise<void> {
       trapProbability: f.trapProbability,
       honeypotSuspect: f.honeypotSuspect,
     }));
+    renderSwarmPlayback(outcome);
     el.results.hidden = false;
     el.chains.innerHTML = '';
     const h = document.createElement('h2');
@@ -393,13 +399,6 @@ async function startSwarmScan(): Promise<void> {
     sum.className = 'card-body';
     sum.textContent = outcome.headSummary;
     el.chains.appendChild(sum);
-    const wr = document.createElement('p');
-    wr.className = 'chain-members';
-    wr.textContent =
-      `Workers: ${outcome.workerReports.map((w) => `${w.specialistName} (${w.testsRun} tests)`).join(', ')}` +
-      ` · ${outcome.testsRun} tests · ${(outcome.tokensUsed / 1000).toFixed(1)}k tokens` +
-      ` · ${(outcome.durationMs / 1000).toFixed(1)}s · scan ${outcome.scanId}`;
-    el.chains.appendChild(wr);
 
     renderSummary(el.summary, findings as import('../lib/types').Finding[]);
     renderFindings(
@@ -413,6 +412,7 @@ async function startSwarmScan(): Promise<void> {
         `${outcome.workerReports.length} specialist worker(s).`,
     );
   } catch (err) {
+    hideSwarmPanel();
     showError(
       `Swarm failed: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -421,6 +421,252 @@ async function startSwarmScan(): Promise<void> {
     el.swarmBtn.disabled = false;
     el.swarmBtn.textContent = 'Run AI swarm';
   }
+}
+
+// ---------------------------------------------------------------------------
+// Swarm run-record panel
+//
+// The swarm runs inline on the backend, so worker reports only exist once
+// the run is DONE. While waiting we show a deploying state; when the
+// response lands we play the real run record back — worker cards stagger
+// in, then the security score counts up. The caption says "run record" so
+// the playback never pretends to be a live feed. All strings render via
+// textContent (worker names/summaries are server-generated, never raw HTML).
+// ---------------------------------------------------------------------------
+
+const SWARM_CARD_STAGGER_MS = 320;
+const SWARM_SCORE_COUNT_MS = 900;
+const SCORE_RING_R = 34;
+const SCORE_RING_C = 2 * Math.PI * SCORE_RING_R;
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function clearSwarmTimers(): void {
+  swarmTimers.forEach((t) => window.clearTimeout(t));
+  swarmTimers = [];
+  if (swarmFrame) {
+    cancelAnimationFrame(swarmFrame);
+    swarmFrame = 0;
+  }
+}
+
+function swarmLater(fn: () => void, ms: number): void {
+  swarmTimers.push(window.setTimeout(fn, ms));
+}
+
+function hideSwarmPanel(): void {
+  clearSwarmTimers();
+  el.swarmPanel.hidden = true;
+  el.swarmPanel.innerHTML = '';
+}
+
+function showSwarmDeploying(): void {
+  clearSwarmTimers();
+  const panel = el.swarmPanel;
+  panel.innerHTML = '';
+  panel.hidden = false;
+
+  const h = document.createElement('h2');
+  h.className = 'chains-heading';
+  h.textContent = 'AI swarm';
+  panel.appendChild(h);
+
+  const box = document.createElement('div');
+  box.className = 'swarm-deploying';
+  const label = document.createElement('span');
+  label.textContent = 'Head agent deploying specialists';
+  box.appendChild(label);
+  const dots = document.createElement('span');
+  dots.className = 'swarm-dots';
+  dots.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 3; i++) dots.appendChild(document.createElement('span'));
+  box.appendChild(dots);
+  panel.appendChild(box);
+
+  const caption = document.createElement('p');
+  caption.className = 'swarm-caption';
+  caption.textContent = 'Specialists report back when the run completes.';
+  panel.appendChild(caption);
+}
+
+function buildSwarmCard(
+  w: SwarmOutcome['workerReports'][number],
+  enter: boolean,
+): HTMLElement {
+  const card = document.createElement('div');
+  card.className = enter ? 'swarm-card swarm-enter' : 'swarm-card';
+
+  const name = document.createElement('div');
+  name.className = 'swarm-card-name';
+  name.textContent = w.specialistName;
+  card.appendChild(name);
+
+  const stats = document.createElement('div');
+  stats.className = 'swarm-card-stats';
+  stats.textContent =
+    `${w.testsRun} tests · ${w.findings} finding${w.findings === 1 ? '' : 's'}` +
+    ` · ${(w.durationMs / 1000).toFixed(1)}s`;
+  card.appendChild(stats);
+
+  if (w.summary) {
+    const sum = document.createElement('p');
+    sum.className = 'swarm-card-summary';
+    sum.textContent = w.summary;
+    card.appendChild(sum);
+  }
+  return card;
+}
+
+function gradeColor(grade: string): string {
+  switch (grade.toUpperCase()) {
+    case 'A':
+    case 'B':
+      return 'var(--low)';
+    case 'C':
+      return 'var(--medium)';
+    case 'D':
+    case 'E':
+      return 'var(--high)';
+    case 'F':
+      return 'var(--critical)';
+    default:
+      return 'var(--accent)';
+  }
+}
+
+/** Big count-up number + letter grade inside an SVG progress ring. */
+function renderSwarmScore(
+  box: HTMLElement,
+  score: { value: number; grade: string },
+  instant: boolean,
+): void {
+  const color = gradeColor(score.grade);
+  const ns = 'http://www.w3.org/2000/svg';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'score-ring-wrap';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 84 84');
+  svg.setAttribute('class', 'score-ring');
+  const track = document.createElementNS(ns, 'circle');
+  track.setAttribute('cx', '42');
+  track.setAttribute('cy', '42');
+  track.setAttribute('r', String(SCORE_RING_R));
+  track.setAttribute('class', 'score-ring-track');
+  const prog = document.createElementNS(ns, 'circle');
+  prog.setAttribute('cx', '42');
+  prog.setAttribute('cy', '42');
+  prog.setAttribute('r', String(SCORE_RING_R));
+  prog.setAttribute('class', 'score-ring-prog');
+  prog.style.stroke = color;
+  prog.style.strokeDasharray = String(SCORE_RING_C);
+  prog.style.strokeDashoffset = String(SCORE_RING_C);
+  svg.appendChild(track);
+  svg.appendChild(prog);
+  const gradeEl = document.createElement('div');
+  gradeEl.className = 'score-grade';
+  gradeEl.style.color = color;
+  gradeEl.textContent = score.grade;
+  wrap.appendChild(svg);
+  wrap.appendChild(gradeEl);
+  box.appendChild(wrap);
+
+  const side = document.createElement('div');
+  const num = document.createElement('div');
+  num.className = 'score-number';
+  num.textContent = '0';
+  const label = document.createElement('div');
+  label.className = 'score-label';
+  label.textContent = 'Security score';
+  const sub = document.createElement('div');
+  sub.className = 'score-sub';
+  sub.textContent = 'out of 100 · higher is safer';
+  side.appendChild(num);
+  side.appendChild(label);
+  side.appendChild(sub);
+  box.appendChild(side);
+
+  const target = Math.max(0, Math.min(100, score.value));
+  const setProgress = (v: number): void => {
+    num.textContent = String(Math.round(v));
+    prog.style.strokeDashoffset = String(SCORE_RING_C * (1 - v / 100));
+  };
+  if (instant) {
+    setProgress(target);
+    return;
+  }
+  const start = performance.now();
+  const tick = (now: number): void => {
+    const t = Math.min(1, (now - start) / SWARM_SCORE_COUNT_MS);
+    const eased = 1 - Math.pow(1 - t, 3);
+    setProgress(target * eased);
+    swarmFrame = t < 1 ? requestAnimationFrame(tick) : 0;
+  };
+  swarmFrame = requestAnimationFrame(tick);
+}
+
+function renderSwarmPlayback(outcome: SwarmOutcome): void {
+  clearSwarmTimers();
+  const reduce = prefersReducedMotion();
+  const panel = el.swarmPanel;
+  panel.innerHTML = '';
+  panel.hidden = false;
+
+  const h = document.createElement('h2');
+  h.className = 'chains-heading';
+  h.textContent = 'AI swarm — run record';
+  panel.appendChild(h);
+
+  const caption = document.createElement('p');
+  caption.className = 'swarm-caption';
+  caption.textContent = 'Run record — playback of the completed run, not a live feed.';
+  panel.appendChild(caption);
+
+  const grid = document.createElement('div');
+  grid.className = 'swarm-grid';
+  panel.appendChild(grid);
+  const cards = outcome.workerReports.map((w) => buildSwarmCard(w, !reduce));
+  cards.forEach((c) => grid.appendChild(c));
+
+  // Run totals (the same accounting line the popup has always shown).
+  const totals = document.createElement('div');
+  totals.className = reduce ? 'stat-line' : 'stat-line swarm-enter';
+  totals.textContent =
+    `${outcome.testsRun} tests · ${(outcome.tokensUsed / 1000).toFixed(1)}k tokens` +
+    ` · ${(outcome.durationMs / 1000).toFixed(1)}s · scan ${outcome.scanId}`;
+  panel.appendChild(totals);
+
+  const score = outcome.score ?? null;
+  const scoreBox = document.createElement('div');
+  if (score) {
+    scoreBox.className = reduce ? 'swarm-score' : 'swarm-score swarm-enter';
+    panel.appendChild(scoreBox);
+  }
+
+  if (reduce) {
+    // Final states immediately — no stagger, no count-up.
+    if (score) renderSwarmScore(scoreBox, score, true);
+    return;
+  }
+
+  cards.forEach((card, i) => {
+    swarmLater(
+      () => card.classList.add('swarm-enter-in'),
+      150 + i * SWARM_CARD_STAGGER_MS,
+    );
+  });
+  swarmLater(
+    () => {
+      totals.classList.add('swarm-enter-in');
+      if (score) {
+        scoreBox.classList.add('swarm-enter-in');
+        renderSwarmScore(scoreBox, score, false);
+      }
+    },
+    150 + cards.length * SWARM_CARD_STAGGER_MS + 150,
+  );
 }
 
 function renderThrottle(

@@ -42,7 +42,12 @@ export type FindingCategory =
   | 'auth'
   | 'graphql'
   | 'chain'
-  | 'sourcemap';
+  | 'sourcemap'
+  // Deep-surface categories (Phase 4)
+  | 'session'
+  | 'payments'
+  | 'integrations'
+  | 'commerce';
 
 export interface Finding {
   id: string;
@@ -97,6 +102,20 @@ export interface TechFingerprint {
 }
 
 /** Raw data collected by the content script from the target page. */
+/** Web-storage inventory entry: key name + value SHAPE only — never the value. */
+export interface StorageEntry {
+  key: string;
+  /** Value length in characters. */
+  valueLength: number;
+  shape: 'jwt' | 'uuid' | 'email' | 'url' | 'json' | 'long-opaque' | 'short-opaque' | 'text';
+  /** For JWT-shaped values: decoded STRUCTURE only (alg, expiry, claim names). */
+  jwt?: {
+    alg: string;
+    hasExpiry: boolean;
+    claimKeys: string[];
+  };
+}
+
 export interface DomScanData {
   url: string;
   title: string;
@@ -121,6 +140,12 @@ export interface DomScanData {
   /** Page JS globals detected via MAIN-world probe (e.g. "jQuery 3.7.1"). */
   globals: string[];
   inlineHandlerCount: number;
+  /** localStorage / sessionStorage inventory (keys + shapes, never raw values).
+   *  Optional: absent when an older content script collected the DOM. */
+  storage?: {
+    local: StorageEntry[];
+    session: StorageEntry[];
+  };
 }
 
 /**
