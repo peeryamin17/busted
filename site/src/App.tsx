@@ -10,6 +10,7 @@ import { Faq } from './components/Faq';
 import { Download } from './components/Download';
 import { Footer } from './components/Footer';
 import { CrowdCanvas } from './components/fx/CrowdCanvas';
+import { SonarGrid } from './components/fx/SonarGrid';
 import { Preloader } from './components/fx/Preloader';
 import { isSignedIn, usePathname } from './lib/router';
 import { SignIn } from './pages/SignIn';
@@ -35,8 +36,9 @@ function Home() {
       >
         Skip to content
       </a>
+      <SonarGrid />
       <Nav home signedIn={signedIn} />
-      <main>
+      <main className="relative z-10">
         <Hero />
         <Ticker />
         <Bento />
@@ -46,7 +48,9 @@ function Home() {
         <Faq />
         <Download />
       </main>
-      <CrowdCanvas />
+      <div className="relative z-10">
+        <CrowdCanvas />
+      </div>
       <Footer home />
     </div>
   );

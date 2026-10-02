@@ -17,6 +17,7 @@ import { Footer } from '../components/Footer';
 import { Reveal } from '../components/Reveal';
 import { LiquidGlassButton } from '../components/fx/LiquidGlassButton';
 import { ScoreRing } from '../components/fx/ScoreRing';
+import { SonarGrid } from '../components/fx/SonarGrid';
 import { navigate } from '../lib/router';
 
 interface Stage {
@@ -246,6 +247,7 @@ export function Welcome() {
 
   return (
     <div className="min-h-screen bg-ink text-body">
+      <SonarGrid />
       <Nav home={false} signedIn />
 
       {/* intro */}

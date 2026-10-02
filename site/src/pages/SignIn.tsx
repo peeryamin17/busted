@@ -2,6 +2,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowLeft, Coins, History, Radar } from 'lucide-react';
 import { useState } from 'react';
 import { LoaderScreen } from '../components/fx/LoaderScreen';
+import { SonarGrid } from '../components/fx/SonarGrid';
 import { LiquidGlassButton } from '../components/fx/LiquidGlassButton';
 import { springQuiet } from '../lib/motion';
 import { markSignedIn, navigate } from '../lib/router';
@@ -55,6 +56,7 @@ export function SignIn() {
 
   return (
     <div className="relative flex min-h-screen flex-col bg-ink">
+      <SonarGrid />
       {loading && <LoaderScreen onComplete={finishSignIn} />}
 
       {/* top bar */}

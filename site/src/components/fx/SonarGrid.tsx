@@ -13,7 +13,9 @@ interface Ring {
  * that behaves like a sonar scope — rings expand from ambient pings,
  * dots flare and swell as each wavefront passes, and tapping anywhere
  * fires your own ping. Monochrome white on black. Canvas, zero deps.
- * Reduced motion: one still frame, no loop, no pings.
+ * Rendered ONCE per page as a fixed full-viewport background layer, so
+ * the dots run continuously through every section. Reduced motion:
+ * one still frame, no loop, no pings.
  */
 export function SonarGrid({ className = '' }: { className?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -28,7 +30,7 @@ export function SonarGrid({ className = '' }: { className?: string }) {
     const SPACING = 26;
     const SPEED = 260; // px per second the wavefront travels
     const BAND = 46; // gaussian sigma of the wavefront band
-    const PING_EVERY = 2400; // ms between ambient pings
+    const PING_EVERY = 3200; // ms between ambient pings
 
     let w = 0;
     let h = 0;
@@ -70,7 +72,7 @@ export function SonarGrid({ className = '' }: { className?: string }) {
             energy += Math.exp(-(d * d) / (2 * BAND * BAND));
           }
           energy = Math.min(1, energy);
-          const alpha = 0.13 + energy * 0.8;
+          const alpha = 0.1 + energy * 0.75;
           const radius = 1 + energy * 1.7;
           ctx.beginPath();
           ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(3)})`;
@@ -108,14 +110,14 @@ export function SonarGrid({ className = '' }: { className?: string }) {
 
     const onPointerDown = (e: PointerEvent) => {
       if (reduce) return;
-      const rect = canvas.getBoundingClientRect();
-      spawnPing(e.clientX - rect.left, e.clientY - rect.top);
+      // The canvas is fixed full-viewport, so viewport coords are canvas coords.
+      spawnPing(e.clientX, e.clientY);
       lastPing = performance.now();
     };
 
     resize();
     window.addEventListener('resize', resize);
-    canvas.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointerdown', onPointerDown);
 
     if (reduce) {
       drawStill();
@@ -123,36 +125,24 @@ export function SonarGrid({ className = '' }: { className?: string }) {
       // one ring already mid-flight at first paint
       spawnPing(w * 0.62, h * 0.36, Math.min(w, h) * 0.22);
       lastPing = performance.now();
-      const io = new IntersectionObserver(
-        (entries) => {
-          visible = entries[0]?.isIntersecting ?? true;
-        },
-        { threshold: 0 },
-      );
-      io.observe(canvas);
       raf = requestAnimationFrame(loop);
       return () => {
         running = false;
         cancelAnimationFrame(raf);
-        io.disconnect();
         window.removeEventListener('resize', resize);
-        canvas.removeEventListener('pointerdown', onPointerDown);
+        window.removeEventListener('pointerdown', onPointerDown);
       };
     }
 
     return () => {
       window.removeEventListener('resize', resize);
-      canvas.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointerdown', onPointerDown);
     };
   }, [reduce]);
 
   return (
-    <div aria-hidden className={`absolute inset-0 overflow-hidden ${className}`}>
+    <div aria-hidden className={`pointer-events-none fixed inset-0 overflow-hidden ${className}`}>
       <canvas ref={canvasRef} className="block h-full w-full" />
-      {/* soft wash keeps hero copy legible while rings pass underneath */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_55%_50%_at_50%_42%,rgba(5,5,5,0.72)_0%,transparent_100%)]" />
-      {/* fade into the page at the bottom */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-ink to-transparent" />
     </div>
   );
 }

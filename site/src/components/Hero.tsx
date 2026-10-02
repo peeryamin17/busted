@@ -4,7 +4,6 @@ import { ScanDemo } from './ScanDemo';
 import { BorderBeam } from './fx/BorderBeam';
 import { FlipWords } from './fx/FlipWords';
 import { LiquidGlassButton } from './fx/LiquidGlassButton';
-import { SonarGrid } from './fx/SonarGrid';
 import { springQuiet } from '../lib/motion';
 
 const ROTATE = ['scanners', 'templates', 'checklists', 'crawlers'];
@@ -30,7 +29,8 @@ export function Hero() {
 
   return (
     <section id="top" className="relative overflow-hidden pb-16 pt-36 sm:pt-44">
-      <SonarGrid />
+      {/* soft wash keeps hero copy legible while the sonar rings pass underneath */}
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_55%_50%_at_50%_42%,rgba(5,5,5,0.72)_0%,transparent_100%)]" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-ink to-transparent" />
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
         <div className="mx-auto max-w-3xl text-center">
