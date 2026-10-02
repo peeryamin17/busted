@@ -32,11 +32,17 @@ export interface CommerceEndpointLike {
   status?: number;
 }
 
+export interface CommerceTrafficLike {
+  url: string;
+  paramNames: string[];
+}
+
 export async function testCommerce(
   http: ActiveHttpClient,
   targetUrl: string,
   dom: DomScanData,
   apiEndpoints: CommerceEndpointLike[],
+  traffic: CommerceTrafficLike[] = [],
 ): Promise<{ findings: Finding[] }> {
   const findings: Finding[] = [];
   const origin = new URL(targetUrl).origin;
@@ -71,7 +77,13 @@ export async function testCommerce(
       'from the catalogue at payment time, never trusted from the client; (2) coupons enforce ' +
       'single-use, per-user limits and cannot stack; (3) quantities reject zero/negative values; ' +
       '(4) the charged currency matches the displayed currency; (5) order state cannot advance ' +
-      'to paid/fulfilled without a verified gateway callback.',
+      'to paid/fulfilled without a verified gateway callback; (6) payment RETURN URLs are ' +
+      'verified against the gateway server-side and consumed exactly once — replaying a success ' +
+      'return (e.g. after cancelling a second payment) must never fulfil an order; (7) a payment ' +
+      'token is bound to one order and one amount and is burned on first use — one successful ' +
+      'payment must never settle a second order; (8) redemption/payment endpoints are atomic ' +
+      'under concurrency — two simultaneous submits of the same payment or coupon must not ' +
+      'double-spend it (race condition).',
     severity: 'info',
     confidence: 'high',
     remediation:
@@ -151,6 +163,114 @@ export async function testCommerce(
     } catch {
       /* unreachable commerce page — the map finding already covers the surface */
     }
+  }
+
+  /* ---- 4. Payment replay & reuse surface --------------------------- */
+  // The "pay once, redeem forever" family: payment identifiers that travel
+  // in URLs, bearer payment links, and long-lived payment cookies. All
+  // three make a payment token replayable; whether the server burns tokens
+  // after first use can only be proven with live orders (manual steps).
+  const PAY_PARAM_RE = /(payment|txn|transaction|checkout|session|token|razorpay|paytm|order_?id)/i;
+  const seenPayParams = new Map<string, string>(); // param name -> example path
+  const urlsToScan = [
+    ...traffic.map((t) => t.url),
+    ...apiEndpoints.map((e) => origin + e.path),
+    ...dom.forms.map((f) => f.action),
+  ];
+  for (const raw of urlsToScan) {
+    try {
+      const u = new URL(raw, targetUrl);
+      if (u.origin !== origin) continue;
+      for (const name of u.searchParams.keys()) {
+        if (PAY_PARAM_RE.test(name) && !seenPayParams.has(name)) {
+          seenPayParams.set(name, u.pathname);
+        }
+      }
+      if (/\/cs_(live|test)_/.test(u.pathname) && !seenPayParams.has('stripe-session-in-path')) {
+        seenPayParams.set('stripe-session-in-path', u.pathname);
+      }
+    } catch {
+      /* malformed URL — skip */
+    }
+  }
+  for (const [name, path] of [...seenPayParams.entries()].slice(0, 6)) {
+    findings.push({
+      id: nid('pay-param'),
+      category: 'commerce',
+      title: `Payment identifier "${name}" travels in URLs (seen on ${path})`,
+      description:
+        `A payment-related identifier ("${name}") is carried as a URL parameter on ${path}. URLs get ` +
+        'logged by servers, proxies, analytics and browser history, and anyone holding the link may ' +
+        'be able to replay it. The questions that decide whether this is a vulnerability are all ' +
+        'server-side and need a test account + test-mode gateway: (1) pay once, capture the success ' +
+        'return/callback URL, then CANCEL a second payment at the gateway and replay the first ' +
+        'success URL against the second order — if it fulfils, the return handler trusts the ' +
+        'browser instead of verifying with the gateway; (2) submit the SAME payment token against ' +
+        'a second order — it must be rejected as already consumed; (3) fire the redeem/pay request ' +
+        'twice in parallel — exactly one may succeed (idempotency / race protection).',
+      severity: 'medium',
+      confidence: 'medium',
+      location: origin + path,
+      evidence: `parameter name "${name}" on ${path} (values are never recorded)`,
+      remediation:
+        'Bind every payment token server-side to one order + one amount, burn it on first use, verify gateway callbacks by signature AND a server-to-server status check, and make state transitions idempotent.',
+    });
+  }
+
+  const orderPay = urlsToScan.find((u) => /\/order-pay\/\d+/i.test(u));
+  if (orderPay) {
+    findings.push({
+      id: nid('order-pay'),
+      category: 'commerce',
+      title: 'Bearer payment link (order-pay) detected',
+      description:
+        'A /checkout/order-pay/<id>/ style link is in use: the URL itself is the credential — ' +
+        'whoever holds it can view and pay the order, no login required. That is safe ONLY if the ' +
+        'accompanying key is long, random, single-order, and expires. Verify manually: open the ' +
+        'link logged-out (should work — that is by design), then check whether the order id alone ' +
+        '(incrementing/decrementing it) or a missing/short key still renders an order, and whether ' +
+        'the link keeps working after the order is paid or cancelled.',
+      severity: 'medium',
+      confidence: 'medium',
+      location: targetUrl,
+      remediation:
+        'Use 128-bit+ random keys on payment links, expire them on payment/cancellation, and never let the numeric order id act as an authenticator.',
+    });
+  }
+
+  try {
+    const cookies = await chrome.cookies.getAll({ url: targetUrl });
+    const now = Date.now() / 1000;
+    const longLived = cookies.filter(
+      (c) =>
+        /(pay|checkout|order|wc_|woocommerce|cart)/i.test(c.name) &&
+        !c.session &&
+        c.expirationDate !== undefined &&
+        c.expirationDate - now > 7 * 24 * 3600,
+    );
+    if (longLived.length > 0) {
+      findings.push({
+        id: nid('pay-cookie'),
+        category: 'commerce',
+        title: `Long-lived payment/cart cookies: ${longLived.map((c) => c.name).join(', ')}`,
+        description:
+          'Payment- or cart-related cookies persist for more than a week: ' +
+          longLived
+            .map((c) => `${c.name} (~${Math.round(((c.expirationDate ?? now) - now) / 86400)} days)`)
+            .join(', ') +
+          '. Long-lived client-side payment state is replay material — if any of these cookies ' +
+          'influences what an order costs or whether it counts as paid, a saved copy can be ' +
+          'replayed after cancellation or refund. Verify the server treats cookies as hints ' +
+          'only and re-derives all payment state from its own records.',
+        severity: 'low',
+        confidence: 'medium',
+        location: targetUrl,
+        evidence: 'cookie names + lifetimes only (values never captured)',
+        remediation: 'Keep payment state server-side; cookies should carry at most an opaque, expiring cart reference.',
+      });
+    }
+  } catch {
+    /* cookies API unavailable in this context — surface checks above still apply */
   }
 
   return { findings };

@@ -245,6 +245,7 @@ export async function runActiveScan(
         targetUrl,
         dom,
         apiEndpoints,
+        log.all(),
       );
       findings.push(...commerceFindings);
     } catch (err) {
