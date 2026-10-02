@@ -21,6 +21,7 @@ import { LiquidGlassButton } from '../components/fx/LiquidGlassButton';
 import { ScoreRing } from '../components/fx/ScoreRing';
 import { SonarGrid } from '../components/fx/SonarGrid';
 import { navigate } from '../lib/router';
+import { CLERK_ENABLED } from '../lib/clerk';
 
 interface Stage {
   n: string;
@@ -259,7 +260,7 @@ function WelcomeGate({ label }: { label: string }) {
  * signed-out visitors are sent to /signin, and a signed-in user is
  * linked to their BugSeek backend account once per session.
  */
-export function Welcome() {
+function WelcomeGuarded() {
   const reduce = useReducedMotion();
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const { user } = useUser();
@@ -315,6 +316,10 @@ export function Welcome() {
   if (!isLoaded) return <WelcomeGate label="LOADING" />;
   if (!isSignedIn) return <WelcomeGate label="REDIRECTING TO SIGN IN" />;
 
+  return <WelcomeTour reduce={reduce} />;
+}
+
+function WelcomeTour({ reduce }: { reduce: boolean | null }) {
   return (
     <div className="min-h-screen bg-ink text-body">
       <SonarGrid />
@@ -411,4 +416,19 @@ export function Welcome() {
       <Footer home={false} />
     </div>
   );
+}
+
+/**
+ * /welcome entry: with Clerk configured, the guarded version (sign-in
+ * required, backend link on arrival). Without a Clerk key on this
+ * deployment, the tour renders openly — the page must never crash on a
+ * missing provider (useAuth throws without one).
+ */
+export function Welcome() {
+  return CLERK_ENABLED ? <WelcomeGuarded /> : <WelcomeOpen />;
+}
+
+function WelcomeOpen() {
+  const reduce = useReducedMotion();
+  return <WelcomeTour reduce={reduce} />;
 }

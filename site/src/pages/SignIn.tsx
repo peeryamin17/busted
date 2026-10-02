@@ -6,6 +6,7 @@ import { SonarGrid } from '../components/fx/SonarGrid';
 import { LiquidGlassButton } from '../components/fx/LiquidGlassButton';
 import { springQuiet } from '../lib/motion';
 import { navigate } from '../lib/router';
+import { CLERK_ENABLED } from '../lib/clerk';
 
 /** The Google "G" — the one splash of brand colour allowed on the page. */
 function GoogleMark({ className = '' }: { className?: string }) {
@@ -47,32 +48,6 @@ const PERKS = [
  */
 export function SignIn() {
   const reduce = useReducedMotion();
-  const { isLoaded, signIn } = useSignIn();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const ready = isLoaded && !busy;
-
-  const beginSignIn = async () => {
-    if (!ready || !signIn) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await signIn.authenticateWithRedirect({
-        strategy: 'oauth_google',
-        redirectUrl: '/sso-callback',
-        redirectUrlComplete: '/welcome',
-      });
-      // On success the browser leaves for Google — nothing else to do.
-    } catch (err) {
-      setBusy(false);
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Something went wrong starting Google sign-in. Please try again.',
-      );
-    }
-  };
 
   return (
     <div className="relative flex min-h-screen flex-col bg-ink">
@@ -164,36 +139,7 @@ export function SignIn() {
               account is your BugSeek account.
             </p>
 
-            <div className="mt-8">
-              <LiquidGlassButton
-                variant="glass"
-                size="lg"
-                className={`w-full ${ready ? '' : 'pointer-events-none opacity-60'}`}
-                onClick={beginSignIn}
-                ariaLabel="Continue with Google"
-              >
-                {ready ? (
-                  <>
-                    <GoogleMark className="h-5 w-5" />
-                    Continue with Google
-                  </>
-                ) : (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-                    {busy ? 'Sending you to Google…' : 'Loading sign-in…'}
-                  </>
-                )}
-              </LiquidGlassButton>
-            </div>
-
-            {error && (
-              <p
-                role="alert"
-                className="mt-5 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-center text-sm leading-relaxed text-bone"
-              >
-                {error}
-              </p>
-            )}
+            {CLERK_ENABLED ? <GoogleButton /> : <GoogleButtonDisabled />}
 
             <div className="mt-7 flex items-center gap-3" aria-hidden>
               <span className="h-px flex-1 bg-white/10" />
@@ -217,5 +163,97 @@ export function SignIn() {
         © 2026 BugSeek AI — no bugs were harmed
       </footer>
     </div>
+  );
+}
+
+/**
+ * The live Google button — the only place useSignIn runs. Mounted only
+ * when CLERK_ENABLED (the hook throws without a ClerkProvider).
+ */
+function GoogleButton() {
+  const { isLoaded, signIn } = useSignIn();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ready = isLoaded && !busy;
+
+  const beginSignIn = async () => {
+    if (!ready || !signIn) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await signIn.authenticateWithRedirect({
+        strategy: 'oauth_google',
+        redirectUrl: '/sso-callback',
+        redirectUrlComplete: '/welcome',
+      });
+      // On success the browser leaves for Google — nothing else to do.
+    } catch (err) {
+      setBusy(false);
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Something went wrong starting Google sign-in. Please try again.',
+      );
+    }
+  };
+
+  return (
+    <>
+      <div className="mt-8">
+        <LiquidGlassButton
+          variant="glass"
+          size="lg"
+          className={`w-full ${ready ? '' : 'pointer-events-none opacity-60'}`}
+          onClick={beginSignIn}
+          ariaLabel="Continue with Google"
+        >
+          {ready ? (
+            <>
+              <GoogleMark className="h-5 w-5" />
+              Continue with Google
+            </>
+          ) : (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+              {busy ? 'Sending you to Google…' : 'Loading sign-in…'}
+            </>
+          )}
+        </LiquidGlassButton>
+      </div>
+
+      {error && (
+        <p
+          role="alert"
+          className="mt-5 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-center text-sm leading-relaxed text-bone"
+        >
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** Shown when this deployment has no Clerk key configured. */
+function GoogleButtonDisabled() {
+  return (
+    <>
+      <div className="mt-8">
+        <LiquidGlassButton
+          variant="glass"
+          size="lg"
+          className="pointer-events-none w-full opacity-60"
+          ariaLabel="Continue with Google"
+        >
+          <GoogleMark className="h-5 w-5" />
+          Continue with Google
+        </LiquidGlassButton>
+      </div>
+      <p
+        role="alert"
+        className="mt-5 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-center text-sm leading-relaxed text-bone"
+      >
+        Sign-in isn't switched on for this deployment yet.
+      </p>
+    </>
   );
 }

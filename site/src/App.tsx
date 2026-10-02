@@ -14,7 +14,8 @@ import { Footer } from './components/Footer';
 import { CrowdCanvas } from './components/fx/CrowdCanvas';
 import { SonarGrid } from './components/fx/SonarGrid';
 import { Preloader } from './components/fx/Preloader';
-import { usePathname } from './lib/router';
+import { usePathname, navigate } from './lib/router';
+import { CLERK_ENABLED } from './lib/clerk';
 import { SignIn } from './pages/SignIn';
 import { Welcome } from './pages/Welcome';
 
@@ -63,6 +64,14 @@ function Home() {
  * sign-in (invisibly) and moves on to /welcome.
  */
 function SsoCallback() {
+  // Without Clerk configured there is no handshake to complete — the
+  // Clerk callback component would throw without a provider. Go home.
+  useEffect(() => {
+    if (!CLERK_ENABLED) navigate('/');
+  }, []);
+  if (!CLERK_ENABLED) {
+    return <div className="min-h-screen bg-ink" />;
+  }
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-ink px-4 text-center text-body">
       <img src="/bug.svg" alt="" className="h-12 w-12" />

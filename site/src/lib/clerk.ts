@@ -16,6 +16,15 @@ export const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY 
   | undefined;
 
 /**
+ * Whether Clerk is live on this deployment. EVERY Clerk hook/component
+ * (useAuth, SignedIn, UserButton, …) throws when no ClerkProvider is
+ * mounted — so consumers must branch on this flag and render a static
+ * fallback when it's false. (A missing key on the host must degrade the
+ * auth UI, never blank the whole site.)
+ */
+export const CLERK_ENABLED = Boolean(CLERK_PUBLISHABLE_KEY);
+
+/**
  * The BugSeek look, translated into Clerk's appearance system: black
  * surfaces, white primary, bone text, quiet greys — so Clerk-rendered
  * surfaces (the user-button menu, account modals) match the site's

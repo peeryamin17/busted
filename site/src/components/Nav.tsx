@@ -1,7 +1,7 @@
 import { motion, useScroll, useSpring, useMotionValueEvent } from 'framer-motion';
 import { SignedIn, SignedOut, UserButton } from '@clerk/clerk-react';
 import { useState, type MouseEvent } from 'react';
-import { clerkAppearance } from '../lib/clerk';
+import { clerkAppearance, CLERK_ENABLED } from '../lib/clerk';
 import { springQuiet } from '../lib/motion';
 import { navigate } from '../lib/router';
 import { LiquidGlassButton } from './fx/LiquidGlassButton';
@@ -98,36 +98,57 @@ export function Nav({ home = true }: { home?: boolean }) {
             ))}
           </nav>
           <div className="flex shrink-0 items-center gap-2.5">
-            <SignedIn>
-              <UserButton appearance={clerkAppearance} />
-            </SignedIn>
-            <SignedOut>
-              <a
-                href="/signin"
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate('/signin');
-                }}
-                className="hidden px-2 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone sm:block"
-              >
-                Sign in
-              </a>
-              <LiquidGlassButton
-                href={home ? '#download' : '/#download'}
-                onClick={(e) => {
-                  if (home) {
-                    e.preventDefault();
-                    scrollToHash('#download');
-                  }
-                }}
-                size="sm"
-              >
-                Get the extension
-              </LiquidGlassButton>
-            </SignedOut>
+            {CLERK_ENABLED ? <ClerkAuthArea home={home} /> : <SignedOutLinks home={home} />}
           </div>
         </div>
       </motion.header>
+    </>
+  );
+}
+
+/** The signed-out nav actions — also the fallback when Clerk is off. */
+function SignedOutLinks({ home }: { home: boolean }) {
+  return (
+    <>
+      <a
+        href="/signin"
+        onClick={(e) => {
+          e.preventDefault();
+          navigate('/signin');
+        }}
+        className="hidden px-2 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone sm:block"
+      >
+        Sign in
+      </a>
+      <LiquidGlassButton
+        href={home ? '#download' : '/#download'}
+        onClick={(e) => {
+          if (home) {
+            e.preventDefault();
+            scrollToHash('#download');
+          }
+        }}
+        size="sm"
+      >
+        Get the extension
+      </LiquidGlassButton>
+    </>
+  );
+}
+
+/**
+ * Clerk-backed nav auth area. Only ever mounted when CLERK_ENABLED —
+ * SignedIn/SignedOut/UserButton throw without a ClerkProvider.
+ */
+function ClerkAuthArea({ home }: { home: boolean }) {
+  return (
+    <>
+      <SignedIn>
+        <UserButton appearance={clerkAppearance} />
+      </SignedIn>
+      <SignedOut>
+        <SignedOutLinks home={home} />
+      </SignedOut>
     </>
   );
 }
