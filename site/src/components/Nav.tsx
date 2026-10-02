@@ -116,7 +116,7 @@ function SignedOutLinks({ home }: { home: boolean }) {
           e.preventDefault();
           navigate('/signin');
         }}
-        className="hidden px-2 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone sm:block"
+        className="px-1.5 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone sm:px-2"
       >
         Sign in
       </a>
