@@ -1,23 +1,13 @@
 import { useEffect, useState } from 'react';
 import { AuthenticateWithRedirectCallback } from '@clerk/clerk-react';
 import { Loader2 } from 'lucide-react';
-import { Nav } from './components/Nav';
-import { Hero } from './components/Hero';
-import { Ticker } from './components/Ticker';
-import { Bento } from './components/Bento';
-import { Swarm } from './components/Swarm';
-import { HowItWorks } from './components/HowItWorks';
-import { Pricing } from './components/Pricing';
-import { Faq } from './components/Faq';
-import { Download } from './components/Download';
-import { Footer } from './components/Footer';
-import { CrowdCanvas } from './components/fx/CrowdCanvas';
-import { SonarGrid } from './components/fx/SonarGrid';
 import { Preloader } from './components/fx/Preloader';
 import { usePathname, navigate } from './lib/router';
 import { CLERK_ENABLED } from './lib/clerk';
 import { SignIn } from './pages/SignIn';
-import { Welcome } from './pages/Welcome';
+import { PublicLanding } from './pages/PublicLanding';
+import { MemberSite } from './pages/MemberSite';
+import { ConnectSite } from './pages/ConnectSite';
 
 const INTRO_KEY = 'bugseek-intro';
 
@@ -29,39 +19,21 @@ function introSeen(): boolean {
   }
 }
 
-function Home() {
-  return (
-    <div className="min-h-screen bg-ink text-body">
-      <a
-        href="#what"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-mint focus:px-4 focus:py-2 focus:text-ink"
-      >
-        Skip to content
-      </a>
-      <SonarGrid />
-      <Nav home />
-      <main className="relative z-10">
-        <Hero />
-        <Ticker />
-        <Bento />
-        <Swarm />
-        <HowItWorks />
-        <Pricing />
-        <Faq />
-        <Download />
-      </main>
-      <div className="relative z-10">
-        <CrowdCanvas />
-      </div>
-      <Footer home />
-    </div>
-  );
+/** Old post-login path: keep bookmarks working, send members to /app. */
+function WelcomeRedirect() {
+  useEffect(() => {
+    window.history.replaceState({}, '', '/app');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, []);
+
+  return <div className="min-h-screen bg-ink" />;
 }
 
 /**
  * /sso-callback — where Clerk sends the browser back after Google.
  * A quiet black holding page: Clerk's callback handler completes the
- * sign-in (invisibly) and moves on to /welcome.
+ * sign-in (invisibly) and moves on to the member site.
  */
 function SsoCallback() {
   // Without Clerk configured there is no handshake to complete — the
@@ -80,7 +52,7 @@ function SsoCallback() {
         Signing you in…
       </p>
       <p className="mt-1.5 text-sm text-body/70">Completing the handshake with Google.</p>
-      <AuthenticateWithRedirectCallback afterSignInUrl="/welcome" afterSignUpUrl="/welcome" />
+      <AuthenticateWithRedirectCallback afterSignInUrl="/app" afterSignUpUrl="/app" />
     </div>
   );
 }
@@ -98,10 +70,10 @@ export default function App() {
     setShowIntro(false);
   };
 
-  // Arriving home with a hash (e.g. /#download from another route) —
+  // Arriving at the member site with a hash (e.g. /app#download) —
   // scroll to the anchor once the sections exist.
   useEffect(() => {
-    if (path === '/' && window.location.hash) {
+    if ((path === '/' || path === '/app') && window.location.hash) {
       const hash = window.location.hash;
       const t = window.setTimeout(() => {
         document.querySelector(hash)?.scrollIntoView();
@@ -114,13 +86,19 @@ export default function App() {
     <>
       {showIntro && path !== '/sso-callback' && <Preloader onDone={finishIntro} />}
       {path === '/signin' ? (
-        <SignIn />
+        <SignIn mode="signin" />
+      ) : path === '/signup' ? (
+        <SignIn mode="signup" />
       ) : path === '/sso-callback' ? (
         <SsoCallback />
       ) : path === '/welcome' ? (
-        <Welcome />
+        <WelcomeRedirect />
+      ) : path === '/app/connect' ? (
+        <ConnectSite />
+      ) : path === '/app' ? (
+        <MemberSite />
       ) : (
-        <Home />
+        <PublicLanding />
       )}
     </>
   );

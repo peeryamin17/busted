@@ -5,6 +5,7 @@ import { BorderBeam } from './fx/BorderBeam';
 import { FlipWords } from './fx/FlipWords';
 import { LiquidGlassButton } from './fx/LiquidGlassButton';
 import { springQuiet } from '../lib/motion';
+import { navigate } from '../lib/router';
 
 const ROTATE = ['scanners', 'templates', 'checklists', 'crawlers'];
 
@@ -19,7 +20,7 @@ const STATS = [
  * the interactive scan demo framed by a travelling border beam.
  * Tap the black anywhere — the sonar answers.
  */
-export function Hero() {
+export function Hero({ memberName }: { memberName?: string }) {
   const reduce = useReducedMotion();
   const rise = (delay: number) => ({
     initial: reduce ? (false as const) : { opacity: 0, y: 18 },
@@ -39,11 +40,17 @@ export function Hero() {
             className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3.5 py-1.5 font-mono text-xs"
           >
             <span className="h-1.5 w-1.5 rounded-full bg-white pulse-dot" />
-            <span className="text-shiny font-semibold tracking-wide">CHROME EXTENSION · MANIFEST V3 · NO SIGN-UP TO START</span>
+            <span className="text-shiny font-semibold tracking-wide">MEMBER ACCESS · GOOGLE CONNECTED · CHROME EXTENSION</span>
           </motion.div>
 
+          {memberName && (
+            <motion.p {...rise(0.2)} className="mt-6 font-display text-xl font-semibold tracking-tight text-bone sm:text-2xl">
+              Welcome back, {memberName}. <span className="text-slate2">The full site is unlocked.</span>
+            </motion.p>
+          )}
+
           <motion.h1
-            {...rise(0.14)}
+            {...rise(memberName ? 0.24 : 0.14)}
             className="mt-7 font-display text-[2.85rem] font-bold leading-[1.03] tracking-tight text-bone sm:text-6xl lg:text-[4.6rem]"
           >
             Find what{' '}
@@ -58,11 +65,18 @@ export function Hero() {
           </motion.p>
 
           <motion.div {...rise(0.36)} className="mt-9 flex flex-wrap items-center justify-center gap-4">
-            <LiquidGlassButton href="#download" size="lg">
-              Get it for Chrome
+            <LiquidGlassButton
+              href="/app/connect"
+              size="lg"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate('/app/connect');
+              }}
+            >
+              Connect a website
             </LiquidGlassButton>
-            <LiquidGlassButton href="#swarm" variant="glass" size="lg">
-              Meet the swarm
+            <LiquidGlassButton href="#download" variant="glass" size="lg">
+              Get it for Chrome
             </LiquidGlassButton>
           </motion.div>
 

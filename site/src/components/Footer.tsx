@@ -21,8 +21,8 @@ const COLUMNS: Array<{ title: string; links: Array<{ label: string; href: string
  * Footer with an oversized wordmark bleeding off the bottom edge —
  * the agency-poster treatment. Links and credits ride above it.
  */
-export function Footer({ home = true }: { home?: boolean }) {
-  const prefix = home ? '' : '/';
+export function Footer({ home = true, member = false }: { home?: boolean; member?: boolean }) {
+  const prefix = member ? '/app' : home ? '' : '/';
   return (
     <footer className="relative overflow-hidden border-t border-white/10">
       <div className="mx-auto max-w-6xl px-4 pb-10 pt-14 sm:px-6">

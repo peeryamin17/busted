@@ -14,11 +14,14 @@ export default {
         paper: '#FAFAFA',
         body: '#CFCFCF',
         slate2: '#8B8B8B',
-        // Faintly desaturated DATA tones — used only for severity coding
-        // inside the scan demo / score ring, never as theme accents.
-        amber2: '#B8AE94',
-        hot: '#C0A08C',
-        crit: '#C08F8F',
+        // Vivid DATA tones — reserved for scan findings and scores so the
+        // evidence pops against the monochrome interface around it.
+        amber2: '#FFD60A',
+        hot: '#FF9F1C',
+        crit: '#FF5A4E',
+        signal: '#2EEA8C',
+        sky2: '#4CC9FF',
+        violet2: '#C084FC',
       },
       fontFamily: {
         display: ['"Space Grotesk"', 'system-ui', '-apple-system', '"Segoe UI"', 'sans-serif'],

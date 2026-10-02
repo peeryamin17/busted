@@ -22,9 +22,13 @@ function scrollToHash(hash: string) {
  * Floating glass pill nav (Aceternity floating-navbar energy): it
  * materializes as a detached pill once you scroll, and a white hairline
  * tracks reading progress across the very top of the viewport.
- * Works on every route — section links hop home first when needed.
+ *
+ * Two deliberately different faces:
+ * - public: brand + account entry only. The product stays behind the door.
+ * - member: the full site navigation, unlocked after Google sign-in.
  */
-export function Nav({ home = true }: { home?: boolean }) {
+export function Nav({ variant = 'member' }: { variant?: 'public' | 'member' }) {
+  const isPublic = variant === 'public';
   const [scrolled, setScrolled] = useState(false);
   const { scrollY, scrollYProgress } = useScroll();
   const progress = useSpring(scrollYProgress, { stiffness: 120, damping: 26, mass: 0.4 });
@@ -32,21 +36,12 @@ export function Nav({ home = true }: { home?: boolean }) {
 
   const goSection = (e: MouseEvent, hash: string) => {
     e.preventDefault();
-    if (home) {
-      scrollToHash(hash);
-    } else {
-      navigate('/');
-      window.setTimeout(() => scrollToHash(hash), 90);
-    }
+    scrollToHash(hash);
   };
 
   const goHome = (e: MouseEvent) => {
     e.preventDefault();
-    if (home) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } else {
-      navigate('/');
-    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
@@ -75,7 +70,7 @@ export function Nav({ home = true }: { home?: boolean }) {
           }`}
         >
           <a
-            href={home ? '#top' : '/'}
+            href="#top"
             onClick={goHome}
             className="flex shrink-0 items-center gap-2.5"
             aria-label="BugSeek AI home"
@@ -85,20 +80,32 @@ export function Nav({ home = true }: { home?: boolean }) {
               BugSeek <span className="text-white/50">AI</span>
             </span>
           </a>
-          <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
-            {LINKS.map((l) => (
+          {!isPublic && (
+            <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
               <a
-                key={l.hash}
-                href={home ? l.hash : `/${l.hash}`}
-                onClick={(e) => goSection(e, l.hash)}
-                className="text-sm font-medium text-body/80 transition-colors hover:text-bone"
+                href="/app/connect"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate('/app/connect');
+                }}
+                className="text-sm font-semibold text-bone transition-colors hover:text-white"
               >
-                {l.label}
+                Connect site
               </a>
-            ))}
-          </nav>
+              {LINKS.map((l) => (
+                <a
+                  key={l.hash}
+                  href={l.hash}
+                  onClick={(e) => goSection(e, l.hash)}
+                  className="text-sm font-medium text-body/80 transition-colors hover:text-bone"
+                >
+                  {l.label}
+                </a>
+              ))}
+            </nav>
+          )}
           <div className="flex shrink-0 items-center gap-2.5">
-            {CLERK_ENABLED ? <ClerkAuthArea home={home} /> : <SignedOutLinks home={home} />}
+            {isPublic ? <PublicAuthArea /> : <MemberAuthArea />}
           </div>
         </div>
       </motion.header>
@@ -106,20 +113,10 @@ export function Nav({ home = true }: { home?: boolean }) {
   );
 }
 
-/** The signed-out nav actions — also the fallback when Clerk is off. */
-function SignedOutLinks({ home }: { home: boolean }) {
+/** Account entry for the public face. */
+function PublicLinks() {
   return (
     <>
-      <a
-        href="/signin"
-        onClick={(e) => {
-          e.preventDefault();
-          navigate('/signin');
-        }}
-        className="px-1.5 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone sm:px-2"
-      >
-        Sign up
-      </a>
       <a
         href="/signin"
         onClick={(e) => {
@@ -131,33 +128,76 @@ function SignedOutLinks({ home }: { home: boolean }) {
         Sign in
       </a>
       <LiquidGlassButton
-        href={home ? '#download' : '/#download'}
+        href="/signup"
         onClick={(e) => {
-          if (home) {
-            e.preventDefault();
-            scrollToHash('#download');
-          }
+          e.preventDefault();
+          navigate('/signup');
         }}
         size="sm"
       >
-        Get the extension
+        Sign up
       </LiquidGlassButton>
     </>
   );
 }
 
-/**
- * Clerk-backed nav auth area. Only ever mounted when CLERK_ENABLED —
- * SignedIn/SignedOut/UserButton throw without a ClerkProvider.
- */
-function ClerkAuthArea({ home }: { home: boolean }) {
+function PublicAuthArea() {
+  if (!CLERK_ENABLED) return <PublicLinks />;
+  return (
+    <>
+      <SignedIn>
+        <div className="flex items-center gap-2.5">
+          <LiquidGlassButton
+            href="/app"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/app');
+            }}
+            size="sm"
+          >
+            Open BugSeek
+          </LiquidGlassButton>
+          <UserButton appearance={clerkAppearance} />
+        </div>
+      </SignedIn>
+      <SignedOut>
+        <PublicLinks />
+      </SignedOut>
+    </>
+  );
+}
+
+function MemberAuthArea() {
+  if (!CLERK_ENABLED) {
+    return (
+      <a
+        href="/signin"
+        onClick={(e) => {
+          e.preventDefault();
+          navigate('/signin');
+        }}
+        className="px-2 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone"
+      >
+        Sign in
+      </a>
+    );
+  }
   return (
     <>
       <SignedIn>
         <UserButton appearance={clerkAppearance} />
       </SignedIn>
       <SignedOut>
-        <SignedOutLinks home={home} />
+        <a
+          href="/signin"
+          onClick={(e) => {
+            e.preventDefault();
+            navigate('/signin');
+          }}
+          className="px-2 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone"
+        >
+          Sign in
+        </a>
       </SignedOut>
     </>
   );

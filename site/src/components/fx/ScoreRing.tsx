@@ -37,41 +37,61 @@ export function ScoreRing({
     return controls.stop;
   }, [inView, value, reduce, mv]);
 
-  // Monochrome data scale: bright white at the top, sinking through the
-  // faintly desaturated tones as the score falls.
-  const color = value >= 75 ? '#FFFFFF' : value >= 55 ? '#B8AE94' : value >= 35 ? '#C0A08C' : '#C08F8F';
+  // Data is allowed to be loud: saturated score colours pop against the
+  // black-and-white interface, with green at the top and red at the floor.
+  const color =
+    value >= 90 ? '#2EEA8C' : value >= 75 ? '#A3E635' : value >= 55 ? '#FFD60A' : value >= 35 ? '#FF9F0A' : '#FF453A';
 
   return (
-    <div ref={ref} className="relative shrink-0" style={{ width: size, height: size }}>
-      <svg viewBox="0 0 190 190" className="h-full w-full -rotate-90" aria-hidden>
-        <circle cx="95" cy="95" r="80" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="11" />
-        <motion.circle
-          cx="95"
-          cy="95"
-          r="80"
-          fill="none"
-          stroke={color}
-          strokeWidth="11"
-          strokeLinecap="round"
-          strokeDasharray={2 * Math.PI * 80}
-          style={{ strokeDashoffset: stroke }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <div className="flex items-baseline font-display font-bold leading-none text-bone">
-          <motion.span className="tabular-nums" style={{ fontSize: size * 0.3 }}>
-            {display}
-          </motion.span>
-          <span className="ml-1 text-lg text-slate2">/100</span>
-        </div>
-        <span
-          className="mt-1.5 rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold tracking-widest"
-          style={{ color, background: `${color}1f`, border: `1px solid ${color}55` }}
+    <div
+      ref={ref}
+      className="flex shrink-0 flex-col items-center"
+      style={{ width: size }}
+      role="img"
+      aria-label={`Security score ${value} out of 100, grade ${grade}`}
+    >
+      <div className="relative shrink-0" style={{ width: size, height: size }}>
+        <svg
+          viewBox="0 0 190 190"
+          className="h-full w-full -rotate-90"
+          style={{ filter: `drop-shadow(0 0 14px ${color}40)` }}
+          aria-hidden
         >
-          GRADE {grade}
-        </span>
-        {caption && <span className="mt-2 font-mono text-[10px] text-slate2">{caption}</span>}
+          <circle cx="95" cy="95" r="80" fill="none" stroke="rgba(255,255,255,0.13)" strokeWidth="11" />
+          <motion.circle
+            cx="95"
+            cy="95"
+            r="80"
+            fill="none"
+            stroke={color}
+            strokeWidth="11"
+            strokeLinecap="round"
+            strokeDasharray={2 * Math.PI * 80}
+            style={{ strokeDashoffset: stroke }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-5 text-center">
+          <div className="flex items-baseline font-display font-bold leading-none tracking-[-0.03em] text-bone">
+            <motion.span className="tabular-nums" style={{ fontSize: size * 0.31 }}>
+              {display}
+            </motion.span>
+            <span className="ml-1 font-sans font-medium text-[#B9B9B1]" style={{ fontSize: size * 0.105 }}>
+              /100
+            </span>
+          </div>
+          <span
+            className="mt-2 rounded-md px-2.5 py-1 font-sans text-xs font-bold tracking-[0.14em]"
+            style={{ color, background: `${color}24`, border: `1px solid ${color}66` }}
+          >
+            GRADE {grade}
+          </span>
+        </div>
       </div>
+      {caption && (
+        <p className="mt-4 max-w-[27ch] text-center font-sans text-sm font-medium leading-snug text-bone">
+          {caption}
+        </p>
+      )}
     </div>
   );
 }

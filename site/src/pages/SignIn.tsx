@@ -1,7 +1,7 @@
 import { motion, useReducedMotion } from 'framer-motion';
-import { useSignIn } from '@clerk/clerk-react';
+import { useAuth, useSignIn } from '@clerk/clerk-react';
 import { ArrowLeft, Coins, History, Loader2, Radar } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { SonarGrid } from '../components/fx/SonarGrid';
 import { LiquidGlassButton } from '../components/fx/LiquidGlassButton';
 import { springQuiet } from '../lib/motion';
@@ -39,18 +39,20 @@ const PERKS = [
 ];
 
 /**
- * Sign-in (after 21st.dev's @pulseawan/modern-login-signup): a modern
- * split auth card in black & white — brand story on the left, a single
+ * Sign-in / sign-up (after 21st.dev's @pulseawan/modern-login-signup): a
+ * modern split auth card in black & white — brand story on the left, one
  * Google button on the right. GOOGLE ONLY: no email field, no password,
  * nothing to phish or forget. The button starts a real Clerk OAuth
  * redirect (Google via Clerk); Clerk hands the browser back to
- * /sso-callback, which completes the sign-in and lands on /welcome.
+ * /sso-callback, which completes the flow and lands on the member site.
  */
-export function SignIn() {
+export function SignIn({ mode = 'signin' }: { mode?: 'signin' | 'signup' }) {
   const reduce = useReducedMotion();
+  const isSignup = mode === 'signup';
 
   return (
     <div className="relative flex min-h-screen flex-col bg-ink">
+      {CLERK_ENABLED && <SignedInRedirect />}
       <SonarGrid />
 
       {/* top bar */}
@@ -130,13 +132,16 @@ export function SignIn() {
 
           {/* auth pane */}
           <div className="flex flex-col justify-center p-7 sm:p-10">
-            <p className="font-mono text-[10px] tracking-[0.28em] text-slate2">WELCOME, HUNTER</p>
+            <p className="font-mono text-[10px] tracking-[0.28em] text-slate2">
+              {isSignup ? 'CREATE YOUR ACCOUNT' : 'WELCOME BACK'}
+            </p>
             <h1 className="mt-3 font-display text-3xl font-bold tracking-tight text-bone">
-              Sign in to BugSeek
+              {isSignup ? 'Join BugSeek' : 'Sign in to BugSeek'}
             </h1>
             <p className="mt-2.5 text-sm leading-relaxed text-body/80">
-              New here or coming back — it's the same door. Your Google
-              account is your BugSeek account.
+              {isSignup
+                ? 'Use Google to create your account. Your name and profile come from Google — no BugSeek password to remember.'
+                : "New here or coming back — it's the same door. Your Google account is your BugSeek account."}
             </p>
 
             {CLERK_ENABLED ? <GoogleButton /> : <GoogleButtonDisabled />}
@@ -166,6 +171,15 @@ export function SignIn() {
   );
 }
 
+/** If a signed-in member lands here, send them straight to the main site. */
+function SignedInRedirect() {
+  const { isLoaded, isSignedIn } = useAuth();
+  useEffect(() => {
+    if (isLoaded && isSignedIn) navigate('/app');
+  }, [isLoaded, isSignedIn]);
+  return null;
+}
+
 /**
  * The live Google button — the only place useSignIn runs. Mounted only
  * when CLERK_ENABLED (the hook throws without a ClerkProvider).
@@ -184,7 +198,7 @@ function GoogleButton() {
       await signIn.authenticateWithRedirect({
         strategy: 'oauth_google',
         redirectUrl: '/sso-callback',
-        redirectUrlComplete: '/welcome',
+        redirectUrlComplete: '/app',
       });
       // On success the browser leaves for Google — nothing else to do.
     } catch (err) {

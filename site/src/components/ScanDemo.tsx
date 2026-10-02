@@ -60,13 +60,13 @@ const SEV_STYLE: Record<Sev, { label: string; chip: string; bar: string }> = {
   medium: { label: 'MEDIUM', chip: 'bg-amber2/15 text-amber2 border-amber2/30', bar: 'bg-amber2' },
   low: {
     label: 'LOW',
-    chip: 'bg-mintlight/15 text-mintlight border-mintlight/30',
-    bar: 'bg-mintlight',
+    chip: 'bg-sky2/15 text-sky2 border-sky2/35',
+    bar: 'bg-sky2',
   },
   trap: {
     label: 'POSSIBLE TRAP',
-    chip: 'border-dashed bg-amber2/10 text-amber2 border-amber2/40',
-    bar: 'bg-amber2',
+    chip: 'border-dashed bg-violet2/10 text-violet2 border-violet2/40',
+    bar: 'bg-violet2',
   },
 };
 
@@ -131,12 +131,12 @@ export function ScanDemo({ bare = false }: { bare?: boolean }) {
     >
       {/* window chrome */}
       <div className="flex items-center gap-2 border-b border-white/10 px-5 py-3.5">
-        <span className="h-3 w-3 rounded-full bg-crit/80" />
-        <span className="h-3 w-3 rounded-full bg-amber2/80" />
-        <span className="h-3 w-3 rounded-full bg-mint/80" />
-        <span className="ml-3 font-mono text-xs text-slate2">bugseek — scan</span>
-        <span className="ml-auto flex items-center gap-1.5 font-mono text-[11px] text-mint">
-          <span className={`h-1.5 w-1.5 rounded-full bg-mint ${done ? '' : 'pulse-dot'}`} />
+        <span className="h-3 w-3 rounded-full bg-crit" />
+        <span className="h-3 w-3 rounded-full bg-amber2" />
+        <span className="h-3 w-3 rounded-full bg-signal" />
+        <span className="ml-3 font-mono text-xs text-body/75">bugseek — scan</span>
+        <span className="ml-auto flex items-center gap-1.5 font-mono text-[11px] font-semibold text-signal">
+          <span className={`h-1.5 w-1.5 rounded-full bg-signal ${done ? '' : 'pulse-dot'}`} />
           {done ? 'DONE' : 'LIVE DEMO'}
         </span>
       </div>
@@ -146,7 +146,7 @@ export function ScanDemo({ bare = false }: { bare?: boolean }) {
         <div className="flex items-center gap-3 rounded-xl bg-ink px-4 py-2.5 font-mono text-sm">
           <span className="text-slate2">target</span>
           <span className="truncate text-bone">https://juice-shop.github.io</span>
-          <span className="ml-auto hidden shrink-0 rounded-md bg-mint/15 px-2 py-0.5 text-xs text-mint sm:inline">
+          <span className="ml-auto hidden shrink-0 rounded-md bg-signal/15 px-2 py-0.5 text-xs font-semibold text-signal sm:inline">
             authorized ✓
           </span>
         </div>
@@ -154,14 +154,14 @@ export function ScanDemo({ bare = false }: { bare?: boolean }) {
         {/* progress */}
         <div className="mt-4">
           <div className="flex items-center justify-between font-mono text-xs">
-            <span className="text-body/70">{done ? 'Scan complete' : PHASES[phase]}</span>
-            <span className="text-slate2">
+            <span className="font-medium text-bone/90">{done ? 'Scan complete' : PHASES[phase]}</span>
+            <span className="text-body/75">
               {visible}/{FINDINGS.length} findings
             </span>
           </div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
             <motion.div
-              className="h-full rounded-full bg-mint"
+              className="h-full rounded-full bg-signal shadow-[0_0_18px_rgba(46,234,140,0.5)]"
               initial={false}
               animate={{ width: `${(visible / FINDINGS.length) * 100}%` }}
               transition={springQuiet}
@@ -192,19 +192,19 @@ export function ScanDemo({ bare = false }: { bare?: boolean }) {
                       {s.label}
                     </span>
                     {f.cvss && (
-                      <span className="ml-auto font-mono text-xs text-slate2">
+                      <span className="ml-auto font-mono text-xs text-body/75">
                         CVSS <span className="text-bone">{f.cvss}</span>
                       </span>
                     )}
                   </div>
-                  <p className="mt-1.5 text-sm font-semibold text-bone">{f.title}</p>
-                  <p className="mt-0.5 font-mono text-xs text-slate2">{f.detail}</p>
+                  <p className="mt-1.5 text-[15px] font-semibold leading-snug text-bone">{f.title}</p>
+                  <p className="mt-1 font-mono text-[13px] leading-relaxed text-body/90">{f.detail}</p>
                 </motion.div>
               );
             })}
           </AnimatePresence>
           {visible === 0 && (
-            <p className="py-8 text-center font-mono text-xs text-slate2">
+            <p className="py-8 text-center font-mono text-xs text-body/75">
               warming up the scanner…
             </p>
           )}
@@ -212,7 +212,7 @@ export function ScanDemo({ bare = false }: { bare?: boolean }) {
 
         {/* footer */}
         <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-4">
-          <p className="font-mono text-[11px] text-slate2">
+          <p className="font-mono text-[11px] text-body/75">
             4 findings · 1 trap flagged, not reported
           </p>
           <motion.button
@@ -220,7 +220,7 @@ export function ScanDemo({ bare = false }: { bare?: boolean }) {
             whileTap={{ scale: 0.97, transition: { duration: 0.1 } }}
             whileHover={{ scale: 1.03 }}
             transition={springQuiet}
-            className="flex items-center gap-1.5 rounded-lg border border-mint/30 bg-mint/10 px-3.5 py-1.5 text-sm font-semibold text-mint transition-colors hover:bg-mint/20"
+            className="flex items-center gap-1.5 rounded-lg border border-signal/35 bg-signal/10 px-3.5 py-1.5 text-sm font-semibold text-signal transition-colors hover:bg-signal/20"
           >
             <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Re-run scan
           </motion.button>

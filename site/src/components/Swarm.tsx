@@ -142,7 +142,7 @@ export function Swarm() {
           {/* ——— score + how a run lands ——— */}
           <Reveal delay={0.1}>
             <div className="flex flex-col items-center gap-7 lg:items-start">
-              <ScoreRing value={72} grade="C" caption="ILLUSTRATIVE — YOUR TARGET EARNS ITS OWN" />
+              <ScoreRing value={72} grade="C" caption="Illustrative score — your target earns its own." />
               <div>
                 <h3 className="text-center font-display text-2xl font-semibold text-bone lg:text-left">
                   Every run ends with a score.
