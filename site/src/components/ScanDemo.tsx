@@ -141,7 +141,7 @@ export function ScanDemo() {
         {/* target bar */}
         <div className="flex items-center gap-3 rounded-xl bg-ink px-4 py-2.5 font-mono text-sm">
           <span className="text-slate2">target</span>
-          <span className="truncate text-bone">https://juice-shop.local</span>
+          <span className="truncate text-bone">https://juice-shop.github.io</span>
           <span className="ml-auto hidden shrink-0 rounded-md bg-mint/15 px-2 py-0.5 text-xs text-mint sm:inline">
             authorized ✓
           </span>

@@ -71,7 +71,7 @@ The extension works fully standalone — the backend just adds AI deepening and 
 
 ## Try it on something safe
 
-Only ever scan targets you own or are authorized to test. [OWASP Juice Shop](https://owasp.org/www-project-juice-shop/) is the classic practice target:
+Only ever scan targets you own or are authorized to test. [OWASP Juice Shop](https://juice-shop.github.io/) is the classic practice target:
 
 ```bash
 docker run -d -p 3000:3000 bkimminich/juice-shop
