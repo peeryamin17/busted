@@ -1,1 +1,16 @@
-{"$schema":"https://openapi.vercel.sh/vercel.json","buildCommand":"npm run build","framework":"vite","outputDirectory":"dist","rewrites":[{"destination":"/index.html","source":"/(.*)"}]}
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "framework": "vite",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/__clerk/(.*)",
+      "destination": "https://clerk.bugseek-ai.vercel.app/v1/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

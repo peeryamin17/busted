@@ -12,6 +12,7 @@ createRoot(document.getElementById('root')!).render(
       {CLERK_PUBLISHABLE_KEY ? (
         <ClerkProvider
           publishableKey={CLERK_PUBLISHABLE_KEY}
+          proxyUrl="/__clerk"
           appearance={clerkAppearance}
           signInUrl="/signin"
           signUpUrl="/signup"
