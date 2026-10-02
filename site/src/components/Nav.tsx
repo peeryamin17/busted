@@ -118,6 +118,16 @@ function SignedOutLinks({ home }: { home: boolean }) {
         }}
         className="px-1.5 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone sm:px-2"
       >
+        Sign up
+      </a>
+      <a
+        href="/signin"
+        onClick={(e) => {
+          e.preventDefault();
+          navigate('/signin');
+        }}
+        className="px-1.5 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone sm:px-2"
+      >
         Sign in
       </a>
       <LiquidGlassButton
