@@ -1,9 +1,11 @@
 import { Nav } from './components/Nav';
 import { Hero } from './components/Hero';
 import { Ticker } from './components/Ticker';
-import { Pillars } from './components/Pillars';
+import { Bento } from './components/Bento';
+import { Swarm } from './components/Swarm';
 import { HowItWorks } from './components/HowItWorks';
 import { Pricing } from './components/Pricing';
+import { Faq } from './components/Faq';
 import { Download } from './components/Download';
 import { Footer } from './components/Footer';
 
@@ -20,9 +22,11 @@ export default function App() {
       <main>
         <Hero />
         <Ticker />
-        <Pillars />
+        <Bento />
+        <Swarm />
         <HowItWorks />
         <Pricing />
+        <Faq />
         <Download />
       </main>
       <Footer />

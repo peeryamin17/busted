@@ -1,4 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { RotateCcw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { springPop, springQuiet } from '../lib/motion';
 
@@ -74,7 +75,7 @@ const SEV_STYLE: Record<Sev, { label: string; chip: string; bar: string }> = {
  * Findings pop in on springs as the "scan" progresses. Re-runnable.
  * Fully static when the user prefers reduced motion.
  */
-export function ScanDemo() {
+export function ScanDemo({ bare = false }: { bare?: boolean }) {
   const reduce = useReducedMotion();
   const [phase, setPhase] = useState(0);
   const [visible, setVisible] = useState(0);
@@ -124,7 +125,10 @@ export function ScanDemo() {
   }, [run]);
 
   return (
-    <div className="glass overflow-hidden rounded-3xl" aria-label="Simulated BugSeek scan">
+    <div
+      className={bare ? 'overflow-hidden rounded-3xl' : 'glass overflow-hidden rounded-3xl'}
+      aria-label="Simulated BugSeek scan"
+    >
       {/* window chrome */}
       <div className="flex items-center gap-2 border-b border-white/10 px-5 py-3.5">
         <span className="h-3 w-3 rounded-full bg-crit/80" />
@@ -216,9 +220,9 @@ export function ScanDemo() {
             whileTap={{ scale: 0.97, transition: { duration: 0.1 } }}
             whileHover={{ scale: 1.03 }}
             transition={springQuiet}
-            className="rounded-lg border border-mint/30 bg-mint/10 px-3.5 py-1.5 text-sm font-semibold text-mint transition-colors hover:bg-mint/20"
+            className="flex items-center gap-1.5 rounded-lg border border-mint/30 bg-mint/10 px-3.5 py-1.5 text-sm font-semibold text-mint transition-colors hover:bg-mint/20"
           >
-            ↻ Re-run scan
+            <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Re-run scan
           </motion.button>
         </div>
       </div>

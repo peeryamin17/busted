@@ -1,101 +1,100 @@
 import { motion, useReducedMotion } from 'framer-motion';
-import { MaskedLine } from './Reveal';
+import { Gauge, Radar, ShieldCheck } from 'lucide-react';
 import { ScanDemo } from './ScanDemo';
+import { Backdrop } from './fx/Backdrop';
+import { BorderBeam } from './fx/BorderBeam';
+import { FlipWords } from './fx/FlipWords';
 import { pressable, springQuiet } from '../lib/motion';
 
-const STATS = ['9 specialist agents', 'CVSS on every finding', '1-click Markdown reports'];
+const ROTATE = ['scanners', 'templates', 'checklists', 'crawlers'];
 
+const STATS = [
+  { icon: Radar, label: '9 specialist agents' },
+  { icon: Gauge, label: '0–100 security score' },
+  { icon: ShieldCheck, label: 'CVSS on every finding' },
+];
+
+/**
+ * The showpiece: beams-and-grid backdrop, a flip-words headline, and the
+ * interactive scan demo framed by a travelling border beam — centred,
+ * full-width, unapologetic.
+ */
 export function Hero() {
   const reduce = useReducedMotion();
+  const rise = (delay: number) => ({
+    initial: reduce ? (false as const) : { opacity: 0, y: 18 },
+    animate: { opacity: 1, y: 0 },
+    transition: { ...springQuiet, delay },
+  });
+
   return (
-    <section id="top" className="relative overflow-hidden pt-32 sm:pt-40">
-      {/* faint mint glow — atmosphere, not decoration */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-40 left-1/2 h-[480px] w-[820px] -translate-x-1/2 rounded-full opacity-[0.13] blur-[120px]"
-        style={{ background: 'radial-gradient(closest-side, #34D399, transparent)' }}
-      />
-      <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-[1.02fr_0.98fr] lg:gap-10">
-        <div>
+    <section id="top" className="relative overflow-hidden pb-16 pt-36 sm:pt-44">
+      <Backdrop />
+      <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
+        <div className="mx-auto max-w-3xl text-center">
           <motion.div
-            initial={reduce ? false : { opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={springQuiet}
-            className="inline-flex items-center gap-2 rounded-full border border-mint/25 bg-mint/10 px-3.5 py-1.5 font-mono text-xs text-mint"
+            {...rise(0.05)}
+            className="inline-flex items-center gap-2 rounded-full border border-mint/25 bg-mint/10 px-3.5 py-1.5 font-mono text-xs"
           >
             <span className="h-1.5 w-1.5 rounded-full bg-mint pulse-dot" />
-            CHROME EXTENSION · MANIFEST V3
+            <span className="text-shiny font-semibold tracking-wide">CHROME EXTENSION · MANIFEST V3 · NO SIGN-UP TO START</span>
           </motion.div>
 
-          <h1 className="mt-6 font-display text-[2.9rem] font-bold leading-[1.02] tracking-tight text-bone sm:text-6xl lg:text-[4.4rem]">
-            <MaskedLine delay={0.08}>Find what</MaskedLine>
-            <MaskedLine delay={0.16}>
-              <span className="text-mint">scanners</span> miss.
-            </MaskedLine>
-          </h1>
-
-          <motion.p
-            initial={reduce ? false : { opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...springQuiet, delay: 0.28 }}
-            className="mt-6 max-w-xl text-lg leading-relaxed text-body/90"
+          <motion.h1
+            {...rise(0.14)}
+            className="mt-7 font-display text-[2.85rem] font-bold leading-[1.03] tracking-tight text-bone sm:text-6xl lg:text-[4.6rem]"
           >
+            Find what{' '}
+            <FlipWords words={ROTATE} className="text-mint" />{' '}
+            miss.
+          </motion.h1>
+
+          <motion.p {...rise(0.26)} className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-body/90">
             BugSeek AI is the security researcher in your browser. One click maps a
             target's attack surface — passive recon for free, guided active testing
             when you're authorized, and an AI agent swarm for the deep stuff.
           </motion.p>
 
-          <motion.div
-            initial={reduce ? false : { opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...springQuiet, delay: 0.38 }}
-            className="mt-8 flex flex-wrap items-center gap-4"
-          >
+          <motion.div {...rise(0.36)} className="mt-9 flex flex-wrap items-center justify-center gap-4">
             <motion.a
               href="#download"
               {...pressable}
-              className="rounded-2xl bg-mint px-7 py-3.5 font-display text-base font-semibold text-ink shadow-[0_16px_40px_-12px_rgba(52,211,153,0.55)]"
+              className="btn-shimmer rounded-2xl px-7 py-3.5 font-display text-base font-semibold text-ink shadow-[0_16px_40px_-12px_rgba(52,211,153,0.55)]"
             >
               Get it for Chrome
             </motion.a>
             <motion.a
-              href="#how"
+              href="#swarm"
               {...pressable}
               className="glass-soft rounded-2xl px-7 py-3.5 font-display text-base font-semibold text-bone"
             >
-              See how it works
+              Meet the swarm
             </motion.a>
           </motion.div>
 
-          <motion.p
-            initial={reduce ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ ...springQuiet, delay: 0.5 }}
-            className="mt-5 font-mono text-xs text-slate2"
-          >
+          <motion.p {...rise(0.46)} className="mt-5 font-mono text-xs text-slate2">
             Only ever scan targets you're authorized to test. Seriously.
           </motion.p>
 
-          <motion.ul
-            initial={reduce ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ ...springQuiet, delay: 0.58 }}
-            className="mt-8 flex flex-wrap gap-x-6 gap-y-2"
-          >
+          <motion.ul {...rise(0.54)} className="mt-9 flex flex-wrap items-center justify-center gap-x-7 gap-y-2.5">
             {STATS.map((s) => (
-              <li key={s} className="flex items-center gap-2 font-mono text-xs text-slate2">
-                <span className="text-mint">▸</span> {s}
+              <li key={s.label} className="flex items-center gap-2 font-mono text-xs text-slate2">
+                <s.icon className="h-3.5 w-3.5 text-mint" aria-hidden />
+                {s.label}
               </li>
             ))}
           </motion.ul>
         </div>
 
         <motion.div
-          initial={reduce ? false : { opacity: 0, y: 32, scale: 0.98 }}
+          initial={reduce ? false : { opacity: 0, y: 40, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ ...springQuiet, delay: 0.3 }}
+          transition={{ ...springQuiet, delay: 0.42 }}
+          className="mx-auto mt-14 max-w-3xl"
         >
-          <ScanDemo />
+          <BorderBeam>
+            <ScanDemo bare />
+          </BorderBeam>
           <p className="mt-3 text-center font-mono text-[11px] text-slate2">
             simulated scan — the real thing runs in your browser
           </p>

@@ -1,25 +1,40 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { BellRing } from 'lucide-react';
 import { useState } from 'react';
 import { Reveal } from './Reveal';
 import { springPop, springQuiet } from '../lib/motion';
 
+/**
+ * The drop: aurora-lit CTA block with the world's most honest waitlist.
+ * The store listing doesn't exist yet — the copy says so, loudly.
+ */
 export function Download() {
   const reduce = useReducedMotion();
   const [email, setEmail] = useState('');
   const [noted, setNoted] = useState(false);
 
   return (
-    <section id="download" className="relative scroll-mt-24 overflow-hidden py-24 sm:py-32">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute left-1/2 top-1/2 h-[420px] w-[720px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.1] blur-[120px]"
-        style={{ background: 'radial-gradient(closest-side, #34D399, transparent)' }}
-      />
+    <section id="download" className="relative scroll-mt-24 overflow-hidden py-28 sm:py-36">
+      {/* aurora backdrop — mint only, drifting on transform */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div
+          className="aurora absolute left-1/2 top-1/2 h-[460px] w-[820px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.12] blur-[110px]"
+          style={{ background: 'radial-gradient(closest-side, #34D399, transparent)' }}
+        />
+        <div className="grid-bg grid-mask-center absolute inset-0 opacity-60" />
+      </div>
+
       <div className="relative mx-auto max-w-3xl px-4 text-center sm:px-6">
         <Reveal>
-          <img src="/bug.svg" alt="BugSeek AI logo" className="mx-auto h-20 w-20" />
+          <motion.img
+            src="/bug.svg"
+            alt="BugSeek AI logo"
+            className="mx-auto h-20 w-20"
+            whileHover={reduce ? undefined : { rotate: -8, scale: 1.06 }}
+            transition={springPop}
+          />
           <p className="mt-6 font-mono text-xs tracking-[0.2em] text-mint">THE DROP</p>
-          <h2 className="mt-3 font-display text-4xl font-bold tracking-tight text-bone sm:text-6xl">
+          <h2 className="mt-3 font-display text-5xl font-bold tracking-tight text-bone sm:text-6xl">
             Ready when
             <br />
             you are.
@@ -76,8 +91,9 @@ export function Download() {
                       whileTap={{ scale: 0.97, transition: { duration: 0.1 } }}
                       whileHover={{ scale: 1.03 }}
                       transition={springQuiet}
-                      className="shrink-0 rounded-2xl bg-mint px-5 py-3 font-display text-sm font-semibold text-ink"
+                      className="btn-shimmer flex shrink-0 items-center gap-2 rounded-2xl px-5 py-3 font-display text-sm font-semibold text-ink"
                     >
+                      <BellRing className="h-4 w-4" aria-hidden />
                       Remind me
                     </motion.button>
                   </motion.form>
