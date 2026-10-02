@@ -60,7 +60,7 @@ export function HowItWorks() {
         <div aria-hidden className="absolute bottom-2 left-[19px] top-2 w-px bg-white/10 lg:left-1/2" />
         <motion.div
           aria-hidden
-          className="absolute bottom-2 left-[19px] top-2 w-px origin-top bg-mint shadow-[0_0_12px_rgba(52,211,153,0.7)] lg:left-1/2"
+          className="absolute bottom-2 left-[19px] top-2 w-px origin-top bg-mint shadow-[0_0_12px_rgba(255,255,255,0.35)] lg:left-1/2"
           style={reduce ? { scaleY: 1 } : { scaleY: fill }}
         />
 

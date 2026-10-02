@@ -17,28 +17,90 @@ body {
 }
 
 ::selection {
-  background: rgba(52, 211, 153, 0.28);
-  color: #eaf6f0;
+  background: #ffffff;
+  color: #050505;
 }
 
-/* Glass material — translucent layer, bright top edge catching the light.
-   Never stack one translucent surface directly on another. */
+/* Glass material — translucent white-on-black layer, bright top edge
+   catching the light. Never stack one translucent surface on another. */
 .glass {
-  background: rgba(19, 27, 46, 0.62);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: rgba(16, 16, 16, 0.62);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
   border: 1px solid rgba(255, 255, 255, 0.09);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 24px 60px -24px rgba(0, 0, 0, 0.7);
+    0 24px 60px -24px rgba(0, 0, 0, 0.8);
 }
 
 .glass-soft {
-  background: rgba(19, 27, 46, 0.42);
-  backdrop-filter: blur(14px) saturate(160%);
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  background: rgba(16, 16, 16, 0.42);
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
   border: 1px solid rgba(255, 255, 255, 0.07);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* ------------------------------------------------------------------ */
+/* Liquid glass (Designali liquid-glass-button energy): a glossy,     */
+/* refractive-feeling material — specular top edge, deep inner glow,  */
+/* and a sheen that sweeps across on hover. Two variants: translucent  */
+/* glass (dark) and solid glass (white). Transform/opacity motion via  */
+/* Framer on the element itself.                                       */
+/* ------------------------------------------------------------------ */
+.liquid-glass {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+}
+.liquid-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.35) 48%,
+    rgba(255, 255, 255, 0.05) 55%,
+    transparent 70%
+  );
+  transform: translateX(-130%);
+  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.liquid-glass:hover::before {
+  transform: translateX(130%);
+}
+.liquid-glass > * {
+  position: relative;
+  z-index: 2;
+}
+.liquid-glass-glass {
+  color: #ffffff;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.16),
+    rgba(255, 255, 255, 0.05) 45%,
+    rgba(255, 255, 255, 0.02)
+  );
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -12px 20px rgba(255, 255, 255, 0.05),
+    0 14px 34px -14px rgba(0, 0, 0, 0.9);
+}
+.liquid-glass-solid {
+  color: #050505;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(232, 232, 232, 0.94));
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    inset 0 -10px 18px rgba(0, 0, 0, 0.1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+    0 14px 34px -12px rgba(255, 255, 255, 0.22),
+    0 12px 28px -12px rgba(0, 0, 0, 0.85);
 }
 
 /* Ticker */
@@ -86,42 +148,15 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
-/* 21st.dev-flavoured effects, reimplemented natively.                 */
-/* Transform/opacity only where animated continuously; every loop is   */
-/* switched off under prefers-reduced-motion below.                    */
+/* Effect library — all monochrome now. Transform/opacity only where  */
+/* animated continuously; every loop dies under reduced motion.       */
 /* ------------------------------------------------------------------ */
 
-/* Falling light beams (Aceternity background-beams energy) */
-@keyframes beam-fall {
-  0% {
-    transform: translate3d(0, -320px, 0);
-    opacity: 0;
-  }
-  8% {
-    opacity: 1;
-  }
-  88% {
-    opacity: 1;
-  }
-  100% {
-    transform: translate3d(0, 115vh, 0);
-    opacity: 0;
-  }
-}
-.beam {
-  position: absolute;
-  top: 0;
-  width: 1px;
-  background: linear-gradient(to bottom, transparent, rgba(52, 211, 153, 0.55), transparent);
-  animation: beam-fall linear infinite;
-  will-change: transform;
-}
-
-/* Blueprint grid backdrop (Magic UI grid-pattern) */
+/* Blueprint grid backdrop */
 .grid-bg {
   background-image:
-    linear-gradient(to right, rgba(234, 246, 240, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(234, 246, 240, 0.05) 1px, transparent 1px);
+    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
   background-size: 46px 46px;
 }
 .grid-mask {
@@ -133,7 +168,7 @@ body {
   mask-image: radial-gradient(ellipse 75% 80% at 50% 50%, black 20%, transparent 75%);
 }
 
-/* Animated shiny text (Magic UI animated-shiny-text) */
+/* Animated shiny text (white sheen sweeping grey letters) */
 @keyframes shine-text {
   0% {
     background-position: 200% center;
@@ -145,11 +180,11 @@ body {
 .text-shiny {
   background: linear-gradient(
     110deg,
-    #34d399 20%,
-    #eaf6f0 40%,
-    #5eead4 50%,
-    #eaf6f0 60%,
-    #34d399 80%
+    #8b8b8b 20%,
+    #ffffff 40%,
+    #d9d9d9 50%,
+    #ffffff 60%,
+    #8b8b8b 80%
   );
   background-size: 200% auto;
   -webkit-background-clip: text;
@@ -158,7 +193,7 @@ body {
   animation: shine-text 4.5s linear infinite;
 }
 
-/* Rotating conic border beam (Magic UI border-beam / shine-border) */
+/* Rotating conic border beam / shine border — white light */
 @property --beam-angle {
   syntax: '<angle>';
   initial-value: 0deg;
@@ -174,8 +209,8 @@ body {
     from var(--beam-angle),
     transparent 0deg,
     transparent 250deg,
-    rgba(52, 211, 153, 0.9) 305deg,
-    rgba(94, 234, 212, 1) 325deg,
+    rgba(255, 255, 255, 0.85) 305deg,
+    rgba(255, 255, 255, 1) 325deg,
     transparent 360deg
   );
   animation: beam-spin 5.5s linear infinite;
@@ -183,16 +218,16 @@ body {
 .shine-border-layer {
   background: conic-gradient(
     from var(--beam-angle),
-    rgba(52, 211, 153, 0.12) 0deg,
-    rgba(52, 211, 153, 0.65) 90deg,
-    rgba(52, 211, 153, 0.12) 180deg,
-    rgba(94, 234, 212, 0.5) 270deg,
-    rgba(52, 211, 153, 0.12) 360deg
+    rgba(255, 255, 255, 0.1) 0deg,
+    rgba(255, 255, 255, 0.55) 90deg,
+    rgba(255, 255, 255, 0.1) 180deg,
+    rgba(255, 255, 255, 0.4) 270deg,
+    rgba(255, 255, 255, 0.1) 360deg
   );
   animation: beam-spin 7s linear infinite;
 }
 
-/* Flowing dashes along swarm diagram beams (Magic UI animated-beam) */
+/* Flowing dashes along swarm diagram beams */
 @keyframes beam-dash {
   to {
     stroke-dashoffset: -28;
@@ -203,7 +238,7 @@ body {
   animation: beam-dash 1.1s linear infinite;
 }
 
-/* Shimmer sweep for primary buttons (Magic UI shimmer-button) */
+/* White shimmer sweep (kept for small inline CTAs) */
 @keyframes shimmer-slide {
   0% {
     background-position: 200% center;
@@ -215,17 +250,17 @@ body {
 .btn-shimmer {
   background-image: linear-gradient(
     110deg,
-    #34d399 30%,
-    #6ee7b7 46%,
-    #a7f3d0 50%,
-    #6ee7b7 54%,
-    #34d399 70%
+    #ffffff 30%,
+    #d9d9d9 46%,
+    #ffffff 50%,
+    #d9d9d9 54%,
+    #ffffff 70%
   );
   background-size: 220% auto;
   animation: shimmer-slide 3.2s linear infinite;
 }
 
-/* Slow aurora drift for CTA backdrops (Aceternity aurora, mint-only) */
+/* Slow aurora drift for CTA backdrops (now a white glow) */
 @keyframes aurora-drift {
   0%,
   100% {
@@ -240,9 +275,50 @@ body {
   will-change: transform;
 }
 
+/* Preloader: slow orbit for the glyph tiles + glitter twinkle */
+@keyframes orbit-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.orbit-spin {
+  animation: orbit-spin 26s linear infinite;
+  will-change: transform;
+}
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0.08;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.15);
+  }
+}
+.glitter-fleck {
+  animation: twinkle 1.6s ease-in-out infinite;
+}
+
+/* Sonar-style CSS rings (used on the sign-in brand pane) */
+@keyframes ring-ping {
+  0% {
+    transform: scale(0.35);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+.ring-ping {
+  animation: ring-ping 3.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  will-change: transform, opacity;
+}
+
 /* Focus visibility */
 :focus-visible {
-  outline: 2px solid #34d399;
+  outline: 2px solid #ffffff;
   outline-offset: 3px;
   border-radius: 4px;
 }
@@ -255,16 +331,19 @@ body {
   .ticker-track,
   .ticker-track-rev,
   .pulse-dot,
-  .beam,
   .text-shiny,
   .btn-shimmer,
   .aurora,
   .beam-flow,
   .border-beam-layer,
-  .shine-border-layer {
+  .shine-border-layer,
+  .orbit-spin,
+  .glitter-fleck,
+  .ring-ping,
+  .liquid-glass::before {
     animation: none;
   }
-  .beam {
+  .liquid-glass::before {
     display: none;
   }
 }

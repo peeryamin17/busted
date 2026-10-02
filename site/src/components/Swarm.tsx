@@ -94,7 +94,7 @@ export function Swarm() {
                     <path
                       d={beamPath(s.x, s.y)}
                       fill="none"
-                      stroke="rgba(52,211,153,0.55)"
+                      stroke="rgba(255,255,255,0.45)"
                       strokeWidth="1.4"
                       vectorEffect="non-scaling-stroke"
                       className="beam-flow"
@@ -112,7 +112,7 @@ export function Swarm() {
                 className="absolute z-10 -translate-x-1/2 -translate-y-1/2"
                 style={{ left: `${HEAD.x}%`, top: `${HEAD.y}%` }}
               >
-                <div className="flex items-center gap-2 rounded-2xl bg-mint px-4 py-2.5 font-display text-sm font-bold text-ink shadow-[0_16px_40px_-10px_rgba(52,211,153,0.7)]">
+                <div className="flex items-center gap-2 rounded-2xl bg-mint px-4 py-2.5 font-display text-sm font-bold text-ink shadow-[0_16px_40px_-10px_rgba(255,255,255,0.35)]">
                   <img src="/bug.svg" alt="" className="h-5 w-5" />
                   HEAD AGENT
                 </div>

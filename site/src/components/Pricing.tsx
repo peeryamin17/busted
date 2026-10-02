@@ -143,7 +143,7 @@ export function Pricing() {
                 {...pressable}
                 className={`mt-8 rounded-2xl px-6 py-3 text-center font-display text-base font-semibold ${
                   t.featured
-                    ? 'btn-shimmer text-ink shadow-[0_16px_40px_-12px_rgba(52,211,153,0.55)]'
+                    ? 'btn-shimmer text-ink shadow-[0_16px_40px_-12px_rgba(255,255,255,0.3)]'
                     : 'border border-white/10 bg-white/5 text-bone hover:bg-white/10'
                 }`}
               >

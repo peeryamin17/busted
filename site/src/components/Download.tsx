@@ -2,6 +2,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { BellRing } from 'lucide-react';
 import { useState } from 'react';
 import { Reveal } from './Reveal';
+import { LiquidGlassButton } from './fx/LiquidGlassButton';
 import { springPop, springQuiet } from '../lib/motion';
 
 /**
@@ -15,11 +16,11 @@ export function Download() {
 
   return (
     <section id="download" className="relative scroll-mt-24 overflow-hidden py-28 sm:py-36">
-      {/* aurora backdrop — mint only, drifting on transform */}
+      {/* aurora backdrop — white glow, drifting on transform */}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         <div
           className="aurora absolute left-1/2 top-1/2 h-[460px] w-[820px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.12] blur-[110px]"
-          style={{ background: 'radial-gradient(closest-side, #34D399, transparent)' }}
+          style={{ background: 'radial-gradient(closest-side, #FFFFFF, transparent)' }}
         />
         <div className="grid-bg grid-mask-center absolute inset-0 opacity-60" />
       </div>
@@ -86,16 +87,10 @@ export function Download() {
                       placeholder="you@hunter.dev"
                       className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-ink px-4 py-3 text-sm text-bone placeholder:text-slate2 focus:border-mint/50 focus:outline-none"
                     />
-                    <motion.button
-                      type="submit"
-                      whileTap={{ scale: 0.97, transition: { duration: 0.1 } }}
-                      whileHover={{ scale: 1.03 }}
-                      transition={springQuiet}
-                      className="btn-shimmer flex shrink-0 items-center gap-2 rounded-2xl px-5 py-3 font-display text-sm font-semibold text-ink"
-                    >
+                    <LiquidGlassButton type="submit" size="md" className="shrink-0">
                       <BellRing className="h-4 w-4" aria-hidden />
                       Remind me
-                    </motion.button>
+                    </LiquidGlassButton>
                   </motion.form>
                 )}
               </AnimatePresence>

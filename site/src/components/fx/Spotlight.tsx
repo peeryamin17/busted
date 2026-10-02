@@ -1,7 +1,7 @@
 import { useRef, type ReactNode, type MouseEvent } from 'react';
 
 /**
- * Spotlight card (Magic UI magic-card): a soft mint light follows the
+ * Spotlight card (Magic UI magic-card): a soft white light follows the
  * cursor across the surface. Pointer-only paint effect — the card itself
  * stays a solid panel, so no translucent-on-translucent stacking.
  */
@@ -29,7 +29,7 @@ export function Spotlight({
         className="pointer-events-none absolute inset-0 z-10 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
         style={{
           background:
-            'radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), rgba(52,211,153,0.10), transparent 65%)',
+            'radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.07), transparent 65%)',
         }}
       />
       {children}

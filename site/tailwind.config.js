@@ -4,17 +4,21 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: '#0A0F1E',
-        panel: '#131B2E',
-        mint: '#34D399',
-        mintlight: '#5EEAD4',
-        bone: '#EAF6F0',
-        paper: '#F8FAFC',
-        slate2: '#64748B',
-        amber2: '#FBBF24',
-        hot: '#FB923C',
-        crit: '#F87171',
-        body: '#CBD5E1',
+        // Black & white system — mostly black. The old accent token names
+        // remain, but every value is now monochrome: white is the accent.
+        ink: '#050505',
+        panel: '#101010',
+        mint: '#FFFFFF',
+        mintlight: '#E8E8E8',
+        bone: '#FFFFFF',
+        paper: '#FAFAFA',
+        body: '#CFCFCF',
+        slate2: '#8B8B8B',
+        // Faintly desaturated DATA tones — used only for severity coding
+        // inside the scan demo / score ring, never as theme accents.
+        amber2: '#B8AE94',
+        hot: '#C0A08C',
+        crit: '#C08F8F',
       },
       fontFamily: {
         display: ['"Space Grotesk"', 'system-ui', '-apple-system', '"Segoe UI"', 'sans-serif'],

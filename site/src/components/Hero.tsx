@@ -1,10 +1,11 @@
 import { motion, useReducedMotion } from 'framer-motion';
 import { Gauge, Radar, ShieldCheck } from 'lucide-react';
 import { ScanDemo } from './ScanDemo';
-import { Backdrop } from './fx/Backdrop';
 import { BorderBeam } from './fx/BorderBeam';
 import { FlipWords } from './fx/FlipWords';
-import { pressable, springQuiet } from '../lib/motion';
+import { LiquidGlassButton } from './fx/LiquidGlassButton';
+import { SonarGrid } from './fx/SonarGrid';
+import { springQuiet } from '../lib/motion';
 
 const ROTATE = ['scanners', 'templates', 'checklists', 'crawlers'];
 
@@ -15,9 +16,9 @@ const STATS = [
 ];
 
 /**
- * The showpiece: beams-and-grid backdrop, a flip-words headline, and the
- * interactive scan demo framed by a travelling border beam — centred,
- * full-width, unapologetic.
+ * The showpiece: a live sonar grid behind a flip-words headline, and
+ * the interactive scan demo framed by a travelling border beam.
+ * Tap the black anywhere — the sonar answers.
  */
 export function Hero() {
   const reduce = useReducedMotion();
@@ -29,14 +30,15 @@ export function Hero() {
 
   return (
     <section id="top" className="relative overflow-hidden pb-16 pt-36 sm:pt-44">
-      <Backdrop />
+      <SonarGrid />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-ink to-transparent" />
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
         <div className="mx-auto max-w-3xl text-center">
           <motion.div
             {...rise(0.05)}
-            className="inline-flex items-center gap-2 rounded-full border border-mint/25 bg-mint/10 px-3.5 py-1.5 font-mono text-xs"
+            className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3.5 py-1.5 font-mono text-xs"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-mint pulse-dot" />
+            <span className="h-1.5 w-1.5 rounded-full bg-white pulse-dot" />
             <span className="text-shiny font-semibold tracking-wide">CHROME EXTENSION · MANIFEST V3 · NO SIGN-UP TO START</span>
           </motion.div>
 
@@ -45,7 +47,7 @@ export function Hero() {
             className="mt-7 font-display text-[2.85rem] font-bold leading-[1.03] tracking-tight text-bone sm:text-6xl lg:text-[4.6rem]"
           >
             Find what{' '}
-            <FlipWords words={ROTATE} className="text-mint" />{' '}
+            <FlipWords words={ROTATE} className="text-white underline decoration-white/30 decoration-[0.06em] underline-offset-[0.14em]" />{' '}
             miss.
           </motion.h1>
 
@@ -56,20 +58,12 @@ export function Hero() {
           </motion.p>
 
           <motion.div {...rise(0.36)} className="mt-9 flex flex-wrap items-center justify-center gap-4">
-            <motion.a
-              href="#download"
-              {...pressable}
-              className="btn-shimmer rounded-2xl px-7 py-3.5 font-display text-base font-semibold text-ink shadow-[0_16px_40px_-12px_rgba(52,211,153,0.55)]"
-            >
+            <LiquidGlassButton href="#download" size="lg">
               Get it for Chrome
-            </motion.a>
-            <motion.a
-              href="#swarm"
-              {...pressable}
-              className="glass-soft rounded-2xl px-7 py-3.5 font-display text-base font-semibold text-bone"
-            >
+            </LiquidGlassButton>
+            <LiquidGlassButton href="#swarm" variant="glass" size="lg">
               Meet the swarm
-            </motion.a>
+            </LiquidGlassButton>
           </motion.div>
 
           <motion.p {...rise(0.46)} className="mt-5 font-mono text-xs text-slate2">
@@ -79,7 +73,7 @@ export function Hero() {
           <motion.ul {...rise(0.54)} className="mt-9 flex flex-wrap items-center justify-center gap-x-7 gap-y-2.5">
             {STATS.map((s) => (
               <li key={s.label} className="flex items-center gap-2 font-mono text-xs text-slate2">
-                <s.icon className="h-3.5 w-3.5 text-mint" aria-hidden />
+                <s.icon className="h-3.5 w-3.5 text-white" aria-hidden />
                 {s.label}
               </li>
             ))}

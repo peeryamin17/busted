@@ -37,7 +37,9 @@ export function ScoreRing({
     return controls.stop;
   }, [inView, value, reduce, mv]);
 
-  const color = value >= 75 ? '#34D399' : value >= 55 ? '#FBBF24' : value >= 35 ? '#FB923C' : '#F87171';
+  // Monochrome data scale: bright white at the top, sinking through the
+  // faintly desaturated tones as the score falls.
+  const color = value >= 75 ? '#FFFFFF' : value >= 55 ? '#B8AE94' : value >= 35 ? '#C0A08C' : '#C08F8F';
 
   return (
     <div ref={ref} className="relative shrink-0" style={{ width: size, height: size }}>

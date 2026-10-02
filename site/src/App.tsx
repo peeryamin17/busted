@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Nav } from './components/Nav';
 import { Hero } from './components/Hero';
 import { Ticker } from './components/Ticker';
@@ -8,8 +9,24 @@ import { Pricing } from './components/Pricing';
 import { Faq } from './components/Faq';
 import { Download } from './components/Download';
 import { Footer } from './components/Footer';
+import { CrowdCanvas } from './components/fx/CrowdCanvas';
+import { Preloader } from './components/fx/Preloader';
+import { isSignedIn, usePathname } from './lib/router';
+import { SignIn } from './pages/SignIn';
+import { Welcome } from './pages/Welcome';
 
-export default function App() {
+const INTRO_KEY = 'bugseek-intro';
+
+function introSeen(): boolean {
+  try {
+    return sessionStorage.getItem(INTRO_KEY) === '1';
+  } catch {
+    return true; // if storage is unavailable, never trap the user behind it
+  }
+}
+
+function Home() {
+  const signedIn = isSignedIn();
   return (
     <div className="min-h-screen bg-ink text-body">
       <a
@@ -18,7 +35,7 @@ export default function App() {
       >
         Skip to content
       </a>
-      <Nav />
+      <Nav home signedIn={signedIn} />
       <main>
         <Hero />
         <Ticker />
@@ -29,7 +46,47 @@ export default function App() {
         <Faq />
         <Download />
       </main>
-      <Footer />
+      <CrowdCanvas />
+      <Footer home />
     </div>
+  );
+}
+
+export default function App() {
+  const path = usePathname();
+  const [showIntro, setShowIntro] = useState(() => !introSeen());
+
+  const finishIntro = () => {
+    try {
+      sessionStorage.setItem(INTRO_KEY, '1');
+    } catch {
+      /* private mode — the intro will simply replay next visit */
+    }
+    setShowIntro(false);
+  };
+
+  // Arriving home with a hash (e.g. /#download from another route) —
+  // scroll to the anchor once the sections exist.
+  useEffect(() => {
+    if (path === '/' && window.location.hash) {
+      const hash = window.location.hash;
+      const t = window.setTimeout(() => {
+        document.querySelector(hash)?.scrollIntoView();
+      }, 60);
+      return () => window.clearTimeout(t);
+    }
+  }, [path]);
+
+  return (
+    <>
+      {showIntro && <Preloader onDone={finishIntro} />}
+      {path === '/signin' ? (
+        <SignIn />
+      ) : path === '/welcome' ? (
+        <Welcome />
+      ) : (
+        <Home />
+      )}
+    </>
   );
 }
