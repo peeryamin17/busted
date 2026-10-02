@@ -14,7 +14,6 @@ import { oastRoutes } from './routes/oast.js';
 import { engineRoutes } from './routes/engines.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { swarmRoutes } from './routes/multiagent.js';
-import { scopeRoutes } from './routes/scope.js';
 import { v1CompatRoutes } from './routes/v1compat.js';
 
 export interface ServerDeps {
@@ -59,7 +58,6 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
     await reportRoutes(instance, routeDeps);
     await oastRoutes(instance, routeDeps);
     await engineRoutes(instance, routeDeps);
-    await scopeRoutes(instance, routeDeps);
   });
 
   // Webhooks live in their own scope: they need the raw request body for

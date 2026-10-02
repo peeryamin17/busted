@@ -4,14 +4,6 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>BugSeek AI</title>
-    <!-- Same type import as the web app (site/index.html): Inter for UI,
-         Space Grotesk for display. Falls back to system stacks offline. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap"
-      rel="stylesheet"
-    />
     <link rel="stylesheet" href="./popup.css" />
   </head>
   <body>
@@ -97,32 +89,6 @@
           <label for="backend-api-key" class="label">Backend API key</label>
           <input id="backend-api-key" type="password" placeholder="bs_… (optional — enables AI deepening & history)" autocomplete="off" spellcheck="false" />
           <button id="backend-api-key-save" type="button">Save</button>
-        </div>
-
-        <!-- Programme scope (optional HackerOne/Bugcrowd check) -->
-        <div id="scope-block" class="scope-block">
-          <h2>Programme scope</h2>
-          <p class="engines-note">
-            Hunting on a public bug bounty programme? Choose it here and
-            BugSeek checks this host against the programme&rsquo;s published
-            scope before any active check runs.
-          </p>
-          <div class="scope-controls">
-            <select id="scope-platform" aria-label="Programme platform">
-              <option value="" selected>No programme</option>
-              <option value="hackerone">HackerOne</option>
-              <option value="bugcrowd">Bugcrowd</option>
-            </select>
-            <input id="scope-handle" type="text" list="scope-programme-list" placeholder="Programme handle or name" autocomplete="off" spellcheck="false" disabled />
-            <datalist id="scope-programme-list"></datalist>
-          </div>
-          <div id="scope-chip" class="scope-chip scope-chip-neutral" role="status">No programme selected — your authorisation record below governs testing.</div>
-          <p id="scope-blocked-note" class="scope-note" hidden>
-            Active checks are paused for this host. Choose the programme this
-            target actually belongs to, or switch back to &ldquo;No
-            programme&rdquo; if your authorisation comes from a contract or
-            from owning the target instead.
-          </p>
         </div>
 
         <!-- Authorization confirmation (shown when no record exists) -->

@@ -29,26 +29,18 @@ import {
 } from '../lib/config';
 import {
   checkBackendStatus,
-  checkProgrammeScope,
   getBackendApiKey,
   getEnginesStatus,
-  getStoredProgramme,
   importFindingsReport,
   runEngineScan,
   runSwarmScan,
-  searchProgrammes,
   setBackendApiKey,
-  setStoredProgramme,
 } from '../lib/apiClient';
 import type {
   BackendFinding,
   EngineId,
   EngineStatusEntry,
   ImportFormat,
-  ProgrammeRef,
-  ProgrammeScopeCheck,
-  ProgrammeSummary,
-  ScopePlatform,
   SwarmAuthorizationInput,
   SwarmOutcome,
 } from '../lib/apiClient';
@@ -86,12 +78,6 @@ const el = {
   enginesRunBtn: document.getElementById('engines-run-btn') as HTMLButtonElement,
   importFormat: document.getElementById('import-format') as HTMLSelectElement,
   importFile: document.getElementById('import-file') as HTMLInputElement,
-  // Programme scope picker + verdict chip
-  scopePlatform: document.getElementById('scope-platform') as HTMLSelectElement,
-  scopeHandle: document.getElementById('scope-handle') as HTMLInputElement,
-  scopeList: document.getElementById('scope-programme-list') as HTMLDataListElement,
-  scopeChip: document.getElementById('scope-chip') as HTMLElement,
-  scopeNote: document.getElementById('scope-blocked-note') as HTMLElement,
 };
 
 let currentTabId: number | null = null;
@@ -105,14 +91,6 @@ let importBusy = false;
 let engineStatusCache: EngineStatusEntry[] | null = null;
 let swarmTimers: number[] = [];
 let swarmFrame = 0;
-// Programme scope state
-let authorisedNow = false;
-let scopeRef: ProgrammeRef | null = null;
-let scopeCheck: ProgrammeScopeCheck | null = null;
-let scopeSuggestions: ProgrammeSummary[] = [];
-let scopeSeq = 0;
-let scopeSearchTimer = 0;
-let scopeCommitTimer = 0;
 
 export async function initActivePane(tabId: number, tabUrl: string): Promise<void> {
   currentTabId = tabId;
@@ -142,7 +120,6 @@ export async function initActivePane(tabId: number, tabUrl: string): Promise<voi
   wireScopeModeRadios();
   void refreshBackendBadge();
   void initBackendKeyRow();
-  void initScopePicker();
   renderEnginesStatus(null);
   void refreshEnginesStatus();
   await refreshAuthzState();
@@ -194,11 +171,9 @@ async function refreshAuthzState(): Promise<void> {
   }
   const rec = await getAuthorization(currentHost);
   const authorized = !!rec;
-  authorisedNow = authorized;
   el.authzForm.hidden = authorized;
   el.authzAuthorized.hidden = !authorized;
   el.runBtn.disabled = !authorized || running;
-  applyScopeGate();
   hideAuthzError();
   if (rec) renderAuthzSummary(rec);
 }
@@ -338,217 +313,12 @@ function hideAuthzError(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Programme scope picker (HackerOne / Bugcrowd)
-//
-// Optional: the hunter names the public programme they're working under and
-// BugSeek checks the current host against that programme's published scope.
-// The verdict is evidence next to the authorisation record — picking a
-// programme never authorises anything by itself. Only an explicit
-// "out of scope" verdict pauses the active checks; "unknown" (backend
-// offline, unlisted asset types) never blocks. No programme = the classic
-// flow, unchanged. The backend re-checks and records the verdict on any
-// swarm/engine scan that names a programme.
-// ---------------------------------------------------------------------------
-
-function scopePlatformLabel(platform: ScopePlatform): string {
-  return platform === 'hackerone' ? 'HackerOne' : 'Bugcrowd';
-}
-
-function scopeBlocked(): boolean {
-  return scopeCheck?.verdict === 'out_of_scope';
-}
-
-/** Why the active checks are paused — used by the blocked note and error line. */
-function scopeBlockReason(): string {
-  const name =
-    scopeCheck?.programmeName ??
-    (scopeRef ? scopePlatformLabel(scopeRef.platform) : 'the programme');
-  return (
-    `This host sits outside ${name}'s published scope, so active checks are paused. ` +
-    'Pick the programme this target belongs to, or switch back to "No programme" ' +
-    'if your authorisation comes from a contract or from owning the target.'
-  );
-}
-
-/** Disable/enable the active-check buttons around the scope verdict. */
-function applyScopeGate(): void {
-  const blocked = scopeBlocked();
-  el.scopeNote.hidden = !blocked;
-  if (blocked) {
-    el.runBtn.disabled = true;
-    el.swarmBtn.disabled = true;
-    el.enginesRunBtn.disabled = true;
-    return;
-  }
-  el.runBtn.disabled = !authorisedNow || running;
-  el.swarmBtn.disabled = swarmRunning;
-  el.enginesRunBtn.disabled = enginesRunning;
-}
-
-type ScopeChipState = 'idle' | 'checking' | 'done';
-
-function renderScopeChip(state: ScopeChipState): void {
-  const chip = el.scopeChip;
-  chip.className = 'scope-chip';
-  if (!scopeRef) {
-    chip.classList.add('scope-chip-neutral');
-    chip.textContent = el.scopePlatform.value
-      ? `Start typing a ${scopePlatformLabel(el.scopePlatform.value as ScopePlatform)} programme name or handle — we'll check this host against its published scope.`
-      : 'No programme selected — your authorisation record below governs testing.';
-    return;
-  }
-  const name = scopeCheck?.programmeName ?? scopeRef.handle;
-  if (state === 'checking' || !scopeCheck) {
-    chip.classList.add('scope-chip-neutral', 'scope-chip-checking');
-    chip.textContent = `Checking ${currentHost ?? 'this host'} against ${name}'s published scope…`;
-    return;
-  }
-  switch (scopeCheck.verdict) {
-    case 'in_scope':
-      chip.classList.add('scope-chip-in');
-      chip.textContent = `In scope — ${scopeCheck.reason}`;
-      break;
-    case 'out_of_scope':
-      chip.classList.add('scope-chip-out');
-      chip.textContent = `Out of scope — ${scopeCheck.reason}`;
-      break;
-    case 'programme_not_found':
-      chip.classList.add('scope-chip-neutral');
-      chip.textContent = `No programme found — ${scopeCheck.reason}`;
-      break;
-    default:
-      chip.classList.add('scope-chip-neutral');
-      chip.textContent = `Scope unknown — ${scopeCheck.reason}`;
-      break;
-  }
-}
-
-async function runScopeCheck(): Promise<void> {
-  const ref = scopeRef;
-  if (!ref || !currentHost) {
-    scopeCheck = null;
-    renderScopeChip('idle');
-    applyScopeGate();
-    return;
-  }
-  // Supersede any in-flight check: rapid programme changes stay responsive
-  // and a stale answer can never overwrite the current one.
-  const seq = ++scopeSeq;
-  scopeCheck = null;
-  renderScopeChip('checking');
-  const result = await checkProgrammeScope(
-    ref,
-    currentTabUrl ?? `https://${currentHost}/`,
-  );
-  if (seq !== scopeSeq) return;
-  scopeCheck = result ?? {
-    ...ref,
-    verdict: 'unknown',
-    reason:
-      "the backend didn't answer, so this host couldn't be checked against the published scope just now",
-  };
-  renderScopeChip('done');
-  applyScopeGate();
-}
-
-async function refreshScopeSuggestions(): Promise<void> {
-  const platform = el.scopePlatform.value as ScopePlatform | '';
-  const query = el.scopeHandle.value.trim();
-  if (!platform || query.length < 2) {
-    scopeSuggestions = [];
-    el.scopeList.innerHTML = '';
-    return;
-  }
-  const results = await searchProgrammes(platform, query);
-  scopeSuggestions = (results ?? []).filter((p) => p.platform === platform);
-  el.scopeList.innerHTML = '';
-  for (const p of scopeSuggestions) {
-    const opt = document.createElement('option');
-    opt.value = p.handle;
-    opt.label = p.name;
-    opt.textContent = p.name;
-    el.scopeList.appendChild(opt);
-  }
-}
-
-/** Resolve whatever the hunter typed (handle or picked programme name) into a stored ref. */
-async function commitScopeSelection(): Promise<void> {
-  const platform = el.scopePlatform.value as ScopePlatform | '';
-  const raw = el.scopeHandle.value.trim();
-  if (!platform || !raw) {
-    const had = scopeRef !== null || scopeCheck !== null;
-    scopeRef = null;
-    scopeCheck = null;
-    if (had) await setStoredProgramme(null);
-    renderScopeChip('idle');
-    applyScopeGate();
-    return;
-  }
-  const lowered = raw.toLowerCase();
-  const match = scopeSuggestions.find(
-    (p) =>
-      p.platform === platform &&
-      (p.handle === lowered || p.name.toLowerCase() === lowered),
-  );
-  const ref: ProgrammeRef = { platform, handle: match?.handle ?? lowered };
-  const changed =
-    ref.platform !== scopeRef?.platform || ref.handle !== scopeRef?.handle;
-  scopeRef = ref;
-  if (changed) {
-    scopeCheck = null;
-    await setStoredProgramme(ref);
-  }
-  await runScopeCheck();
-}
-
-async function initScopePicker(): Promise<void> {
-  el.scopePlatform.addEventListener('change', () => {
-    el.scopeHandle.disabled = !el.scopePlatform.value;
-    scopeSuggestions = [];
-    el.scopeList.innerHTML = '';
-    if (el.scopePlatform.value) void refreshScopeSuggestions();
-    void commitScopeSelection();
-  });
-  el.scopeHandle.addEventListener('input', () => {
-    window.clearTimeout(scopeSearchTimer);
-    window.clearTimeout(scopeCommitTimer);
-    scopeSearchTimer = window.setTimeout(() => {
-      void refreshScopeSuggestions();
-    }, 300);
-    // Commit on a longer pause so a half-typed handle doesn't fire checks.
-    scopeCommitTimer = window.setTimeout(() => {
-      void commitScopeSelection();
-    }, 700);
-  });
-  el.scopeHandle.addEventListener('change', () => {
-    window.clearTimeout(scopeCommitTimer);
-    void commitScopeSelection();
-  });
-
-  const stored = await getStoredProgramme();
-  if (stored) {
-    el.scopePlatform.value = stored.platform;
-    el.scopeHandle.disabled = false;
-    el.scopeHandle.value = stored.handle;
-    scopeRef = stored;
-    void refreshScopeSuggestions();
-    await runScopeCheck();
-  } else {
-    renderScopeChip('idle');
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Scan controls + throttle status
 // ---------------------------------------------------------------------------
 
 async function startActiveScan(): Promise<void> {
   if (currentTabId === null || running) return;
   hideError();
-  if (scopeBlocked()) {
-    showError(scopeBlockReason());
-    return;
-  }
   const wantDeep = inputChecked('active-deep-inspect');
   if (wantDeep) {
     // chrome.permissions.request must run inside the click gesture.
@@ -592,10 +362,6 @@ function setRunning(v: boolean): void {
 async function startSwarmScan(): Promise<void> {
   if (swarmRunning || running) return;
   hideError();
-  if (scopeBlocked()) {
-    showError(scopeBlockReason());
-    return;
-  }
 
   const authz = currentHost ? await getAuthorization(currentHost) : null;
   if (!authz || !currentTabUrl) {
@@ -626,17 +392,12 @@ async function startSwarmScan(): Promise<void> {
   showSwarmDeploying();
 
   try {
-    const outcome = await runSwarmScan(
-      currentTabUrl,
-      authorization,
-      {
-        mode: authz.scope.mode,
-        includeSubdomains: authz.scope.includeSubdomains,
-        excludedHosts: authz.scope.excludedHosts,
-        excludedPaths: authz.scope.excludedPaths,
-      },
-      scopeRef ?? undefined,
-    );
+    const outcome = await runSwarmScan(currentTabUrl, authorization, {
+      mode: authz.scope.mode,
+      includeSubdomains: authz.scope.includeSubdomains,
+      excludedHosts: authz.scope.excludedHosts,
+      excludedPaths: authz.scope.excludedPaths,
+    });
     if (!outcome) {
       hideSwarmPanel();
       showError('Backend unreachable — is the BugSeek backend running?');
@@ -807,10 +568,6 @@ function renderBackendResults(
 async function startEnginesRun(): Promise<void> {
   if (enginesRunning || swarmRunning || running) return;
   hideError();
-  if (scopeBlocked()) {
-    showError(scopeBlockReason());
-    return;
-  }
 
   const authz = currentHost ? await getAuthorization(currentHost) : null;
   if (!authz || !currentTabUrl) {
@@ -859,12 +616,7 @@ async function startEnginesRun(): Promise<void> {
     for (const meta of available) {
       setStatus(`Running ${meta.name} on the backend…`);
       try {
-        const outcome = await runEngineScan(
-          meta.id,
-          currentTabUrl,
-          authorization,
-          scopeRef ?? undefined,
-        );
+        const outcome = await runEngineScan(meta.id, currentTabUrl, authorization);
         merged.push(...toExtensionFindings(outcome.findings, meta.id));
         lines.push(
           `${meta.name} — ${outcome.findings.length} finding(s)` +

@@ -10,12 +10,7 @@ import { securityScore } from '../reports/score.js';
 import type { RouteDeps } from './health.js';
 import { parseImport, type ImportedFinding } from '../engines/importers.js';
 import { engineStatus, runEngine, type EngineId } from '../engines/runner.js';
-import {
-  assertProgrammeScope,
-  sharedScopeDataset,
-  type ScopeDataset,
-} from '../scope/dataset.js';
-import type { Confidence, ScopeCheckResult, Severity } from '../types.js';
+import type { Confidence, Severity } from '../types.js';
 
 /**
  * Open-source engine routes (Phase 5).
@@ -45,15 +40,6 @@ const engineScanSchema = z.object({
   engine: z.enum(['whatweb', 'nikto', 'nuclei']),
   targetUrl: z.string().min(1).max(2000),
   authorization: z.unknown(), // REQUIRED — validated by verifyAndRecordAuthorization
-  // OPTIONAL programme reference: when a HackerOne/Bugcrowd programme is
-  // named, its published scope is checked before charging (see
-  // docs/scope-validation.md). Never a substitute for authorization.
-  programme: z
-    .object({
-      platform: z.enum(['hackerone', 'bugcrowd']),
-      handle: z.string().min(1).max(200),
-    })
-    .optional(),
 });
 
 type Db = RouteDeps['db'];
@@ -104,10 +90,7 @@ async function persistFindings(
   return saved;
 }
 
-export async function engineRoutes(
-  app: FastifyInstance,
-  deps: RouteDeps & { scopeDataset?: ScopeDataset },
-): Promise<void> {
+export async function engineRoutes(app: FastifyInstance, deps: RouteDeps): Promise<void> {
   const { db } = deps;
   const authenticate = buildAuthenticate(db);
 
@@ -174,24 +157,6 @@ export async function engineRoutes(
       return reply.status(status).send({ error: (err as Error).message });
     }
 
-    // Optional programme scope check: a programme that places this target
-    // outside its published scope stops the scan before any charge; other
-    // verdicts are recorded on the scan as authorisation evidence.
-    let scopeEvidence: ScopeCheckResult | undefined;
-    if (d.programme) {
-      try {
-        scopeEvidence = await assertProgrammeScope(
-          deps.scopeDataset ?? sharedScopeDataset,
-          d.programme.platform,
-          d.programme.handle,
-          target.toString(),
-        );
-      } catch (err) {
-        const status = (err as { statusCode?: number }).statusCode ?? 400;
-        return reply.status(status).send({ error: (err as Error).message });
-      }
-    }
-
     // Availability BEFORE charging anyone.
     const status = (await engineStatus()).find((e) => e.engine === (d.engine as EngineId));
     if (!status?.available) {
@@ -211,7 +176,6 @@ export async function engineRoutes(
       mode: 'active',
       scope: { mode: 'subdomain', includeSubdomains: false, excludedHosts: [], excludedPaths: [], maxRequestsPerSecond: 2 },
       authorizationId,
-      scopeEvidence,
       techStack: [],
     });
     await db.recordUsage(user.id, 'scan', ENGINE_CREDIT_COST, scan.id);
@@ -223,7 +187,6 @@ export async function engineRoutes(
       return reply.send({
         scanId: scan.id,
         engine: d.engine,
-        ...(scopeEvidence ? { scopeCheck: scopeEvidence } : {}),
         findings,
         score: securityScore(
           imported.map((f) => ({ severity: f.severity, confidence: f.confidence, honeypotSuspect: false })),

@@ -7,7 +7,6 @@ import type {
   PlanTier,
   Scan,
   ScanStatus,
-  ScopeCheckResult,
   UserRecord,
 } from '../types.js';
 
@@ -17,7 +16,6 @@ export interface CreateScanInput {
   mode: 'passive' | 'active';
   scope: Scan['scope'];
   authorizationId?: string;
-  scopeEvidence?: ScopeCheckResult;
   techStack?: Scan['techStack'];
 }
 
@@ -243,7 +241,6 @@ export class MemoryDatabase implements Database {
       status: 'queued',
       scope: input.scope,
       authorizationId: input.authorizationId,
-      scopeEvidence: input.scopeEvidence,
       techStack: input.techStack ?? [],
       progress: { completedSteps: 0, totalSteps: 0 },
       createdAt: nowIso(),
@@ -342,8 +339,6 @@ export class PostgresDatabase implements Database {
       status: row['status'] as Scan['status'],
       scope: row['scope'] as Scan['scope'],
       authorizationId: (row['authorization_id'] as string) ?? undefined,
-      scopeEvidence:
-        (row['scope_evidence'] as Scan['scopeEvidence']) ?? undefined,
       techStack: (row['tech_stack'] as Scan['techStack']) ?? [],
       progress: row['progress'] as Scan['progress'],
       error: (row['error'] as string) ?? undefined,
@@ -615,30 +610,19 @@ export class PostgresDatabase implements Database {
   }
 
   async createScan(input: CreateScanInput): Promise<Scan> {
-    const progress = JSON.stringify({ completedSteps: 0, totalSteps: 0 });
-    const values: unknown[] = [
-      input.userId,
-      input.targetUrl,
-      input.mode,
-      JSON.stringify(input.scope),
-      input.authorizationId ?? null,
-      JSON.stringify(input.techStack ?? []),
-      progress,
-    ];
-    // The scope_evidence column only exists once migration 004 has been
-    // applied — include it only when a verdict was actually recorded, so
-    // un-migrated databases keep working for programme-free scans.
-    const { rows } = input.scopeEvidence
-      ? await this.pool.query(
-          `INSERT INTO scans (user_id, target_url, mode, scope, authorization_id, tech_stack, progress, scope_evidence)
-           VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb, $7::jsonb, $8::jsonb) RETURNING *`,
-          [...values, JSON.stringify(input.scopeEvidence)],
-        )
-      : await this.pool.query(
-          `INSERT INTO scans (user_id, target_url, mode, scope, authorization_id, tech_stack, progress)
-           VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb, $7::jsonb) RETURNING *`,
-          values,
-        );
+    const { rows } = await this.pool.query(
+      `INSERT INTO scans (user_id, target_url, mode, scope, authorization_id, tech_stack, progress)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb, $7::jsonb) RETURNING *`,
+      [
+        input.userId,
+        input.targetUrl,
+        input.mode,
+        JSON.stringify(input.scope),
+        input.authorizationId ?? null,
+        JSON.stringify(input.techStack ?? []),
+        JSON.stringify({ completedSteps: 0, totalSteps: 0 }),
+      ]
+    );
     return this.toScan(rows[0]);
   }
 

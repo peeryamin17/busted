@@ -11,12 +11,7 @@ import { suggestFixes } from '../reports/remediation.js';
 import { createLLMProvider } from '../llm/index.js';
 import type { RouteDeps } from './health.js';
 import { runMultiAgentScan } from '../multiagent/orchestrator.js';
-import {
-  assertProgrammeScope,
-  sharedScopeDataset,
-  type ScopeDataset,
-} from '../scope/dataset.js';
-import type { Confidence, ScopeCheckResult, Severity } from '../types.js';
+import type { Confidence, Severity } from '../types.js';
 
 /**
  * Multi-agent "super agent" swarm routes.
@@ -46,15 +41,6 @@ const scopeSchema = z.object({
 const swarmScanSchema = z.object({
   targetUrl: z.string().min(1).max(2000),
   authorization: z.unknown(), // REQUIRED — validated by verifyAndRecordAuthorization (plan §8)
-  // OPTIONAL programme reference: when a HackerOne/Bugcrowd programme is
-  // named, its published scope is checked before charging (see
-  // docs/scope-validation.md). Never a substitute for authorization.
-  programme: z
-    .object({
-      platform: z.enum(['hackerone', 'bugcrowd']),
-      handle: z.string().min(1).max(200),
-    })
-    .optional(),
   scope: scopeSchema.optional(),
   maxWorkers: z.number().int().min(1).max(8).optional(),
   concurrency: z.number().int().min(1).max(4).optional(),
@@ -68,10 +54,7 @@ const swarmScanSchema = z.object({
     .optional(),
 });
 
-export async function swarmRoutes(
-  app: FastifyInstance,
-  deps: RouteDeps & { scopeDataset?: ScopeDataset },
-): Promise<void> {
+export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promise<void> {
   const { db } = deps;
   const authenticate = buildAuthenticate(db);
 
@@ -107,25 +90,6 @@ export async function swarmRoutes(
       return reply.status(status).send({ error: (err as Error).message });
     }
 
-    // 3b. Optional programme scope check. When a programme is named and it
-    // places this target outside its published scope, the scan stops here —
-    // before the quota check and before any charge. Other verdicts are
-    // recorded on the scan as authorisation evidence.
-    let scopeEvidence: ScopeCheckResult | undefined;
-    if (d.programme) {
-      try {
-        scopeEvidence = await assertProgrammeScope(
-          deps.scopeDataset ?? sharedScopeDataset,
-          d.programme.platform,
-          d.programme.handle,
-          target.toString(),
-        );
-      } catch (err) {
-        const status = (err as { statusCode?: number }).statusCode ?? 400;
-        return reply.status(status).send({ error: (err as Error).message });
-      }
-    }
-
     // 4. Credit quota: a swarm scan is an active scan → 25 credits.
     const creditCost = SCAN_CREDIT_COST.active;
     try {
@@ -153,7 +117,6 @@ export async function swarmRoutes(
       mode: 'active',
       scope: { ...scope },
       authorizationId,
-      scopeEvidence,
       techStack: [],
     });
     await db.recordUsage(user.id, 'scan', creditCost, scan.id);
@@ -214,7 +177,6 @@ export async function swarmRoutes(
       await db.updateScan(scan.id, { status: 'completed' });
       return reply.send({
         scanId: scan.id,
-        ...(scopeEvidence ? { scopeCheck: scopeEvidence } : {}),
         targetUrl: outcome.targetUrl,
         headSummary: outcome.headSummary,
         score: securityScore(findings),
