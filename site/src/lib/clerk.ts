@@ -5,15 +5,26 @@ import type { ClerkProviderProps } from '@clerk/clerk-react';
 type ClerkAppearance = NonNullable<ClerkProviderProps['appearance']>;
 
 /**
- * Clerk wiring for the site. The publishable key comes from the
- * environment (site/.env.local locally, the host's env settings in
- * production) — it is a public identifier, but it still never gets
- * hardcoded into source. When it's absent the app renders without the
- * Clerk provider (see main.tsx) instead of crashing.
+ * Clerk wiring for the site.
+ *
+ * Until the custom domain lands, sign-in runs on Clerk's development
+ * instance: the production key's sign-in host (clerk.bugseek-ai.vercel.app)
+ * cannot resolve on a vercel.app domain, so any build carrying that key
+ * can never load Clerk. The development instance's publishable key is
+ * therefore pinned below — a publishable key is a public identifier that
+ * ships inside every visitor's bundle anyway. A pk_test_ value from the
+ * environment (site/.env.local) still wins locally; anything else —
+ * a missing variable, a pk_live value — falls back to the pinned key,
+ * so the host's env settings can no longer take sign-in down.
+ * Launch step: once DNS points at Clerk, delete the pin and let the
+ * host provide the pk_live key again.
  */
-export const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as
-  | string
-  | undefined;
+const DEVELOPMENT_KEY = 'pk_test_ZmFzdC1zdHVyZ2Vvbi03NTIuY2xlcmsuYWNjb3VudHMuZGV2JA';
+
+const envKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
+
+export const CLERK_PUBLISHABLE_KEY: string | undefined =
+  envKey && envKey.startsWith('pk_test_') ? envKey : DEVELOPMENT_KEY;
 
 /**
  * Whether Clerk is live on this deployment. EVERY Clerk hook/component

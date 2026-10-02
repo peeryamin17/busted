@@ -73,3 +73,17 @@ Two prerequisites before building it:
 The publishable key + frontend API for the extension are already staged
 in the repo-root `.env.local` (`PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY`,
 `CLERK_FRONTEND_API`, gitignored).
+
+## Update — 2 Oct 2026: development key pinned in code
+
+Sign-in on the production domain kept breaking because the build depended
+on the host's `VITE_CLERK_PUBLISHABLE_KEY` variable: first it carried the
+pk_live value (whose sign-in host cannot resolve under vercel.app), later
+it was absent entirely, which disabled Clerk in the build. The site now
+pins the development instance's publishable key in `site/src/lib/clerk.ts`
+(a publishable key is a public identifier, shipped in every bundle). A
+`pk_test_` value from the environment still wins locally; anything else
+falls back to the pin.
+
+Launch step, when the custom domain's DNS points at Clerk: delete the pin
+in `clerk.ts`, set the host variable to the pk_live value, redeploy.
