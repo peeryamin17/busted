@@ -1,5 +1,6 @@
-import { motion, useScroll, useSpring, useMotionValueEvent } from 'framer-motion';
-import { useState, type MouseEvent } from 'react';
+import { AnimatePresence, motion, useReducedMotion, useScroll, useSpring, useMotionValueEvent } from 'framer-motion';
+import { ChevronDown } from 'lucide-react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { useAuth } from '../lib/auth';
 import { springQuiet } from '../lib/motion';
 import { navigate } from '../lib/router';
@@ -10,6 +11,18 @@ const LINKS = [
   { label: 'How it works', hash: '#how' },
   { label: 'Pricing', hash: '#pricing' },
   { label: 'FAQ', hash: '#faq' },
+];
+
+interface NavTab {
+  label: string;
+  hash?: string;
+  connect?: boolean;
+}
+
+/** Everything the mobile brand menu lists — the desktop tabs, in order. */
+const TABS: NavTab[] = [
+  { label: 'Connect site', connect: true },
+  ...LINKS.map((l) => ({ label: l.label, hash: l.hash })),
 ];
 
 function scrollToHash(hash: string) {
@@ -27,13 +40,68 @@ function scrollToHash(hash: string) {
  *
  * The landing variant drops the section links (their targets only exist
  * inside the main site) and keeps just the brand and the account slot.
+ *
+ * Below lg the section tabs vanish, so the brand itself becomes the
+ * menu: tapping the mark opens a glass dropdown of the same tabs. On
+ * the landing variant the tabs are locked doors — every one of them
+ * routes to /signin. From lg up the brand is the plain scroll-to-top
+ * mark it has always been.
  */
 export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
   const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const reduce = useReducedMotion();
+  const headerRef = useRef<HTMLElement | null>(null);
+  const brandBtnRef = useRef<HTMLButtonElement | null>(null);
   const { scrollY, scrollYProgress } = useScroll();
   const progress = useSpring(scrollYProgress, { stiffness: 120, damping: 26, mass: 0.4 });
   const { user, loading, signOut } = useAuth();
   useMotionValueEvent(scrollY, 'change', (v) => setScrolled(v > 24));
+
+  // The mobile menu lives and dies with its trigger: an outside tap or
+  // Escape closes it, and it folds away if the viewport grows to where
+  // the desktop tabs take over.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (headerRef.current && !headerRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+        brandBtnRef.current?.focus();
+      }
+    };
+    const desktop = window.matchMedia('(min-width: 1024px)');
+    const onDesktop = (e: MediaQueryListEvent) => {
+      if (e.matches) setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    desktop.addEventListener('change', onDesktop);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+      desktop.removeEventListener('change', onDesktop);
+    };
+  }, [menuOpen]);
+
+  const goTab = (e: MouseEvent, tab: NavTab) => {
+    e.preventDefault();
+    setMenuOpen(false);
+    if (variant === 'landing') {
+      navigate('/signin');
+    } else if (tab.connect) {
+      navigate('/app/connect');
+    } else if (tab.hash) {
+      scrollToHash(tab.hash);
+    }
+  };
+
+  const tabHref = (tab: NavTab) =>
+    variant === 'landing' ? '/signin' : tab.connect ? '/app/connect' : (tab.hash ?? '#top');
 
   const goSection = (e: MouseEvent, hash: string) => {
     e.preventDefault();
@@ -64,6 +132,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
         style={{ scaleX: progress }}
       />
       <motion.header
+        ref={headerRef}
         initial={{ y: -72, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={springQuiet}
@@ -81,10 +150,11 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
             scrolled ? 'mt-3 max-w-3xl rounded-full' : 'mt-3 max-w-6xl rounded-3xl'
           }`}
         >
+          {/* desktop brand — the plain scroll-to-top mark */}
           <a
             href="#top"
             onClick={goHome}
-            className="flex shrink-0 items-center gap-2.5"
+            className="hidden shrink-0 items-center gap-2.5 lg:flex"
             aria-label="BugSeek AI home"
           >
             <img src="/bug.svg" alt="" className="h-8 w-8" />
@@ -92,6 +162,28 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
               BugSeek <span className="text-white/50">AI</span>
             </span>
           </a>
+          {/* mobile brand — under lg the mark is the menu trigger */}
+          <button
+            ref={brandBtnRef}
+            type="button"
+            onClick={() => setMenuOpen((o) => !o)}
+            aria-haspopup="true"
+            aria-expanded={menuOpen}
+            aria-controls="nav-mobile-menu"
+            aria-label="BugSeek AI"
+            className="flex shrink-0 items-center gap-2 lg:hidden"
+          >
+            <img src="/bug.svg" alt="" className="h-8 w-8" />
+            <span className="font-display text-lg font-semibold tracking-tight text-bone">
+              BugSeek <span className="text-white/50">AI</span>
+            </span>
+            <ChevronDown
+              aria-hidden
+              className={`h-4 w-4 text-white/55 ${reduce ? '' : 'transition-transform duration-300'} ${
+                menuOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
           <div className="flex items-center gap-4 sm:gap-5">
             {variant === 'site' && (
               <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
@@ -158,6 +250,37 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
               ))}
           </div>
         </div>
+        {/* mobile tab dropdown — mirrors the pill above, mobile only */}
+        <AnimatePresence>
+          {menuOpen && (
+            <motion.nav
+              id="nav-mobile-menu"
+              aria-label="Sections"
+              initial={reduce ? false : { opacity: 0, y: -8, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.99 }}
+              transition={springQuiet}
+              className={`glass mx-auto mt-2 rounded-3xl p-2 transition-[max-width] duration-300 lg:hidden ${
+                scrolled ? 'max-w-3xl' : 'max-w-6xl'
+              }`}
+            >
+              {TABS.map((tab) => (
+                <a
+                  key={tab.label}
+                  href={tabHref(tab)}
+                  onClick={(e) => goTab(e, tab)}
+                  className={`flex items-center rounded-2xl px-4 py-3 transition-colors hover:bg-white/5 hover:text-bone ${
+                    tab.connect
+                      ? 'text-[15px] font-semibold text-bone'
+                      : 'text-[15px] font-medium text-body/85'
+                  }`}
+                >
+                  {tab.label}
+                </a>
+              ))}
+            </motion.nav>
+          )}
+        </AnimatePresence>
       </motion.header>
     </>
   );
