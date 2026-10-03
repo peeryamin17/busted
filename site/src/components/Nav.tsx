@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth';
 import { springQuiet } from '../lib/motion';
 import { navigate } from '../lib/router';
 import { ConfirmSignOut } from './fx/ConfirmSignOut';
+import { TabCat } from './fx/TabCat';
 
 const LINKS = [
   { label: 'Toolkit', hash: '#what' },
@@ -164,6 +165,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
           }`}
         />
         <div
+          data-cat-pill
           className={`glass nav-material mx-auto flex items-center justify-between gap-3 px-4 py-3 transition-all duration-300 sm:px-5 ${
             scrolled ? 'mt-3 max-w-3xl rounded-full' : 'mt-3 max-w-6xl rounded-3xl'
           }`}
@@ -172,6 +174,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
           <a
             href="#top"
             onClick={goHome}
+            data-cat-brand
             className="hidden shrink-0 items-center gap-2.5 lg:flex"
             aria-label="BugSeek AI home"
           >
@@ -184,6 +187,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
           <button
             ref={brandBtnRef}
             type="button"
+            data-cat-brand
             onClick={() => setMenuOpen((o) => !o)}
             aria-haspopup="true"
             aria-expanded={menuOpen}
@@ -207,6 +211,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
               <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
                 <a
                   href="/app/connect"
+                  data-cat-tab="connect"
                   onClick={(e) => {
                     e.preventDefault();
                     navigate('/app/connect');
@@ -219,6 +224,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
                   <a
                     key={l.hash}
                     href={l.hash}
+                    data-cat-tab={l.hash.slice(1)}
                     onClick={(e) => goSection(e, l.hash)}
                     className="text-sm font-medium text-body/80 transition-colors hover:text-bone"
                   >
@@ -269,6 +275,9 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
               ))}
           </div>
         </div>
+        {/* the cat — perches on the active tab, or the brand mark where
+            there are no tabs; measured, never guessed (fx/TabCat) */}
+        <TabCat variant={variant} containerRef={headerRef} />
         {/* mobile tab dropdown — mirrors the pill above, mobile only */}
         <AnimatePresence>
           {menuOpen && (
