@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { buildAuthenticate, requireUser } from '../middleware/auth.js';
 import { securityScore } from '../reports/score.js';
 import { runWebPatrol, type PatrolOutcome } from '../webcheck/run.js';
-import type { WebCheckRecord, WebFinding } from '../webcheck/types.js';
+import { fetchRequesterGeo } from '../webcheck/info.js';
+import type { GeoStamp, WebCheckRecord, WebFinding } from '../webcheck/types.js';
 import type { PlanTier, Severity } from '../types.js';
 import type { RouteDeps } from './health.js';
 
@@ -28,6 +29,12 @@ export type PatrolRunner = (url: string) => Promise<PatrolOutcome>;
 export interface WebCheckRouteOptions {
   /** Test seam: replace the live patrol with a fixture runner. */
   patrol?: PatrolRunner;
+  /**
+   * Test seam: resolve the requester's coarse location for the run's
+   * origin stamp. Production reads the visitor's address off the
+   * wire; a slow or failed lookup never blocks the patrol.
+   */
+  geo?: (ip: string) => Promise<GeoStamp | null>;
 }
 
 const LOCKED = [
@@ -86,6 +93,8 @@ export function gatedView(rec: WebCheckRecord, plan: PlanTier): Record<string, u
         )
       : rec.findings.map(fullFinding),
     info: rec.info,
+    /** The origin stamp stored with this run (the owner's own — shown back to them). */
+    requester: { ip: rec.requesterIp, geo: rec.requesterGeo },
     locked: LOCKED,
   };
 }
@@ -136,6 +145,21 @@ export async function webCheckRoutes(
 
       try {
         const outcome = await patrol(body.data.url);
+        // Stamp the run with who asked and roughly where from
+        // (disclosed on the form). Behind Vercel → Render the
+        // visitor's address is the first forwarded hop; request.ip
+        // is the fallback. Geo is best-effort.
+        const xff = request.headers['x-forwarded-for'];
+        const firstHop = (Array.isArray(xff) ? xff[0] : xff)?.split(',')[0]?.trim();
+        const requesterIp = firstHop || request.ip || null;
+        let requesterGeo: GeoStamp | null = null;
+        if (requesterIp) {
+          try {
+            requesterGeo = await (opts.geo ?? fetchRequesterGeo)(requesterIp);
+          } catch {
+            requesterGeo = null;
+          }
+        }
         const scored = securityScore(outcome.findings);
         const rec = await db.insertWebCheck({
           userId: user.id,
@@ -146,6 +170,8 @@ export async function webCheckRoutes(
           grade: scored.grade,
           findings: outcome.findings,
           info: outcome.info,
+          requesterIp,
+          requesterGeo,
         });
         return reply.status(201).send(gatedView(rec, user.plan));
       } catch (err) {
@@ -171,6 +197,8 @@ export async function webCheckRoutes(
         score: r.score,
         grade: r.grade,
         findingCount: r.findings.length,
+        requesterIp: r.requesterIp,
+        requesterGeo: r.requesterGeo,
         createdAt: r.createdAt,
       })),
     };

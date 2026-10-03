@@ -88,6 +88,13 @@ export interface WebInfo {
   securityTxt: boolean;
 }
 
+/** Coarse origin of a patrol request (city/country granularity, never finer). */
+export interface GeoStamp {
+  country: string | null;
+  city: string | null;
+  region: string | null;
+}
+
 /** One stored patrol run (row of web_checks). */
 export interface WebCheckRecord {
   id: string;
@@ -99,5 +106,8 @@ export interface WebCheckRecord {
   grade: string | null;
   findings: WebFinding[];
   info: WebInfo;
+  /** The owner's address + coarse location when they asked (disclosed on the form). */
+  requesterIp: string | null;
+  requesterGeo: GeoStamp | null;
   createdAt: string; // ISO
 }

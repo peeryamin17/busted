@@ -98,6 +98,8 @@ interface RunSummary {
   score: number | null;
   grade: string | null;
   findingCount: number;
+  requesterIp: string | null;
+  requesterGeo: { country: string | null; city: string | null; region: string | null } | null;
   createdAt: string;
 }
 
@@ -396,6 +398,10 @@ export function WebCheck() {
                 </span>
               </span>
             </label>
+            <p className="mt-3 font-mono text-[11px] leading-relaxed text-slate2">
+              RUNNING A PATROL ALSO STORES YOUR IP ADDRESS AND APPROXIMATE LOCATION (CITY, COUNTRY) WITH THE
+              RUN — IT SHOWS BACK TO YOU IN YOUR PATROL HISTORY BELOW.
+            </p>
 
             {error && (
               <p role="alert" className="mt-4 rounded-xl border border-crit/30 bg-crit/10 px-4 py-3 text-sm text-crit">
@@ -454,6 +460,14 @@ export function WebCheck() {
                       <span className="hidden font-mono text-[11px] text-slate2 md:inline">
                         {fmtDate(run.createdAt)}
                       </span>
+                      {run.requesterGeo && (run.requesterGeo.city || run.requesterGeo.country) && (
+                        <span className="hidden font-mono text-[11px] text-slate2 lg:inline">
+                          from{' '}
+                          {[run.requesterGeo.city, run.requesterGeo.country]
+                            .filter(Boolean)
+                            .join(', ')}
+                        </span>
+                      )}
                       {run.score !== null && (
                         <span
                           className="rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold"

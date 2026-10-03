@@ -1,5 +1,6 @@
 import type { FetchedResponse } from './fetch.js';
-import type { DnsInfo, DomainInfo, PerfInfo, ServerInfo } from './types.js';
+import { isPrivateAddress } from './guard.js';
+import type { DnsInfo, DomainInfo, GeoStamp, PerfInfo, ServerInfo } from './types.js';
 
 /**
  * The "website info" matrix sources — all free, key-less public APIs,
@@ -195,6 +196,23 @@ export async function fetchServerInfo(
   } catch {
     return empty;
   }
+}
+
+/* ── Requester origin (who asked for a patrol, roughly where) ───── */
+
+/**
+ * Coarse geo for the person requesting a patrol, stamped on their run
+ * and disclosed on the form before they run it. City/country
+ * granularity only; private or unresolvable addresses stamp nothing.
+ */
+export async function fetchRequesterGeo(
+  ip: string | null,
+  fetchJson: JsonFetcher = defaultJsonFetcher,
+): Promise<GeoStamp | null> {
+  if (!ip || isPrivateAddress(ip)) return null;
+  const s = await fetchServerInfo(ip, fetchJson);
+  if (!s.country && !s.city && !s.region) return null;
+  return { country: s.country, city: s.city, region: s.region };
 }
 
 /* ── Performance census (from the main fetch, measured here) ──── */

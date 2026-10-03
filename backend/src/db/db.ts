@@ -10,7 +10,7 @@ import type {
   SessionRecord,
   UserRecord,
 } from '../types.js';
-import type { WebCheckRecord, WebFinding, WebInfo } from '../webcheck/types.js';
+import type { GeoStamp, WebCheckRecord, WebFinding, WebInfo } from '../webcheck/types.js';
 
 export interface CreateScanInput {
   userId: string;
@@ -47,6 +47,8 @@ export interface InsertWebCheckInput {
   grade: string | null;
   findings: WebFinding[];
   info: WebInfo;
+  requesterIp?: string | null;
+  requesterGeo?: GeoStamp | null;
 }
 
 /**
@@ -371,6 +373,8 @@ export class MemoryDatabase implements Database {
       ...input,
       findings: input.findings.map((f) => ({ ...f })),
       info: structuredClone(input.info),
+      requesterIp: input.requesterIp ?? null,
+      requesterGeo: input.requesterGeo ? { ...input.requesterGeo } : null,
     };
     this.webChecks.push(rec);
     return { ...rec };
@@ -821,14 +825,16 @@ export class PostgresDatabase implements Database {
       grade: (row['grade'] as string) ?? null,
       findings: (row['findings'] as WebFinding[]) ?? [],
       info: row['info'] as WebInfo,
+      requesterIp: (row['requester_ip'] as string) ?? null,
+      requesterGeo: (row['requester_geo'] as GeoStamp) ?? null,
       createdAt: (row['created_at'] as Date).toISOString(),
     };
   }
 
   async insertWebCheck(input: InsertWebCheckInput): Promise<WebCheckRecord> {
     const { rows } = await this.pool.query(
-      `INSERT INTO web_checks (user_id, url, host, authorized, score, grade, findings, info)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb) RETURNING *`,
+      `INSERT INTO web_checks (user_id, url, host, authorized, score, grade, findings, info, requester_ip, requester_geo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10::jsonb) RETURNING *`,
       [
         input.userId,
         input.url,
@@ -838,6 +844,8 @@ export class PostgresDatabase implements Database {
         input.grade,
         JSON.stringify(input.findings),
         JSON.stringify(input.info),
+        input.requesterIp ?? null,
+        JSON.stringify(input.requesterGeo ?? null),
       ]
     );
     return this.toWebCheck(rows[0]);
