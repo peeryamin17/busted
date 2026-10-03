@@ -13,10 +13,21 @@ export function ContainerScroll({
   children,
   className = '',
   innerClassName = '',
+  maxTilt = 18,
+  tiltY = 0,
+  perspective = 1100,
+  startScale = 1.05,
 }: {
   children: ReactNode;
   className?: string;
   innerClassName?: string;
+  /** peak backward tip (deg) before it flattens; small screens use ~55% */
+  maxTilt?: number;
+  /** sideways tip (deg) that settles to 0 — negative leans left */
+  tiltY?: number;
+  /** camera distance (px); lower reads more dramatically 3D */
+  perspective?: number;
+  startScale?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
@@ -38,17 +49,19 @@ export function ContainerScroll({
     target: ref,
     offset: ['start end', 'end end'],
   });
-  const rotateX = useTransform(scrollYProgress, [0, 1], [smallScreen ? 10 : 18, 0]);
-  const scale = useTransform(scrollYProgress, [0, 1], [1.05, 1]);
+  const tilt = smallScreen ? Math.round(maxTilt * 0.55) : maxTilt;
+  const rotateX = useTransform(scrollYProgress, [0, 1], [tilt, 0]);
+  const rotateY = useTransform(scrollYProgress, [0, 1], [tiltY, 0]);
+  const scale = useTransform(scrollYProgress, [0, 1], [startScale, 1]);
 
   if (reduce) {
     return <div className={className}>{children}</div>;
   }
 
   return (
-    <div ref={ref} className={className} style={{ perspective: 1100 }}>
+    <div ref={ref} className={className} style={{ perspective }}>
       <motion.div
-        style={{ rotateX, scale, transformOrigin: '50% 42%' }}
+        style={{ rotateX, rotateY, scale, transformOrigin: '50% 42%' }}
         className={`shadow-[0_36px_70px_-28px_rgba(0,0,0,0.75)] will-change-transform ${innerClassName}`}
       >
         {children}

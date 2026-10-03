@@ -110,7 +110,7 @@ export function Hero({ memberName, teaser = false }: { memberName?: string; teas
           </motion.ul>
         </div>
 
-        <ContainerScroll className="mx-auto mt-14 max-w-3xl">
+        <ContainerScroll className="mx-auto mt-14 max-w-3xl" maxTilt={30} tiltY={-7} perspective={800} startScale={1.08}>
           <motion.div
             initial={reduce ? false : { opacity: 0, y: 40, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
