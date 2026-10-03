@@ -170,7 +170,7 @@ export function ScanDemo({ bare = false }: { bare?: boolean }) {
         </div>
 
         {/* findings */}
-        <div className="thin-scroll mt-4 max-h-72 space-y-2.5 overflow-y-auto pr-1">
+        <div className="mt-4 space-y-2.5">
           <AnimatePresence initial={false}>
             {FINDINGS.slice(0, visible).map((f) => {
               const s = SEV_STYLE[f.sev];
