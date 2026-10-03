@@ -254,9 +254,9 @@ body {
   }
 }
 .beam-flow {
-  stroke-dasharray: 6 8;
-  animation: beam-dash 1.1s linear infinite;
-  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.55));
+  stroke-dasharray: 7 6;
+  animation: beam-dash 0.9s linear infinite;
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.8)) drop-shadow(0 0 10px rgba(255, 255, 255, 0.35));
 }
 
 /* White shimmer sweep (kept for small inline CTAs) */
