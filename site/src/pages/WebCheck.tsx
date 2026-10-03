@@ -480,9 +480,11 @@ export function WebCheck() {
         {/* ── the form ── */}
         <Reveal delay={0.08}>
           <form onSubmit={runPatrol} className="glass mt-10 rounded-[2rem] p-6 sm:p-8">
-            {usage && usage.limit !== null && (
+            {usage && (
               <p className="mb-5 font-mono text-[11px] tracking-[0.2em] text-slate2">
-                {usage.left} OF {usage.limit} FREE PATROLS LEFT
+                {usage.limit !== null
+                  ? `${usage.left} OF ${usage.limit} FREE PATROLS LEFT`
+                  : `${usage.used} PATROLS RUN · UNLIMITED ON YOUR PLAN`}
               </p>
             )}
             <label htmlFor="patrol-url" className="font-mono text-[11px] tracking-[0.2em] text-slate2">
@@ -621,7 +623,7 @@ export function WebCheck() {
                           FISHY
                         </span>
                       )}
-                      {run.score != null && (
+                      {run.score != null && run.trustVerdict !== 'known-bad' && (
                         <span
                           className="rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold"
                           style={{
@@ -631,6 +633,11 @@ export function WebCheck() {
                           }}
                         >
                           {run.score} · {run.grade}
+                        </span>
+                      )}
+                      {run.score != null && run.trustVerdict === 'known-bad' && (
+                        <span className="rounded-md border border-crit/40 bg-crit/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-crit">
+                          0 · TRAP
                         </span>
                       )}
                       {loadingRunId === run.id && (
@@ -667,8 +674,7 @@ export function WebCheck() {
                     ))}
                     <p className="mt-3 text-sm leading-relaxed">
                       This address appears in live phishing reports ({trust.sources.join(', ')}).
-                      The configuration score below grades how the page is built — it does not
-                      apply to a trap.
+                      The score below is zeroed — a trap earns nothing, however tidy its code.
                     </p>
                   </div>
                 )}
@@ -693,21 +699,19 @@ export function WebCheck() {
                   {result.score !== null && result.grade !== null && (
                     <div className="flex flex-col items-center">
                       <p className="font-mono text-[11px] tracking-[0.24em] text-slate2">
-                        CONFIGURATION SCORE
+                        {trust?.verdict === 'known-bad' ? 'SCORE — KNOWN TRAP' : 'CONFIGURATION SCORE'}
                       </p>
-                      <div className={trust?.verdict === 'known-bad' ? 'opacity-40' : undefined}>
-                        <ScoreRing
-                          value={result.score}
-                          grade={result.grade}
-                          size={170}
-                          label="Configuration score"
-                          caption={
-                            trust?.verdict === 'known-bad'
-                              ? 'CONFIGURATION SCORE'
-                              : 'How the site is built — not whether it’s honest.'
-                          }
-                        />
-                      </div>
+                      <ScoreRing
+                        value={trust?.verdict === 'known-bad' ? 0 : result.score}
+                        grade={trust?.verdict === 'known-bad' ? 'TRAP' : result.grade}
+                        size={170}
+                        label={trust?.verdict === 'known-bad' ? 'Trust score' : 'Configuration score'}
+                        caption={
+                          trust?.verdict === 'known-bad'
+                            ? 'Flagged as a phishing trap. The score is 0 — never trust it.'
+                            : 'How the site is built — not whether it’s honest.'
+                        }
+                      />
                     </div>
                   )}
                   <div className="min-w-0">
