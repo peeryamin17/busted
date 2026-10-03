@@ -47,6 +47,7 @@ function makeDb(plan: 'free' | 'hunter' | 'pro' = 'pro', seedUsage: UsageEvent[]
         .reduce((n, u) => n + u.quantity, 0);
     },
     async addFinding(f: any) { findings.push({ ...f, id: `f-${findings.length + 1}` }); return f; },
+    async addFindings(items: any[]) { const out = []; for (const f of items) out.push(await db.addFinding(f)); return out; },
   };
   return db;
 }

@@ -155,8 +155,8 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
           ...(suggestedFix ? { suggestedFix } : {}),
         });
       });
-      for (const f of findings) {
-        await db.addFinding({
+      await db.addFindings(
+        findings.map((f) => ({
           scanId: scan.id,
           category: f.category,
           title: f.title,
@@ -172,8 +172,8 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
           honeypotSuspect: f.honeypotSuspect,
           reproSteps: f.reproSteps,
           references: f.references,
-        });
-      }
+        })),
+      );
       await db.updateScan(scan.id, { status: 'completed' });
       return reply.send({
         scanId: scan.id,

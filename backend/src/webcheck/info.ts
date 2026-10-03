@@ -26,6 +26,38 @@ export const defaultJsonFetcher: JsonFetcher = async (url, opts = {}) => {
   return res.json();
 };
 
+/* ── Small TTL caches for slow-changing answers ─────────────────
+   DNS, RDAP and IP-geo answers barely move; re-patrolling a host
+   should not re-ask the internet. Only the DEFAULT fetcher is
+   cached — tests inject their own fetchers and always see them
+   called. Failures are never cached (a null degrades, then retries
+   next time). */
+const cacheStore = new Map<string, { at: number; ttl: number; value: unknown }>();
+
+async function cached<T>(
+  key: string,
+  ttlMs: number,
+  enabled: boolean,
+  fn: () => Promise<T>,
+  keep: (value: T) => boolean = () => true,
+): Promise<T> {
+  if (!enabled) return fn();
+  const hit = cacheStore.get(key);
+  if (hit && Date.now() - hit.at < hit.ttl) return hit.value as T;
+  const value = await fn();
+  if (!keep(value)) return value; // degraded answers retry next time
+  cacheStore.set(key, { at: Date.now(), ttl: ttlMs, value });
+  if (cacheStore.size > 500) {
+    const oldest = cacheStore.keys().next().value as string | undefined;
+    if (oldest) cacheStore.delete(oldest);
+  }
+  return value;
+}
+
+const DNS_TTL_MS = 5 * 60_000;
+const DOMAIN_TTL_MS = 24 * 60 * 60_000;
+const GEO_TTL_MS = 60 * 60_000;
+
 /** Multi-part public suffixes handled for registrable-host purposes. */
 const MULTI_SUFFIXES = new Set([
   'co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'com.au', 'net.au', 'org.au',
@@ -80,6 +112,16 @@ export async function fetchDnsInfo(
   registrable: string,
   fetchJson: JsonFetcher = defaultJsonFetcher,
 ): Promise<DnsInfo> {
+  return cached(`dns:${host}|${registrable}`, DNS_TTL_MS, fetchJson === defaultJsonFetcher, () =>
+    fetchDnsInfoLive(host, registrable, fetchJson),
+  );
+}
+
+async function fetchDnsInfoLive(
+  host: string,
+  registrable: string,
+  fetchJson: JsonFetcher,
+): Promise<DnsInfo> {
   const [aRes, aaaaRes, mxRes, nsRes, txtRes, dmarcRes, caaRes] = await Promise.all([
     doh(host, 'A', fetchJson),
     doh(host, 'AAAA', fetchJson),
@@ -125,6 +167,19 @@ interface RdapResponse {
 export async function fetchDomainInfo(
   registrable: string,
   fetchJson: JsonFetcher = defaultJsonFetcher,
+): Promise<DomainInfo> {
+  return cached(
+    `domain:${registrable}`,
+    DOMAIN_TTL_MS,
+    fetchJson === defaultJsonFetcher,
+    () => fetchDomainInfoLive(registrable, fetchJson),
+    (d) => d.registrar !== null || d.created !== null || d.expires !== null,
+  );
+}
+
+async function fetchDomainInfoLive(
+  registrable: string,
+  fetchJson: JsonFetcher,
 ): Promise<DomainInfo> {
   const empty: DomainInfo = {
     registrar: null,
@@ -178,6 +233,20 @@ interface IpWhoResponse {
 export async function fetchServerInfo(
   ip: string | null,
   fetchJson: JsonFetcher = defaultJsonFetcher,
+): Promise<ServerInfo> {
+  if (!ip) return { ip, country: null, city: null, region: null, org: null };
+  return cached(
+    `geo:${ip}`,
+    GEO_TTL_MS,
+    fetchJson === defaultJsonFetcher,
+    () => fetchServerInfoLive(ip, fetchJson),
+    (s) => s.country !== null || s.city !== null || s.region !== null,
+  );
+}
+
+async function fetchServerInfoLive(
+  ip: string | null,
+  fetchJson: JsonFetcher,
 ): Promise<ServerInfo> {
   const empty: ServerInfo = { ip, country: null, city: null, region: null, org: null };
   if (!ip) return empty;

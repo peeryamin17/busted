@@ -46,15 +46,16 @@ const FEED_SOURCES: Array<{ source: string; url: string }> = [
 const FEED_TTL_MS = 60 * 60 * 1000;
 const FEED_MAX_BYTES = 4_000_000;
 
-interface FeedEntry {
-  key: string;
-  host: string;
-  path: string;
-  source: string;
+interface FeedIndex {
+  /** Normalised URL → the feed that listed it. */
+  exact: Map<string, string>;
+  /** Host whose feed entry sits at path '/' → the feed that listed it. */
+  hostRoot: Map<string, string>;
+  fetchedAt: number;
 }
 
-let feedState: { entries: FeedEntry[]; fetchedAt: number } | null = null;
-let feedLoad: Promise<FeedEntry[]> | null = null;
+let feedState: FeedIndex | null = null;
+let feedLoad: Promise<FeedIndex> | null = null;
 
 /** A URL reduced to a comparable shape: no fragment, no trailing slash. */
 function normaliseUrl(raw: string): { key: string; host: string; path: string } | null {
@@ -102,27 +103,37 @@ async function fetchTextCapped(url: string, maxBytes: number, timeoutMs = 6_000)
   return new TextDecoder().decode(buf);
 }
 
-/** Both feeds, parsed once and shared for an hour; failures read as empty. */
-async function loadFeedEntries(): Promise<FeedEntry[]> {
-  if (feedState && Date.now() - feedState.fetchedAt < FEED_TTL_MS) return feedState.entries;
+/** Both feeds, fetched together, indexed once and shared for an hour. */
+async function loadFeedIndex(): Promise<FeedIndex> {
+  if (feedState && Date.now() - feedState.fetchedAt < FEED_TTL_MS) return feedState;
   if (feedLoad) return feedLoad;
   feedLoad = (async () => {
-    const entries: FeedEntry[] = [];
-    for (const { source, url } of FEED_SOURCES) {
-      try {
-        const text = await fetchTextCapped(url, FEED_MAX_BYTES);
-        for (const line of text.split(/\r?\n/)) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith('#')) continue;
-          const n = normaliseUrl(trimmed);
-          if (n) entries.push({ key: n.key, host: n.host, path: n.path, source });
+    const exact = new Map<string, string>();
+    const hostRoot = new Map<string, string>();
+    // Fetch in parallel, parse in source order (first feed wins ties).
+    const texts = await Promise.all(
+      FEED_SOURCES.map(async ({ url }) => {
+        try {
+          return await fetchTextCapped(url, FEED_MAX_BYTES);
+        } catch {
+          return null; /* a dead feed is an empty feed */
         }
-      } catch {
-        /* a dead feed is an empty feed */
+      }),
+    );
+    FEED_SOURCES.forEach(({ source }, i) => {
+      const text = texts[i];
+      if (!text) return;
+      for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const n = normaliseUrl(trimmed);
+        if (!n) continue;
+        if (!exact.has(n.key)) exact.set(n.key, source);
+        if (n.path === '/' && !hostRoot.has(n.host)) hostRoot.set(n.host, source);
       }
-    }
-    feedState = { entries, fetchedAt: Date.now() };
-    return entries;
+    });
+    feedState = { exact, hostRoot, fetchedAt: Date.now() };
+    return feedState;
   })();
   try {
     return await feedLoad;
@@ -140,18 +151,14 @@ const defaultFeedMatch = async (
   url: string,
   host: string,
 ): Promise<{ source: string } | null> => {
-  const entries = await loadFeedEntries();
+  const index = await loadFeedIndex();
   const target = normaliseUrl(url);
   if (target) {
-    for (const e of entries) {
-      if (e.key === target.key) return { source: e.source };
-    }
+    const hit = index.exact.get(target.key);
+    if (hit) return { source: hit };
   }
-  const cleanHost = host.toLowerCase();
-  for (const e of entries) {
-    if (e.host === cleanHost && e.path === '/') return { source: e.source };
-  }
-  return null;
+  const root = index.hostRoot.get(host.toLowerCase());
+  return root ? { source: root } : null;
 };
 
 /* ── Google Safe Browsing (only when a key is configured) ─────── */

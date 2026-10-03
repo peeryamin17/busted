@@ -81,6 +81,10 @@ export interface Database {
   createSession(userId: string, tokenHash: string, expiresAtIso: string): Promise<SessionRecord>;
   /** Look up a live session by token hash; expired rows are deleted and read as null. */
   getSessionByTokenHash(tokenHash: string): Promise<SessionRecord | null>;
+  /** Session + its user in one lookup (the per-request auth path). */
+  getSessionWithUser(
+    tokenHash: string,
+  ): Promise<{ session: SessionRecord; user: UserRecord } | null>;
   deleteSession(tokenHash: string): Promise<void>;
   /** Stamp a session as used just now (the inactivity clock's reset). */
   touchSession(tokenHash: string): Promise<void>;
@@ -109,6 +113,8 @@ export interface Database {
   listScans(userId: string, limit: number, offset: number): Promise<{ scans: Scan[]; total: number }>;
 
   addFinding(f: Omit<Finding, 'id' | 'createdAt'>): Promise<Finding>;
+  /** Insert many findings for one scan in a single round trip. */
+  addFindings(items: Array<Omit<Finding, 'id' | 'createdAt'>>): Promise<Finding[]>;
   listFindings(scanId: string): Promise<Finding[]>;
 
   recordUsage(userId: string, kind: string, quantity: number, scanId?: string): Promise<void>;
@@ -126,6 +132,11 @@ export interface Database {
   getWebCheck(userId: string, id: string): Promise<WebCheckRecord | null>;
   /** How many patrols a user has stored (quota counting — never fetch rows to count). */
   countWebChecks(userId: string): Promise<number>;
+  /** History rows plus the user's total run count, in one query. */
+  listWebCheckSummariesCounted(
+    userId: string,
+    limit: number,
+  ): Promise<{ runs: WebCheckSummary[]; total: number }>;
   /**
    * History-list rows WITHOUT the heavy columns: scalar fields, the
    * finding count and the trust verdict, so listing a vault never
@@ -243,13 +254,26 @@ export class MemoryDatabase implements Database {
     return { ...rec };
   }
 
+  async getSessionWithUser(
+    tokenHash: string,
+  ): Promise<{ session: SessionRecord; user: UserRecord } | null> {
+    const session = await this.getSessionByTokenHash(tokenHash);
+    if (!session) return null;
+    const user = this.users.get(session.userId);
+    return user ? { session, user: { ...user } } : null;
+  }
+
   async deleteSession(tokenHash: string): Promise<void> {
     this.sessions.delete(tokenHash);
   }
 
   async touchSession(tokenHash: string): Promise<void> {
     const rec = this.sessions.get(tokenHash);
-    if (rec) rec.lastSeenAt = nowIso();
+    if (!rec) return;
+    // The stamp exists to spot five idle minutes; writing it on every
+    // request is waste. Once a minute is fresh enough.
+    if (Date.now() - Date.parse(rec.lastSeenAt) < 60_000) return;
+    rec.lastSeenAt = nowIso();
   }
 
   async deleteOtherSessions(userId: string, keepTokenHash: string): Promise<void> {
@@ -386,6 +410,12 @@ export class MemoryDatabase implements Database {
     return { ...rec };
   }
 
+  async addFindings(items: Array<Omit<Finding, 'id' | 'createdAt'>>): Promise<Finding[]> {
+    const out: Finding[] = [];
+    for (const f of items) out.push(await this.addFinding(f));
+    return out;
+  }
+
   async listFindings(scanId: string): Promise<Finding[]> {
     return (this.findings.get(scanId) ?? []).map((f) => ({ ...f }));
   }
@@ -463,6 +493,14 @@ export class MemoryDatabase implements Database {
       }));
   }
 
+  async listWebCheckSummariesCounted(
+    userId: string,
+    limit: number,
+  ): Promise<{ runs: WebCheckSummary[]; total: number }> {
+    const runs = await this.listWebCheckSummaries(userId, limit);
+    return { runs, total: await this.countWebChecks(userId) };
+  }
+
   async close(): Promise<void> {
     // nothing to release
   }
@@ -484,7 +522,17 @@ export class PostgresDatabase implements Database {
 
   static async connect(databaseUrl: string): Promise<PostgresDatabase> {
     const { Pool } = await import('pg');
-    const pool = new Pool({ connectionString: databaseUrl, max: 10 });
+    const pool = new Pool({
+      connectionString: databaseUrl,
+      max: 10,
+      // Keep a warm connection instead of paying Neon's cold-start on
+      // every quiet spell, and never let one stuck query hold a
+      // connection (or a request) hostage.
+      idleTimeoutMillis: 300_000,
+      connectionTimeoutMillis: 10_000,
+      statement_timeout: 10_000,
+      query_timeout: 10_000,
+    });
     await pool.query('SELECT 1');
     return new PostgresDatabase(pool);
   }
@@ -651,14 +699,53 @@ export class PostgresDatabase implements Database {
     return rec;
   }
 
+  async getSessionWithUser(
+    tokenHash: string,
+  ): Promise<{ session: SessionRecord; user: UserRecord } | null> {
+    const { rows } = await this.pool.query(
+      `SELECT u.*,
+              s.id AS session_id,
+              s.user_id AS session_user_id,
+              s.token_hash AS session_token_hash,
+              s.created_at AS session_created_at,
+              s.expires_at AS session_expires_at,
+              s.last_seen_at AS session_last_seen_at
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.token_hash = $1`,
+      [tokenHash],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    const session: SessionRecord = {
+      id: row['session_id'] as string,
+      userId: row['session_user_id'] as string,
+      tokenHash: row['session_token_hash'] as string,
+      createdAt: (row['session_created_at'] as Date).toISOString(),
+      expiresAt: (row['session_expires_at'] as Date).toISOString(),
+      lastSeenAt: row['session_last_seen_at']
+        ? (row['session_last_seen_at'] as Date).toISOString()
+        : (row['session_created_at'] as Date).toISOString(),
+    };
+    if (session.expiresAt <= new Date().toISOString()) {
+      await this.deleteSession(tokenHash);
+      return null;
+    }
+    return { session, user: this.toUser(row) };
+  }
+
   async deleteSession(tokenHash: string): Promise<void> {
     await this.pool.query(`DELETE FROM sessions WHERE token_hash = $1`, [tokenHash]);
   }
 
   async touchSession(tokenHash: string): Promise<void> {
-    await this.pool.query(`UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1`, [
-      tokenHash,
-    ]);
+    // Stamp at most once a minute: the clock only needs to spot five
+    // idle minutes, and an UPDATE per request is a write tax on reads.
+    await this.pool.query(
+      `UPDATE sessions SET last_seen_at = now()
+       WHERE token_hash = $1 AND last_seen_at < now() - interval '1 minute'`,
+      [tokenHash],
+    );
   }
 
   async deleteOtherSessions(userId: string, keepTokenHash: string): Promise<void> {
@@ -863,6 +950,31 @@ export class PostgresDatabase implements Database {
     return this.toFinding(rows[0]);
   }
 
+  async addFindings(items: Array<Omit<Finding, 'id' | 'createdAt'>>): Promise<Finding[]> {
+    if (items.length === 0) return [];
+    const cols = 15;
+    const values: unknown[] = [];
+    const tuples = items.map((f, i) => {
+      const b = i * cols;
+      values.push(
+        f.scanId, f.category, f.title, f.description, f.severity,
+        f.cvssScore ?? null, f.cvssVector ?? null, f.confidence,
+        f.trapProbability, f.honeypotSuspect, f.location ?? null,
+        f.evidence ?? null, f.reproSteps, f.remediation, f.references,
+      );
+      return `(${Array.from({ length: cols }, (_, j) => `$${b + j + 1}`).join(',')})`;
+    });
+    const { rows } = await this.pool.query(
+      `INSERT INTO findings
+         (scan_id, category, title, description, severity, cvss_score, cvss_vector,
+          confidence, trap_probability, honeypot_suspect, location, evidence,
+          repro_steps, remediation, "references")
+       VALUES ${tuples.join(',')} RETURNING *`,
+      values,
+    );
+    return rows.map((r: Record<string, unknown>) => this.toFinding(r));
+  }
+
   async listFindings(scanId: string): Promise<Finding[]> {
     const { rows } = await this.pool.query(
       `SELECT * FROM findings WHERE scan_id = $1 ORDER BY created_at ASC`,
@@ -950,25 +1062,40 @@ export class PostgresDatabase implements Database {
   }
 
   async listWebCheckSummaries(userId: string, limit: number): Promise<WebCheckSummary[]> {
+    const { runs } = await this.listWebCheckSummariesCounted(userId, limit);
+    return runs;
+  }
+
+  async listWebCheckSummariesCounted(
+    userId: string,
+    limit: number,
+  ): Promise<{ runs: WebCheckSummary[]; total: number }> {
+    // One round trip for rows AND the lifetime total (the usage meter):
+    // the window count rides on every returned row; an empty history
+    // has no row to ride on, and its total is zero by definition.
     const { rows } = await this.pool.query(
       `SELECT id, url, host, score, grade, created_at, requester_ip, requester_geo,
               jsonb_array_length(findings)::int AS finding_count,
-              info -> 'trust' ->> 'verdict' AS trust_verdict
+              info -> 'trust' ->> 'verdict' AS trust_verdict,
+              COUNT(*) OVER()::int AS total_count
        FROM web_checks WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
       [userId, Math.max(1, Math.min(50, limit))],
     );
-    return rows.map((r: Record<string, unknown>) => ({
-      id: r['id'] as string,
-      url: r['url'] as string,
-      host: r['host'] as string,
-      score: r['score'] != null ? Number(r['score']) : null,
-      grade: (r['grade'] as string) ?? null,
-      findingCount: Number(r['finding_count'] ?? 0),
-      trustVerdict: (r['trust_verdict'] as string) ?? null,
-      requesterIp: (r['requester_ip'] as string) ?? null,
-      requesterGeo: (r['requester_geo'] as RequesterOrigin) ?? null,
-      createdAt: (r['created_at'] as Date).toISOString(),
-    }));
+    return {
+      total: rows[0] ? Number(rows[0]['total_count'] ?? 0) : 0,
+      runs: rows.map((r: Record<string, unknown>) => ({
+        id: r['id'] as string,
+        url: r['url'] as string,
+        host: r['host'] as string,
+        score: r['score'] != null ? Number(r['score']) : null,
+        grade: (r['grade'] as string) ?? null,
+        findingCount: Number(r['finding_count'] ?? 0),
+        trustVerdict: (r['trust_verdict'] as string) ?? null,
+        requesterIp: (r['requester_ip'] as string) ?? null,
+        requesterGeo: (r['requester_geo'] as RequesterOrigin) ?? null,
+        createdAt: (r['created_at'] as Date).toISOString(),
+      })),
+    };
   }
 
   async getWebCheck(userId: string, id: string): Promise<WebCheckRecord | null> {

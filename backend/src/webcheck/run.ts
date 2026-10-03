@@ -204,8 +204,8 @@ export async function runWebPatrol(
     }
   }
 
-  const serverInfo = await fetchServerInfo(dnsInfo.a[0] ?? null, deps.jsonFetcher);
-  const securityTxtRes = await quiet(
+  const serverInfoP = fetchServerInfo(dnsInfo.a[0] ?? null, deps.jsonFetcher);
+  const securityTxtP = quiet(
     fetcher(`${origin}/.well-known/security.txt`, { maxBytes: 16_000, timeoutMs: 4_000 }),
   );
 
@@ -222,17 +222,22 @@ export async function runWebPatrol(
      It never adds findings and never moves the score — verdict only. */
   const titleMatch = /<title[^>]*>([^<]{0,200})<\/title>/i.exec(page.body);
   const pageTitle = titleMatch ? (titleMatch[1] as string).trim() || null : null;
-  const trust = await assessTrust(
-    {
-      finalUrl,
-      host: final.hostname,
-      pageTitle,
-      body: page.body,
-      status: page.status,
-      domainCreatedIso: domainInfo.created,
-    },
-    deps.trust,
-  );
+  // Independent tails, one wait: server geo, security.txt, trust.
+  const [serverInfo, securityTxtRes, trust] = await Promise.all([
+    serverInfoP,
+    securityTxtP,
+    assessTrust(
+      {
+        finalUrl,
+        host: final.hostname,
+        pageTitle,
+        body: page.body,
+        status: page.status,
+        domainCreatedIso: domainInfo.created,
+      },
+      deps.trust,
+    ),
+  ]);
 
   const info: WebInfo = {
     perf: buildPerfInfo(page),

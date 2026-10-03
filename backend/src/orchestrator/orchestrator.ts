@@ -307,16 +307,17 @@ export class ScanOrchestrator {
       },
     });
 
-    for (const f of outcome.findings) {
-      const cvss = estimateCvss(f.severity, f.category);
-      const stored = await this.deps.db.addFinding({
-        ...redactFindingEvidence(f),
-        scanId: scan.id,
-        cvssScore: cvss.score,
-        cvssVector: cvss.vector,
-      });
-      void stored;
-    }
+    await this.deps.db.addFindings(
+      outcome.findings.map((f) => {
+        const cvss = estimateCvss(f.severity, f.category);
+        return {
+          ...redactFindingEvidence(f),
+          scanId: scan.id,
+          cvssScore: cvss.score,
+          cvssVector: cvss.vector,
+        };
+      }),
+    );
     await this.deps.db.updateScan(scan.id, {
       progress: {
         completedSteps: outcome.testsRun,
@@ -386,8 +387,10 @@ export class ScanOrchestrator {
       });
     }
 
+    await this.deps.db.addFindings(
+      findings.map((f) => ({ ...redactFindingEvidence(f), scanId: scan.id })),
+    );
     for (const f of findings) {
-      await this.deps.db.addFinding({ ...redactFindingEvidence(f), scanId: scan.id });
       this.emit(scan.id, 'finding', `Finding: ${f.title} [${f.severity}]`);
     }
     this.emit(scan.id, 'status', `Passive scan finished: ${findings.length} finding(s)`);

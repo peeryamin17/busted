@@ -51,8 +51,9 @@ export function buildAuthenticate(db: Database) {
     const sessionToken = parseCookies(request.headers.cookie)[SESSION_COOKIE];
     if (sessionToken) {
       const tokenHash = hashSessionToken(sessionToken);
-      const session = await db.getSessionByTokenHash(tokenHash);
-      const user = session ? await db.getUserById(session.userId) : null;
+      const found = await db.getSessionWithUser(tokenHash);
+      const session = found?.session ?? null;
+      const user = found?.user ?? null;
       if (!session || !user) {
         throw Object.assign(new Error('Invalid or expired session'), { statusCode: 401 });
       }

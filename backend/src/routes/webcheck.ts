@@ -258,10 +258,9 @@ export async function webCheckRoutes(
 
   app.get('/api/webcheck', { preHandler: authenticate }, async (request) => {
     const user = requireUser(request);
-    const runs = await db.listWebCheckSummaries(user.id, 20);
-    const used = await db.countWebChecks(user.id);
+    const { runs, total } = await db.listWebCheckSummariesCounted(user.id, 20);
     return {
-      usage: usageFor(user.plan, used),
+      usage: usageFor(user.plan, total),
       runs: runs.map((r, i) => {
         /* History vault: past the newest few, a free account keeps the
            fact of a run — its host and date — and none of its contents. */
