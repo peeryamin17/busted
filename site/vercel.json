@@ -5,10 +5,6 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/__clerk/(.*)",
-      "destination": "https://clerk.bugseek-ai.vercel.app/v1/$1"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

@@ -1,10 +1,7 @@
 import { motion, useScroll, useSpring, useMotionValueEvent } from 'framer-motion';
-import { SignedIn, SignedOut, UserButton } from '@clerk/clerk-react';
 import { useState, type MouseEvent } from 'react';
-import { clerkAppearance, CLERK_ENABLED } from '../lib/clerk';
 import { springQuiet } from '../lib/motion';
 import { navigate } from '../lib/router';
-import { LiquidGlassButton } from './fx/LiquidGlassButton';
 
 const LINKS = [
   { label: 'Toolkit', hash: '#what' },
@@ -23,12 +20,10 @@ function scrollToHash(hash: string) {
  * materializes as a detached pill once you scroll, and a white hairline
  * tracks reading progress across the very top of the viewport.
  *
- * Two deliberately different faces:
- * - public: brand + account entry only. The product stays behind the door.
- * - member: the full site navigation, unlocked after Google sign-in.
+ * One public face: brand plus the section links. The whole site is
+ * open now, so there is no account entry here at all.
  */
-export function Nav({ variant = 'member' }: { variant?: 'public' | 'member' }) {
-  const isPublic = variant === 'public';
+export function Nav() {
   const [scrolled, setScrolled] = useState(false);
   const { scrollY, scrollYProgress } = useScroll();
   const progress = useSpring(scrollYProgress, { stiffness: 120, damping: 26, mass: 0.4 });
@@ -80,125 +75,30 @@ export function Nav({ variant = 'member' }: { variant?: 'public' | 'member' }) {
               BugSeek <span className="text-white/50">AI</span>
             </span>
           </a>
-          {!isPublic && (
-            <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
+          <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
+            <a
+              href="/app/connect"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate('/app/connect');
+              }}
+              className="text-sm font-semibold text-bone transition-colors hover:text-white"
+            >
+              Connect site
+            </a>
+            {LINKS.map((l) => (
               <a
-                href="/app/connect"
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate('/app/connect');
-                }}
-                className="text-sm font-semibold text-bone transition-colors hover:text-white"
+                key={l.hash}
+                href={l.hash}
+                onClick={(e) => goSection(e, l.hash)}
+                className="text-sm font-medium text-body/80 transition-colors hover:text-bone"
               >
-                Connect site
+                {l.label}
               </a>
-              {LINKS.map((l) => (
-                <a
-                  key={l.hash}
-                  href={l.hash}
-                  onClick={(e) => goSection(e, l.hash)}
-                  className="text-sm font-medium text-body/80 transition-colors hover:text-bone"
-                >
-                  {l.label}
-                </a>
-              ))}
-            </nav>
-          )}
-          <div className="flex shrink-0 items-center gap-2.5">
-            {isPublic ? <PublicAuthArea /> : <MemberAuthArea />}
-          </div>
+            ))}
+          </nav>
         </div>
       </motion.header>
-    </>
-  );
-}
-
-/** Account entry for the public face. */
-function PublicLinks() {
-  return (
-    <>
-      <a
-        href="/signin"
-        onClick={(e) => {
-          e.preventDefault();
-          navigate('/signin');
-        }}
-        className="px-1.5 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone sm:px-2"
-      >
-        Sign in
-      </a>
-      <LiquidGlassButton
-        href="/signup"
-        onClick={(e) => {
-          e.preventDefault();
-          navigate('/signup');
-        }}
-        size="sm"
-      >
-        Sign up
-      </LiquidGlassButton>
-    </>
-  );
-}
-
-function PublicAuthArea() {
-  if (!CLERK_ENABLED) return <PublicLinks />;
-  return (
-    <>
-      <SignedIn>
-        <div className="flex items-center gap-2.5">
-          <LiquidGlassButton
-            href="/app"
-            onClick={(e) => {
-              e.preventDefault();
-              navigate('/app');
-            }}
-            size="sm"
-          >
-            Open BugSeek
-          </LiquidGlassButton>
-          <UserButton appearance={clerkAppearance} />
-        </div>
-      </SignedIn>
-      <SignedOut>
-        <PublicLinks />
-      </SignedOut>
-    </>
-  );
-}
-
-function MemberAuthArea() {
-  if (!CLERK_ENABLED) {
-    return (
-      <a
-        href="/signin"
-        onClick={(e) => {
-          e.preventDefault();
-          navigate('/signin');
-        }}
-        className="px-2 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone"
-      >
-        Sign in
-      </a>
-    );
-  }
-  return (
-    <>
-      <SignedIn>
-        <UserButton appearance={clerkAppearance} />
-      </SignedIn>
-      <SignedOut>
-        <a
-          href="/signin"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate('/signin');
-          }}
-          className="px-2 py-2 text-sm font-medium text-body/85 transition-colors hover:text-bone"
-        >
-          Sign in
-        </a>
-      </SignedOut>
     </>
   );
 }

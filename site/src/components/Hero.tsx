@@ -40,7 +40,7 @@ export function Hero({ memberName }: { memberName?: string }) {
             className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3.5 py-1.5 font-mono text-xs"
           >
             <span className="h-1.5 w-1.5 rounded-full bg-white pulse-dot" />
-            <span className="text-shiny font-semibold tracking-wide">MEMBER ACCESS · GOOGLE CONNECTED · CHROME EXTENSION</span>
+            <span className="text-shiny font-semibold tracking-wide">AI SECURITY RECON · CHROME EXTENSION</span>
           </motion.div>
 
           {memberName && (
