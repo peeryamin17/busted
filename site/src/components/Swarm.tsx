@@ -40,7 +40,7 @@ const HEAD = { x: 50, y: 10 };
 
 function beamPath(x: number, y: number) {
   const midY = HEAD.y + (y - HEAD.y) * 0.55;
-  return `M ${HEAD.x} ${HEAD.y + 5} C ${HEAD.x} ${midY}, ${x} ${midY}, ${x} ${y - 4}`;
+  return `M ${HEAD.x} ${HEAD.y} C ${HEAD.x} ${midY}, ${x} ${midY}, ${x} ${y}`;
 }
 
 const POINTS = [
@@ -134,7 +134,7 @@ export function Swarm() {
                   className="absolute z-10 -translate-x-1/2 -translate-y-1/2"
                   style={{ left: `${s.x}%`, top: `${s.y}%` }}
                 >
-                  <div className="flex items-center gap-1.5 whitespace-nowrap rounded-xl border border-white/15 bg-ink px-2.5 py-1.5 text-[11px] font-semibold text-bone shadow-lg sm:gap-2 sm:px-3 sm:py-2 sm:text-xs">
+                  <div className="flex items-center gap-1.5 whitespace-nowrap rounded-xl border border-white/40 bg-ink px-2.5 py-1.5 text-[11px] font-semibold text-bone shadow-[0_0_18px_-2px_rgba(255,255,255,0.45),0_10px_24px_-10px_rgba(0,0,0,0.85)] sm:gap-2 sm:px-3 sm:py-2 sm:text-xs">
                     <s.icon className="h-3.5 w-3.5 shrink-0 text-mint" aria-hidden />
                     <span className="sm:hidden">{s.short}</span>
                     <span className="hidden sm:inline">{s.name}</span>
