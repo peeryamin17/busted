@@ -15,6 +15,7 @@ import { oastRoutes } from './routes/oast.js';
 import { engineRoutes } from './routes/engines.js';
 import { swarmRoutes } from './routes/multiagent.js';
 import { v1CompatRoutes } from './routes/v1compat.js';
+import { waitlistRoutes } from './routes/waitlist.js';
 
 export interface ServerDeps {
   config: AppConfig;
@@ -59,6 +60,7 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
     await reportRoutes(instance, routeDeps);
     await oastRoutes(instance, routeDeps);
     await engineRoutes(instance, routeDeps);
+    await waitlistRoutes(instance, routeDeps);
   });
 
   return app;

@@ -95,6 +95,9 @@ export interface Database {
   countScansSince(userId: string, sinceIso: string): Promise<number>;
   sumUsageSince(userId: string, kind: string, sinceIso: string): Promise<number>;
 
+  /** Add an email to the launch waitlist; `already` is true when it was on the list already. */
+  addWaitlistEmail(email: string, source?: string): Promise<{ already: boolean }>;
+
   close(): Promise<void>;
 }
 
@@ -112,6 +115,7 @@ export class MemoryDatabase implements Database {
   private scans = new Map<string, Scan>();
   private findings = new Map<string, Finding[]>();
   private usage: Array<{ userId: string; kind: string; quantity: number; scanId?: string; at: string }> = [];
+  private waitlist = new Set<string>(); // normalised emails
 
   async createUser(email: string, passwordHash: string): Promise<UserRecord> {
     const normalized = email.trim().toLowerCase();
@@ -331,6 +335,13 @@ export class MemoryDatabase implements Database {
     return this.usage
       .filter((u) => u.userId === userId && u.kind === kind && u.at >= sinceIso)
       .reduce((sum, u) => sum + u.quantity, 0);
+  }
+
+  async addWaitlistEmail(email: string): Promise<{ already: boolean }> {
+    const normalized = email.trim().toLowerCase();
+    if (this.waitlist.has(normalized)) return { already: true };
+    this.waitlist.add(normalized);
+    return { already: false };
   }
 
   async close(): Promise<void> {
@@ -744,6 +755,14 @@ export class PostgresDatabase implements Database {
       [userId, kind, sinceIso]
     );
     return rows[0].s;
+  }
+
+  async addWaitlistEmail(email: string, source = 'site-drop'): Promise<{ already: boolean }> {
+    const { rowCount } = await this.pool.query(
+      `INSERT INTO waitlist (email, source) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING`,
+      [email.trim().toLowerCase(), source]
+    );
+    return { already: (rowCount ?? 0) === 0 };
   }
 
   async close(): Promise<void> {
