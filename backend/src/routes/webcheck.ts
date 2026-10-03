@@ -4,7 +4,7 @@ import { buildAuthenticate, requireUser } from '../middleware/auth.js';
 import { securityScore } from '../reports/score.js';
 import { runWebPatrol, type PatrolOutcome } from '../webcheck/run.js';
 import { fetchRequesterGeo, fetchReverseGeo } from '../webcheck/info.js';
-import type { GeoStamp, WebCheckRecord, WebFinding } from '../webcheck/types.js';
+import type { GeoStamp, RequesterOrigin, WebCheckRecord, WebFinding } from '../webcheck/types.js';
 import type { PlanTier, Severity } from '../types.js';
 import type { RouteDeps } from './health.js';
 
@@ -192,15 +192,22 @@ export async function webCheckRoutes(
 
       try {
         const outcome = await patrol(body.data.url);
-        // Stamp the run with who asked and roughly where from
-        // (disclosed on the form). Behind Vercel → Render the
-        // visitor's address is the first forwarded hop; request.ip
-        // is the fallback. A device position the visitor chose to
-        // share outranks the IP guess; both lookups are best-effort.
+        // Stamp the run with who asked and where from — BOTH halves,
+        // side by side (disclosed on the form): the address and its
+        // coarse location always, and the device's own position when
+        // the visitor shared it. Both lookups are best-effort.
         const xff = request.headers['x-forwarded-for'];
         const firstHop = (Array.isArray(xff) ? xff[0] : xff)?.split(',')[0]?.trim();
         const requesterIp = firstHop || request.ip || null;
-        let requesterGeo: GeoStamp | null = null;
+        let ipGeo: GeoStamp | null = null;
+        if (requesterIp) {
+          try {
+            ipGeo = await (opts.geo ?? fetchRequesterGeo)(requesterIp);
+          } catch {
+            ipGeo = null;
+          }
+        }
+        let gpsStamp: RequesterOrigin['gps'] = null;
         const gps = body.data.gps;
         if (gps) {
           let place: { city: string | null; region: string | null; country: string | null } | null =
@@ -210,23 +217,17 @@ export async function webCheckRoutes(
           } catch {
             place = null;
           }
-          requesterGeo = {
+          gpsStamp = {
             country: place?.country ?? null,
             city: place?.city ?? null,
             region: place?.region ?? null,
             lat: gps.lat,
             lon: gps.lon,
             ...(gps.accuracy !== undefined ? { accuracyM: gps.accuracy } : {}),
-            source: 'gps',
           };
-        } else if (requesterIp) {
-          try {
-            const ipGeo = await (opts.geo ?? fetchRequesterGeo)(requesterIp);
-            if (ipGeo) requesterGeo = { ...ipGeo, source: 'ip' };
-          } catch {
-            requesterGeo = null;
-          }
         }
+        const requesterGeo: RequesterOrigin | null =
+          ipGeo || gpsStamp ? { ip: ipGeo, gps: gpsStamp } : null;
         const scored = securityScore(outcome.findings);
         const rec = await db.insertWebCheck({
           userId: user.id,
@@ -257,7 +258,7 @@ export async function webCheckRoutes(
 
   app.get('/api/webcheck', { preHandler: authenticate }, async (request) => {
     const user = requireUser(request);
-    const runs = await db.listWebChecks(user.id, 20);
+    const runs = await db.listWebCheckSummaries(user.id, 20);
     const used = await db.countWebChecks(user.id);
     return {
       usage: usageFor(user.plan, used),
@@ -273,8 +274,8 @@ export async function webCheckRoutes(
           host: r.host,
           score: r.score,
           grade: r.grade,
-          findingCount: r.findings.length,
-          trustVerdict: r.info.trust?.verdict ?? null,
+          findingCount: r.findingCount,
+          trustVerdict: r.trustVerdict,
           requesterIp: r.requesterIp,
           requesterGeo: r.requesterGeo,
           createdAt: r.createdAt,
@@ -296,7 +297,7 @@ export async function webCheckRoutes(
       /* The vault door: a free account reopens only its newest few
          runs; anything older is a plan's to unlock. */
       if (user.plan === 'free') {
-        const open = await db.listWebChecks(user.id, FREE_HISTORY_OPEN);
+        const open = await db.listWebCheckSummaries(user.id, FREE_HISTORY_OPEN);
         if (!open.some((r) => r.id === rec.id)) {
           return reply.status(403).send({
             error: 'That patrol rests in the vault — a plan unlocks your full history.',

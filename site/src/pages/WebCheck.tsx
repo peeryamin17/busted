@@ -105,6 +105,8 @@ interface CheckView {
   };
   /** The trust verdict, lifted out of info for the banner. Null on old runs. */
   trust: TrustView | null;
+  /** Where this run was requested from (both origin stamps). Null on old runs. */
+  requester?: { ip: string | null; geo: unknown } | null;
   usage?: UsageView;
   locked: LockedRow[];
 }
@@ -121,13 +123,66 @@ interface RunSummary {
   /** History-vault stub: the run exists; its contents ride along on a plan. */
   locked?: boolean;
   requesterIp?: string | null;
-  requesterGeo?: {
-    country: string | null;
-    city: string | null;
-    region: string | null;
-    source?: string;
-  } | null;
+  /** Fresh runs: { ip, gps }; older runs: one flat place with a source. */
+  requesterGeo?: unknown;
   createdAt: string;
+}
+
+interface GeoPlaceView {
+  country: string | null;
+  city: string | null;
+  region: string | null;
+}
+
+interface OriginStampView {
+  ip: GeoPlaceView | null;
+  gps: (GeoPlaceView & { lat?: number; lon?: number; accuracyM?: number }) | null;
+}
+
+/** Read a run's origin stamp, whatever vintage it was stored in. */
+function readStamp(raw: unknown): OriginStampView {
+  if (!raw || typeof raw !== 'object') return { ip: null, gps: null };
+  const o = raw as Record<string, unknown>;
+  if ('ip' in o || 'gps' in o) {
+    return {
+      ip: (o.ip as GeoPlaceView | null) ?? null,
+      gps: (o.gps as OriginStampView['gps']) ?? null,
+    };
+  }
+  const place = o as unknown as GeoPlaceView & { source?: string; lat?: number; lon?: number; accuracyM?: number };
+  return place.source === 'gps' ? { ip: null, gps: place } : { ip: place, gps: null };
+}
+
+const placeName = (p: GeoPlaceView | null): string | null =>
+  p ? [p.city, p.country].filter(Boolean).join(', ') || null : null;
+
+/** History tag: "from Srinagar, India · GPS + IP". */
+function originTag(run: RunSummary): string | null {
+  const s = readStamp(run.requesterGeo);
+  const place = placeName(s.gps ?? s.ip);
+  if (!place) return null;
+  const tag = s.gps && s.ip ? 'GPS + IP' : s.gps ? 'GPS' : 'IP';
+  return `from ${place} · ${tag}`;
+}
+
+/** Result line: "RECORDED FROM GPS 34.0837, 74.7973 (±18m) — Srinagar, India · IP 103.9.1.2 — Srinagar, India". */
+function stampLine(requester?: { ip: string | null; geo: unknown } | null): string | null {
+  if (!requester) return null;
+  const { ip, gps } = readStamp(requester.geo);
+  const parts: string[] = [];
+  if (gps) {
+    const coords =
+      typeof gps.lat === 'number' && typeof gps.lon === 'number'
+        ? `GPS ${gps.lat.toFixed(4)}, ${gps.lon.toFixed(4)}${gps.accuracyM ? ` (±${Math.round(gps.accuracyM)}m)` : ''}`
+        : 'GPS';
+    const name = placeName(gps);
+    parts.push(name ? `${coords} — ${name}` : coords);
+  }
+  if (ip || requester.ip) {
+    const name = placeName(ip);
+    parts.push(`IP ${requester.ip ?? ''}${name ? ` — ${name}` : ''}`.trim());
+  }
+  return parts.length ? `RECORDED FROM ${parts.join(' · ')}` : null;
 }
 
 const SEV_STYLE: Record<Sev, { label: string; chip: string; bar: string }> = {
@@ -551,13 +606,9 @@ export function WebCheck() {
                       <span className="hidden font-mono text-[11px] text-slate2 md:inline">
                         {fmtDate(run.createdAt)}
                       </span>
-                      {run.requesterGeo && (run.requesterGeo.city || run.requesterGeo.country) && (
+                      {originTag(run) && (
                         <span className="hidden font-mono text-[11px] text-slate2 lg:inline">
-                          from{' '}
-                          {[run.requesterGeo.city, run.requesterGeo.country]
-                            .filter(Boolean)
-                            .join(', ')}
-                          {run.requesterGeo.source === 'gps' ? ' · GPS' : ''}
+                          {originTag(run)}
                         </span>
                       )}
                       {run.trustVerdict === 'known-bad' && (
@@ -664,6 +715,11 @@ export function WebCheck() {
                     <p className="mt-1 font-mono text-xs text-slate2">
                       patrolled {fmtDate(result.createdAt)} · {result.host}
                     </p>
+                    {stampLine(result.requester) && (
+                      <p className="mt-1 font-mono text-[11px] leading-relaxed text-slate2">
+                        {stampLine(result.requester)}
+                      </p>
+                    )}
                     <div className="mt-4 flex flex-wrap gap-2">
                       {countsOrder.map((sev) =>
                         result.counts[sev] > 0 ? (

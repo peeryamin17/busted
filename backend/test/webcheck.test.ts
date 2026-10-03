@@ -288,25 +288,29 @@ async function main() {
   });
   check('stamped run → 201', stamped.statusCode === 201, stamped.statusCode);
   const stampedView = stamped.json() as {
-    requester: { ip: string | null; geo: { city: string | null; country: string | null } | null };
+    requester: {
+      ip: string | null;
+      geo: { ip: { city: string | null; country: string | null } | null; gps: unknown } | null;
+    };
   };
   check('first forwarded hop is the requester ip', stampedView.requester.ip === '203.0.113.9', stampedView.requester);
   check(
-    'geo rides the stamp',
-    stampedView.requester.geo?.city === 'Srinagar' && stampedView.requester.geo?.country === 'India',
+    'ip location rides the stamp',
+    stampedView.requester.geo?.ip?.city === 'Srinagar' && stampedView.requester.geo?.ip?.country === 'India',
     stampedView.requester,
   );
+  check('no gps side when nothing was shared', stampedView.requester.geo?.gps === null, stampedView.requester);
   const carolsRuns = await db.listWebChecks(carol.user.id, 5);
   check(
     'the stamp is what got stored',
-    carolsRuns[0]?.requesterIp === '203.0.113.9' && carolsRuns[0]?.requesterGeo?.city === 'Srinagar',
+    carolsRuns[0]?.requesterIp === '203.0.113.9' && carolsRuns[0]?.requesterGeo?.ip?.city === 'Srinagar',
     carolsRuns[0],
   );
   const carolsList = await app2.inject({ method: 'GET', url: '/api/webcheck', headers: { cookie: carol.cookie } });
-  const carolsListBody = carolsList.json() as { runs: Array<{ requesterIp: string | null; requesterGeo: { city: string | null } | null }> };
+  const carolsListBody = carolsList.json() as { runs: Array<{ requesterIp: string | null; requesterGeo: { ip: { city: string | null } | null } | null }> };
   check(
     'history shows the owner their own stamp',
-    carolsListBody.runs[0]?.requesterIp === '203.0.113.9' && carolsListBody.runs[0]?.requesterGeo?.city === 'Srinagar',
+    carolsListBody.runs[0]?.requesterIp === '203.0.113.9' && carolsListBody.runs[0]?.requesterGeo?.ip?.city === 'Srinagar',
     carolsListBody.runs[0],
   );
   await app2.close();
@@ -331,13 +335,11 @@ async function main() {
   check('geo is null, not invented', unstampedView.requester.geo === null);
   await app3.close();
 
-  /* ── GPS beats IP when the visitor shares it ── */
+  /* ── GPS and IP, side by side, when the visitor shares it ── */
   const app4 = Fastify();
   await webCheckRoutes(app4 as never, deps, {
     patrol: stampedPatrol,
-    geo: async () => {
-      throw new Error('ip geo must not be consulted when GPS is shared');
-    },
+    geo: async () => ({ country: 'India', city: 'Jammu', region: 'Jammu and Kashmir' }),
     reverseGeo: async () => ({ city: 'Srinagar', region: 'Jammu and Kashmir', country: 'India' }),
   });
   const erin = await makeCookie('erin@example.com');
@@ -351,21 +353,33 @@ async function main() {
       gps: { lat: 34.0837, lon: 74.7973, accuracy: 18 },
     },
   });
-  check('gps run → 201 (ip geo never consulted)', gpsRun.statusCode === 201, gpsRun.statusCode);
+  check('gps run → 201', gpsRun.statusCode === 201, gpsRun.statusCode);
   const gpsView = gpsRun.json() as {
     requester: {
       ip: string | null;
-      geo: { source?: string; lat?: number; lon?: number; accuracyM?: number; city: string | null } | null;
+      geo: {
+        ip: { city: string | null } | null;
+        gps: { lat?: number; lon?: number; accuracyM?: number; city: string | null } | null;
+      } | null;
     };
   };
   check('ip still stamped alongside', gpsView.requester.ip === '203.0.113.9', gpsView.requester);
-  check('stamp says gps', gpsView.requester.geo?.source === 'gps', gpsView.requester.geo);
   check(
-    'coordinates stored as given',
-    gpsView.requester.geo?.lat === 34.0837 && gpsView.requester.geo?.lon === 74.7973 && gpsView.requester.geo?.accuracyM === 18,
+    'both sides of the stamp, side by side',
+    gpsView.requester.geo?.gps?.city === 'Srinagar' && gpsView.requester.geo?.ip?.city === 'Jammu',
     gpsView.requester.geo,
   );
-  check('reverse-geocoded city rides along', gpsView.requester.geo?.city === 'Srinagar', gpsView.requester.geo);
+  check(
+    'coordinates stored as given',
+    gpsView.requester.geo?.gps?.lat === 34.0837 && gpsView.requester.geo?.gps?.lon === 74.7973 && gpsView.requester.geo?.gps?.accuracyM === 18,
+    gpsView.requester.geo,
+  );
+  const erinsRuns = await db.listWebChecks(erin.user.id, 5);
+  check(
+    'the dual stamp is what got stored',
+    erinsRuns[0]?.requesterGeo?.gps?.lat === 34.0837 && erinsRuns[0]?.requesterGeo?.ip?.city === 'Jammu',
+    erinsRuns[0]?.requesterGeo,
+  );
   await app4.close();
 
   const app5 = Fastify();
@@ -380,8 +394,12 @@ async function main() {
     headers: { cookie: frank.cookie, 'x-forwarded-for': '198.51.100.7' },
     payload: { url: 'https://demo.example', authorized: true },
   });
-  const ipView = ipRun.json() as { requester: { geo: { source?: string } | null } };
-  check('an unshared run is labelled ip', ipView.requester.geo?.source === 'ip', ipView.requester);
+  const ipView = ipRun.json() as { requester: { geo: { ip: unknown; gps: unknown } | null } };
+  check(
+    'an unshared run carries only the ip side',
+    ipView.requester.geo?.ip != null && ipView.requester.geo?.gps === null,
+    ipView.requester,
+  );
   await app5.close();
 
   /* ── the trust layer: reports, warnings, tells ──────────────── */

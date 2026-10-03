@@ -109,18 +109,19 @@ export interface WebInfo {
   trust: TrustAssessment;
 }
 
-/** Coarse origin of a patrol request (city/country granularity, never finer). */
+/** Coarse place (city/country granularity, never finer). */
 export interface GeoStamp {
   country: string | null;
   city: string | null;
   region: string | null;
-  /** Device coordinates when the visitor allowed the browser prompt. */
-  lat?: number;
-  lon?: number;
-  /** Reported GPS accuracy radius in metres, when known. */
-  accuracyM?: number;
-  /** How the stamp was derived: the device's GPS, or the address's IP. */
-  source?: 'gps' | 'ip';
+}
+
+/** Both origin halves of a patrol request, stored side by side. */
+export interface RequesterOrigin {
+  /** Where the requester's address resolves to (always attempted). */
+  ip: GeoStamp | null;
+  /** The device's own position, when the visitor chose to share it. */
+  gps: (GeoStamp & { lat: number; lon: number; accuracyM?: number }) | null;
 }
 
 /** One stored patrol run (row of web_checks). */
@@ -134,8 +135,8 @@ export interface WebCheckRecord {
   grade: string | null;
   findings: WebFinding[];
   info: WebInfo;
-  /** The owner's address + coarse location when they asked (disclosed on the form). */
+  /** The owner's address + both location stamps when they asked (disclosed on the form). */
   requesterIp: string | null;
-  requesterGeo: GeoStamp | null;
+  requesterGeo: RequesterOrigin | null;
   createdAt: string; // ISO
 }

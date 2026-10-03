@@ -10,7 +10,7 @@ import type {
   SessionRecord,
   UserRecord,
 } from '../types.js';
-import type { GeoStamp, WebCheckRecord, WebFinding, WebInfo } from '../webcheck/types.js';
+import type { RequesterOrigin, WebCheckRecord, WebFinding, WebInfo } from '../webcheck/types.js';
 
 export interface CreateScanInput {
   userId: string;
@@ -48,7 +48,7 @@ export interface InsertWebCheckInput {
   findings: WebFinding[];
   info: WebInfo;
   requesterIp?: string | null;
-  requesterGeo?: GeoStamp | null;
+  requesterGeo?: RequesterOrigin | null;
 }
 
 /**
@@ -126,8 +126,28 @@ export interface Database {
   getWebCheck(userId: string, id: string): Promise<WebCheckRecord | null>;
   /** How many patrols a user has stored (quota counting — never fetch rows to count). */
   countWebChecks(userId: string): Promise<number>;
+  /**
+   * History-list rows WITHOUT the heavy columns: scalar fields, the
+   * finding count and the trust verdict, so listing a vault never
+   * drags the full findings/info JSON out of the database.
+   */
+  listWebCheckSummaries(userId: string, limit: number): Promise<WebCheckSummary[]>;
 
   close(): Promise<void>;
+}
+
+/** One history-list row (see listWebCheckSummaries). */
+export interface WebCheckSummary {
+  id: string;
+  url: string;
+  host: string;
+  score: number | null;
+  grade: string | null;
+  findingCount: number;
+  trustVerdict: string | null;
+  requesterIp: string | null;
+  requesterGeo: RequesterOrigin | null;
+  createdAt: string;
 }
 
 const nowIso = () => new Date().toISOString();
@@ -401,7 +421,7 @@ export class MemoryDatabase implements Database {
       findings: input.findings.map((f) => ({ ...f })),
       info: structuredClone(input.info),
       requesterIp: input.requesterIp ?? null,
-      requesterGeo: input.requesterGeo ? { ...input.requesterGeo } : null,
+      requesterGeo: input.requesterGeo ? structuredClone(input.requesterGeo) : null,
     };
     this.webChecks.push(rec);
     return { ...rec };
@@ -422,6 +442,25 @@ export class MemoryDatabase implements Database {
 
   async countWebChecks(userId: string): Promise<number> {
     return this.webChecks.reduce((n, r) => (r.userId === userId ? n + 1 : n), 0);
+  }
+
+  async listWebCheckSummaries(userId: string, limit: number): Promise<WebCheckSummary[]> {
+    return this.webChecks
+      .filter((r) => r.userId === userId)
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .slice(0, Math.max(1, limit))
+      .map((r) => ({
+        id: r.id,
+        url: r.url,
+        host: r.host,
+        score: r.score,
+        grade: r.grade,
+        findingCount: r.findings.length,
+        trustVerdict: r.info.trust?.verdict ?? null,
+        requesterIp: r.requesterIp,
+        requesterGeo: r.requesterGeo,
+        createdAt: r.createdAt,
+      }));
   }
 
   async close(): Promise<void> {
@@ -877,7 +916,7 @@ export class PostgresDatabase implements Database {
       findings: (row['findings'] as WebFinding[]) ?? [],
       info: row['info'] as WebInfo,
       requesterIp: (row['requester_ip'] as string) ?? null,
-      requesterGeo: (row['requester_geo'] as GeoStamp) ?? null,
+      requesterGeo: (row['requester_geo'] as RequesterOrigin) ?? null,
       createdAt: (row['created_at'] as Date).toISOString(),
     };
   }
@@ -908,6 +947,28 @@ export class PostgresDatabase implements Database {
       [userId, Math.max(1, Math.min(50, limit))]
     );
     return rows.map((r: Record<string, unknown>) => this.toWebCheck(r));
+  }
+
+  async listWebCheckSummaries(userId: string, limit: number): Promise<WebCheckSummary[]> {
+    const { rows } = await this.pool.query(
+      `SELECT id, url, host, score, grade, created_at, requester_ip, requester_geo,
+              jsonb_array_length(findings)::int AS finding_count,
+              info -> 'trust' ->> 'verdict' AS trust_verdict
+       FROM web_checks WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+      [userId, Math.max(1, Math.min(50, limit))],
+    );
+    return rows.map((r: Record<string, unknown>) => ({
+      id: r['id'] as string,
+      url: r['url'] as string,
+      host: r['host'] as string,
+      score: r['score'] != null ? Number(r['score']) : null,
+      grade: (r['grade'] as string) ?? null,
+      findingCount: Number(r['finding_count'] ?? 0),
+      trustVerdict: (r['trust_verdict'] as string) ?? null,
+      requesterIp: (r['requester_ip'] as string) ?? null,
+      requesterGeo: (r['requester_geo'] as RequesterOrigin) ?? null,
+      createdAt: (r['created_at'] as Date).toISOString(),
+    }));
   }
 
   async getWebCheck(userId: string, id: string): Promise<WebCheckRecord | null> {
