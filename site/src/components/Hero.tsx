@@ -58,7 +58,7 @@ export function Hero({ memberName, teaser = false }: { memberName?: string; teas
             Find what{' '}
             <TextMarquee
               speed={2.2}
-              className="text-signal underline decoration-signal/50 decoration-[0.06em] underline-offset-[0.14em]"
+              className="font-rain tracking-[0.04em] text-bone underline decoration-white/40 decoration-[0.06em] underline-offset-[0.14em]"
             >
               {ROTATE.map((w) => (
                 <span key={w}>{w}</span>

@@ -1,7 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import type { Database } from '../db/db.js';
 import { hashApiKey, verifySession } from '../auth/auth.js';
-import { SESSION_COOKIE, hashSessionToken, parseCookies } from '../auth/session.js';
+import { SESSION_COOKIE, SESSION_IDLE_MS, hashSessionToken, isAdminEmail, parseCookies } from '../auth/session.js';
 import { PLAN_QUOTAS } from '../auth/usage.js';
 import type { PlanTier } from '../types.js';
 
@@ -50,10 +50,24 @@ export function buildAuthenticate(db: Database) {
 
     const sessionToken = parseCookies(request.headers.cookie)[SESSION_COOKIE];
     if (sessionToken) {
-      const session = await db.getSessionByTokenHash(hashSessionToken(sessionToken));
+      const tokenHash = hashSessionToken(sessionToken);
+      const session = await db.getSessionByTokenHash(tokenHash);
       const user = session ? await db.getUserById(session.userId) : null;
       if (!session || !user) {
         throw Object.assign(new Error('Invalid or expired session'), { statusCode: 401 });
+      }
+      // Five quiet minutes and the session signs itself out; every
+      // authenticated request resets the clock. The operator's
+      // account (ADMIN_EMAIL) is exempt — it keeps the 30-day
+      // absolute expiry only.
+      if (!isAdminEmail(user.email)) {
+        if (Date.now() - Date.parse(session.lastSeenAt) > SESSION_IDLE_MS) {
+          await db.deleteSession(tokenHash).catch(() => undefined);
+          throw Object.assign(new Error('Five quiet minutes — you were signed out. Sign in again.'), {
+            statusCode: 401,
+          });
+        }
+        await db.touchSession(tokenHash).catch(() => undefined);
       }
       request.user = { id: user.id, email: user.email, plan: user.plan, viaApiKey: false };
       return;

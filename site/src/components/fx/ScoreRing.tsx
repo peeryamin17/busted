@@ -11,11 +11,14 @@ export function ScoreRing({
   grade,
   size = 190,
   caption,
+  label = 'Security score',
 }: {
   value: number;
   grade: string;
   size?: number;
   caption?: string;
+  /** How the number is named for assistive tech ("Security score", "Configuration score"…). */
+  label?: string;
 }) {
   const reduce = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
@@ -48,7 +51,7 @@ export function ScoreRing({
       className="flex shrink-0 flex-col items-center"
       style={{ width: size }}
       role="img"
-      aria-label={`Security score ${value} out of 100, grade ${grade}`}
+      aria-label={`${label} ${value} out of 100, grade ${grade}`}
     >
       <div className="relative shrink-0" style={{ width: size, height: size }}>
         <svg

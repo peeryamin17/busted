@@ -30,6 +30,19 @@ interface LockedRow {
   note: string;
 }
 
+/** The trust layer's verdict ("is it a trap?") — never part of the score. */
+interface TrustView {
+  verdict: 'clear' | 'suspicious' | 'known-bad';
+  reasons: string[];
+  sources: string[];
+}
+
+interface UsageView {
+  used: number;
+  limit: number | null;
+  left: number | null;
+}
+
 interface CheckView {
   id: string;
   url: string;
@@ -87,19 +100,28 @@ interface CheckView {
     api: { endpoints: string[]; openApiDoc: boolean; graphql: boolean };
     robotsTxt: boolean;
     securityTxt: boolean;
+    /** Present on fresh runs; older stored runs predate the trust layer. */
+    trust?: TrustView;
   };
+  /** The trust verdict, lifted out of info for the banner. Null on old runs. */
+  trust: TrustView | null;
+  usage?: UsageView;
   locked: LockedRow[];
 }
 
 interface RunSummary {
   id: string;
-  url: string;
+  url?: string;
   host: string;
-  score: number | null;
-  grade: string | null;
-  findingCount: number;
-  requesterIp: string | null;
-  requesterGeo: {
+  score?: number | null;
+  grade?: string | null;
+  findingCount?: number;
+  /** 'clear' | 'suspicious' | 'known-bad' — absent on vault stubs and old runs. */
+  trustVerdict?: string | null;
+  /** History-vault stub: the run exists; its contents ride along on a plan. */
+  locked?: boolean;
+  requesterIp?: string | null;
+  requesterGeo?: {
     country: string | null;
     city: string | null;
     region: string | null;
@@ -260,6 +282,7 @@ export function WebCheck() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CheckView | null>(null);
   const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [usage, setUsage] = useState<UsageView | null>(null);
   const [loadingRunId, setLoadingRunId] = useState<string | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -271,8 +294,9 @@ export function WebCheck() {
     try {
       const res = await fetch('/api/webcheck', { credentials: 'include' });
       if (!res.ok) return;
-      const data = (await res.json()) as { runs: RunSummary[] };
+      const data = (await res.json()) as { runs: RunSummary[]; usage?: UsageView };
       setRuns(data.runs ?? []);
+      if (data.usage) setUsage(data.usage);
     } catch {
       /* the list is a courtesy — the form still works without it */
     }
@@ -283,8 +307,11 @@ export function WebCheck() {
     let alive = true;
     fetch('/api/webcheck', { credentials: 'include' })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { runs: RunSummary[] } | null) => {
-        if (alive && data) setRuns(data.runs ?? []);
+      .then((data: { runs: RunSummary[]; usage?: UsageView } | null) => {
+        if (alive && data) {
+          setRuns(data.runs ?? []);
+          if (data.usage) setUsage(data.usage);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -335,7 +362,9 @@ export function WebCheck() {
         );
         return;
       }
-      setResult(data as CheckView);
+      const view = data as CheckView;
+      setResult(view);
+      if (view.usage) setUsage(view.usage);
       void refreshRuns();
       requestAnimationFrame(() => {
         resultsRef.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
@@ -371,6 +400,9 @@ export function WebCheck() {
   if (loading || !user) return <WebCheckLoading />;
 
   const withheldCount = result ? result.findings.filter((f) => f.title === undefined).length : 0;
+  const trust: TrustView | null = result?.trust ?? null;
+  const quotaUsedUp =
+    usage !== null && usage.limit !== null && usage.left !== null && usage.left <= 0;
   const countsOrder: Sev[] = ['critical', 'high', 'medium', 'low', 'info'];
 
   return (
@@ -393,6 +425,11 @@ export function WebCheck() {
         {/* ── the form ── */}
         <Reveal delay={0.08}>
           <form onSubmit={runPatrol} className="glass mt-10 rounded-[2rem] p-6 sm:p-8">
+            {usage && usage.limit !== null && (
+              <p className="mb-5 font-mono text-[11px] tracking-[0.2em] text-slate2">
+                {usage.left} OF {usage.limit} FREE PATROLS LEFT
+              </p>
+            )}
             <label htmlFor="patrol-url" className="font-mono text-[11px] tracking-[0.2em] text-slate2">
               YOUR WEBSITE
             </label>
@@ -409,7 +446,7 @@ export function WebCheck() {
                 disabled={running}
                 className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-ink px-4 py-3.5 font-mono text-sm text-bone placeholder:text-slate2 focus:border-white/40 focus:outline-none disabled:opacity-60"
               />
-              <LiquidGlassButton type="submit" size="lg" disabled={running}>
+              <LiquidGlassButton type="submit" size="lg" disabled={running || quotaUsedUp}>
                 <Radar className="h-4 w-4" aria-hidden />
                 {running ? 'Patrolling…' : 'Run the patrol'}
               </LiquidGlassButton>
@@ -434,6 +471,12 @@ export function WebCheck() {
               GPS POSITION (CITY AND COUNTRY INCLUDED). DECLINE AND THE IP ALONE SPEAKS FOR THE RUN. EITHER
               WAY IT SHOWS IN YOUR PATROL HISTORY BELOW.
             </p>
+
+            {quotaUsedUp && (
+              <p className="mt-4 rounded-xl border border-amber2/30 bg-amber2/10 px-4 py-3 text-sm text-amber2">
+                Free patrols used up — a plan unlocks unlimited patrols and the full vault.
+              </p>
+            )}
 
             {error && (
               <p role="alert" className="mt-4 rounded-xl border border-crit/30 bg-crit/10 px-4 py-3 text-sm text-crit">
@@ -475,7 +518,23 @@ export function WebCheck() {
             <section aria-label="My patrols" className="mt-10">
               <h2 className="font-mono text-[11px] tracking-[0.24em] text-slate2">MY PATROLS</h2>
               <ul className="mt-4 space-y-2">
-                {runs.map((run) => (
+                {runs.map((run) =>
+                  run.locked ? (
+                    <li key={run.id}>
+                      <div className="flex w-full items-center gap-4 rounded-2xl border border-white/10 bg-panel px-4 py-3 opacity-60">
+                        <Lock className="h-4 w-4 shrink-0 text-slate2" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate font-mono text-sm text-body/70">
+                          {run.host}
+                        </span>
+                        <span className="hidden font-mono text-[11px] text-slate2 md:inline">
+                          {fmtDate(run.createdAt)}
+                        </span>
+                        <span className="hidden shrink-0 font-mono text-[11px] text-slate2 sm:inline">
+                          In the vault — plans unlock full history
+                        </span>
+                      </div>
+                    </li>
+                  ) : (
                   <li key={run.id}>
                     <button
                       type="button"
@@ -501,7 +560,17 @@ export function WebCheck() {
                           {run.requesterGeo.source === 'gps' ? ' · GPS' : ''}
                         </span>
                       )}
-                      {run.score !== null && (
+                      {run.trustVerdict === 'known-bad' && (
+                        <span className="shrink-0 rounded-md border border-crit/40 bg-crit/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-crit">
+                          TRAP
+                        </span>
+                      )}
+                      {run.trustVerdict === 'suspicious' && (
+                        <span className="shrink-0 rounded-md border border-amber2/40 bg-amber2/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-amber2">
+                          FISHY
+                        </span>
+                      )}
+                      {run.score != null && (
                         <span
                           className="rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold"
                           style={{
@@ -518,7 +587,8 @@ export function WebCheck() {
                       )}
                     </button>
                   </li>
-                ))}
+                  ),
+                )}
               </ul>
             </section>
           </Reveal>
@@ -532,14 +602,62 @@ export function WebCheck() {
                 <p className="font-mono text-[11px] tracking-[0.24em] text-slate2">
                   PART 1 — WHAT BUGSEEK FOUND
                 </p>
+                {/* ── the trust verdict sits above the score, never inside it ── */}
+                {trust?.verdict === 'known-bad' && (
+                  <div
+                    role="alert"
+                    className="mt-6 rounded-2xl border border-crit/40 bg-crit/10 p-5 text-crit sm:p-6"
+                  >
+                    <h2 className="font-display text-2xl font-bold tracking-tight">KNOWN TRAP</h2>
+                    {trust.reasons.map((r) => (
+                      <p key={r} className="mt-2 text-sm leading-relaxed">
+                        {r}
+                      </p>
+                    ))}
+                    <p className="mt-3 text-sm leading-relaxed">
+                      This address appears in live phishing reports ({trust.sources.join(', ')}).
+                      The configuration score below grades how the page is built — it does not
+                      apply to a trap.
+                    </p>
+                  </div>
+                )}
+                {trust?.verdict === 'suspicious' && (
+                  <div className="mt-6 rounded-2xl border border-amber2/40 bg-amber2/10 p-5 text-amber2 sm:p-6">
+                    <h2 className="font-display text-2xl font-bold tracking-tight">LOOKS FISHY</h2>
+                    <ul className="mt-3 space-y-1.5">
+                      {trust.reasons.map((r) => (
+                        <li key={r} className="text-sm leading-relaxed">
+                          {r}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {trust?.verdict === 'clear' && (
+                  <p className="mt-6 font-mono text-[11px] leading-relaxed text-slate2">
+                    TRUST CHECK · NO TRAP SIGNALS FOUND — not a guarantee; new traps appear daily.
+                  </p>
+                )}
                 <div className="mt-6 flex flex-col gap-8 lg:flex-row lg:items-center">
                   {result.score !== null && result.grade !== null && (
-                    <ScoreRing
-                      value={result.score}
-                      grade={result.grade}
-                      size={170}
-                      caption="Scored from everything the patrol found."
-                    />
+                    <div className="flex flex-col items-center">
+                      <p className="font-mono text-[11px] tracking-[0.24em] text-slate2">
+                        CONFIGURATION SCORE
+                      </p>
+                      <div className={trust?.verdict === 'known-bad' ? 'opacity-40' : undefined}>
+                        <ScoreRing
+                          value={result.score}
+                          grade={result.grade}
+                          size={170}
+                          label="Configuration score"
+                          caption={
+                            trust?.verdict === 'known-bad'
+                              ? 'CONFIGURATION SCORE'
+                              : 'How the site is built — not whether it’s honest.'
+                          }
+                        />
+                      </div>
+                    </div>
                   )}
                   <div className="min-w-0">
                     <h2 className="break-all font-mono text-lg text-bone">{result.url}</h2>

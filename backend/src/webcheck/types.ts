@@ -76,6 +76,21 @@ export interface DnsInfo {
   caa: boolean | null;
 }
 
+/**
+ * The trust layer's verdict on a patrolled page: is this a trap?
+ *
+ * Deliberately separate from the security score — the score grades how
+ * a site is BUILT (headers, cookies, exposed files); trust asks whether
+ * it is HONEST. A well-built scam aces the first and fails this one.
+ */
+export interface TrustAssessment {
+  verdict: 'clear' | 'suspicious' | 'known-bad';
+  /** Human-readable one-liners, shown to the user. */
+  reasons: string[];
+  /** Where the verdict came from, e.g. ['urlhaus', 'page-warning', 'heuristics']. */
+  sources: string[];
+}
+
 /** The "website info" matrix — every field nullable, never fabricated. */
 export interface WebInfo {
   perf: PerfInfo;
@@ -86,6 +101,12 @@ export interface WebInfo {
   api: ApiInfo;
   robotsTxt: boolean;
   securityTxt: boolean;
+  /**
+   * The trust verdict, written fresh by every patrol. Runs stored
+   * before the trust layer existed lack it at runtime (the Postgres
+   * jsonb has no `trust` key) — every reader must tolerate undefined.
+   */
+  trust: TrustAssessment;
 }
 
 /** Coarse origin of a patrol request (city/country granularity, never finer). */

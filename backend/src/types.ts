@@ -167,6 +167,8 @@ export interface SessionRecord {
   tokenHash: string;
   createdAt: string; // ISO
   expiresAt: string; // ISO
+  /** Last authenticated request (drives the inactivity sign-out). */
+  lastSeenAt: string; // ISO
 }
 
 export interface ApiKeyRecord {

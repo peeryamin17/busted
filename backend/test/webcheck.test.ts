@@ -14,6 +14,8 @@ async function main() {
     resolvePublicHost,
   } = await import('../src/webcheck/guard.js');
   const { analyseWebCheck } = await import('../src/webcheck/checks.js');
+  const { assessTrust } = await import('../src/webcheck/trust.js');
+  const { securityScore } = await import('../src/reports/score.js');
   const Fastify = (await import('fastify')).default;
 
   let failures = 0;
@@ -162,6 +164,15 @@ async function main() {
     api: { endpoints: ['/api/users'], openApiDoc: false, graphql: false },
     robotsTxt: true,
     securityTxt: false,
+    trust: { verdict: 'clear', reasons: [], sources: ['urlhaus', 'openphish'] },
+  };
+  const FIXTURE_INFO_TRAPPY = {
+    ...FIXTURE_INFO,
+    trust: {
+      verdict: 'known-bad',
+      reasons: ['This address shows up in a live phishing feed (URLhaus).'],
+      sources: ['urlhaus'],
+    },
   };
 
   const app = Fastify();
@@ -372,6 +383,209 @@ async function main() {
   const ipView = ipRun.json() as { requester: { geo: { source?: string } | null } };
   check('an unshared run is labelled ip', ipView.requester.geo?.source === 'ip', ipView.requester);
   await app5.close();
+
+  /* ── the trust layer: reports, warnings, tells ──────────────── */
+  const plainBody =
+    '<html><head><title>Example Domain</title></head><body><h1>Example Domain</h1>' +
+    '<p>This domain is for use in documentation examples.</p></body></html>';
+  const plainInput = {
+    finalUrl: 'https://example.com/',
+    host: 'example.com',
+    pageTitle: 'Example Domain',
+    body: plainBody,
+    status: 200,
+    domainCreatedIso: '2000-01-01T00:00:00Z',
+  };
+  const noFeeds = { feedMatch: async () => null };
+
+  const feedHit = await assessTrust(plainInput, {
+    feedMatch: async () => ({ source: 'urlhaus' }),
+  });
+  check('feed hit → known-bad', feedHit.verdict === 'known-bad', feedHit);
+  check('feed hit records its source', feedHit.sources.includes('urlhaus'), feedHit.sources);
+
+  const sbHit = await assessTrust(plainInput, {
+    feedMatch: async () => null,
+    safeBrowsing: async () => true,
+  });
+  check(
+    'safe browsing hit → known-bad',
+    sbHit.verdict === 'known-bad' && sbHit.sources.includes('google-safe-browsing'),
+    sbHit,
+  );
+
+  const warned = await assessTrust(
+    {
+      ...plainInput,
+      finalUrl: 'https://squat.pages.dev/',
+      host: 'squat.pages.dev',
+      pageTitle: 'Suspected Phishing | Cloudflare',
+      body: '<html><head><title>Suspected Phishing | Cloudflare</title></head><body>warning</body></html>',
+    },
+    noFeeds,
+  );
+  check('warning interstitial → known-bad', warned.verdict === 'known-bad', warned);
+  check(
+    'warning interstitial source is page-warning',
+    warned.sources.includes('page-warning'),
+    warned.sources,
+  );
+
+  const lureBody =
+    '<html><head><title>Sign in</title></head><body><form>' +
+    '<input type="email"><input type="password"></form>' +
+    '<p>Sign in to your PayPal account to verify your identity and continue.</p></body></html>';
+  const lure = await assessTrust(
+    {
+      ...plainInput,
+      finalUrl: 'https://paypal-verify.pages.dev/',
+      host: 'paypal-verify.pages.dev',
+      pageTitle: 'Sign in',
+      body: lureBody,
+    },
+    noFeeds,
+  );
+  check('password lure on free host → suspicious', lure.verdict === 'suspicious', lure);
+  check('the lure stacks readable reasons', lure.reasons.length >= 2, lure.reasons);
+
+  const fiveDaysAgo = new Date(Date.now() - 5 * 86_400_000).toISOString();
+  const young = await assessTrust({ ...plainInput, domainCreatedIso: fiveDaysAgo }, noFeeds);
+  check('five-day-old domain → suspicious', young.verdict === 'suspicious', young);
+
+  const plain = await assessTrust(plainInput, noFeeds);
+  check('plain old site → clear', plain.verdict === 'clear', plain);
+  check('clear carries no reasons', plain.reasons.length === 0, plain);
+
+  const exploded = await assessTrust(plainInput, {
+    feedMatch: async () => {
+      throw new Error('feed down');
+    },
+  });
+  check('an exploding feed never breaks the assessment', exploded.verdict === 'clear', exploded);
+
+  /* ── trust rides the routes, score untouched ────────────────── */
+  const app6 = Fastify();
+  await webCheckRoutes(app6 as never, deps, {
+    patrol: async () => ({
+      url: 'https://trap.example/',
+      host: 'trap.example',
+      findings: FIXTURE_FINDINGS,
+      info: FIXTURE_INFO_TRAPPY,
+    }),
+  });
+  const gina = await makeCookie('gina@example.com');
+  const trapped = await app6.inject({
+    method: 'POST',
+    url: '/api/webcheck',
+    headers: { cookie: gina.cookie },
+    payload: { url: 'https://trap.example', authorized: true },
+  });
+  const trappedView = trapped.json() as {
+    trust: { verdict: string; sources: string[] } | null;
+    score: number;
+    usage: { used: number; limit: number | null; left: number | null };
+  };
+  check('known-bad rides the POST view', trapped.statusCode === 201 && trappedView.trust?.verdict === 'known-bad', trapped.body);
+  check('the verdict carries its sources', trappedView.trust?.sources.includes('urlhaus') === true, trappedView.trust);
+  check(
+    'the trap verdict leaves the score untouched',
+    trappedView.score === securityScore(FIXTURE_FINDINGS).value,
+    { got: trappedView.score, expected: securityScore(FIXTURE_FINDINGS).value },
+  );
+  check(
+    'a fresh account’s usage counts the run',
+    trappedView.usage.used === 1 && trappedView.usage.limit === 10 && trappedView.usage.left === 9,
+    trappedView.usage,
+  );
+  const ginasList = await app6.inject({ method: 'GET', url: '/api/webcheck', headers: { cookie: gina.cookie } });
+  const ginasRuns = (ginasList.json() as { runs: Array<{ trustVerdict?: string | null }> }).runs;
+  check('list summaries carry the trust verdict', ginasRuns[0]?.trustVerdict === 'known-bad', ginasRuns[0]);
+  await app6.close();
+
+  /* ── free-plan quota + the history vault ────────────────────── */
+  const appQ = Fastify();
+  await webCheckRoutes(appQ as never, deps, { patrol: stampedPatrol });
+  const henry = await makeCookie('henry@example.com');
+  for (let i = 0; i < 10; i++) {
+    await db.insertWebCheck({
+      userId: henry.user.id,
+      url: `https://seed-${i}.example/`,
+      host: `seed-${i}.example`,
+      authorized: true,
+      score: 88,
+      grade: 'B',
+      findings: [],
+      info: FIXTURE_INFO,
+      requesterIp: null,
+      requesterGeo: null,
+    });
+  }
+  const henryListRes = await appQ.inject({ method: 'GET', url: '/api/webcheck', headers: { cookie: henry.cookie } });
+  const henryList = henryListRes.json() as {
+    usage: { used: number; limit: number | null; left: number | null };
+    runs: Array<Record<string, unknown> & { id: string }>;
+  };
+  check('seeded account counts ten stored patrols', henryList.usage.used === 10, henryList.usage);
+  check('usage math: 10 used of 10, none left', henryList.usage.limit === 10 && henryList.usage.left === 0, henryList.usage);
+  const vaultStubs = henryList.runs.filter((r) => r.locked === true);
+  check(
+    'free list: newest 3 full, the rest vaulted',
+    henryList.runs.length === 10 && vaultStubs.length === 7 && henryList.runs.slice(0, 3).every((r) => r.locked !== true),
+    henryList.runs.map((r) => r.locked),
+  );
+  const stub = vaultStubs[0];
+  check(
+    'a vault stub shows host and date only',
+    stub !== undefined &&
+      typeof stub.host === 'string' &&
+      !('score' in stub) &&
+      !('findingCount' in stub) &&
+      !('trustVerdict' in stub) &&
+      !('requesterIp' in stub) &&
+      !('requesterGeo' in stub),
+    stub,
+  );
+
+  const blocked = await appQ.inject({
+    method: 'POST',
+    url: '/api/webcheck',
+    headers: { cookie: henry.cookie },
+    payload: { url: 'https://demo.example', authorized: true },
+  });
+  const blockedBody = blocked.json() as { error: string; code?: string };
+  check('eleventh free patrol → 403 quota_exceeded', blocked.statusCode === 403 && blockedBody.code === 'quota_exceeded', blocked.body);
+  check('the blocked patrol stored nothing', (await db.countWebChecks(henry.user.id)) === 10);
+
+  const stubId = (stub as { id: string }).id;
+  const vaulted = await appQ.inject({ method: 'GET', url: `/api/webcheck/${stubId}`, headers: { cookie: henry.cookie } });
+  const vaultedBody = vaulted.json() as { error: string; code?: string };
+  check('opening a vaulted run → 403 history_locked', vaulted.statusCode === 403 && vaultedBody.code === 'history_locked', vaulted.body);
+
+  const openId = henryList.runs[0]?.id as string;
+  const stillOpen = await appQ.inject({ method: 'GET', url: `/api/webcheck/${openId}`, headers: { cookie: henry.cookie } });
+  check('a newest-3 run still opens for free', stillOpen.statusCode === 200, stillOpen.statusCode);
+
+  await db.setUserPlan(henry.user.id, 'hunter');
+  const unlockedRun = await appQ.inject({ method: 'GET', url: `/api/webcheck/${stubId}`, headers: { cookie: henry.cookie } });
+  check('upgrading unlocks the vaulted run', unlockedRun.statusCode === 200, unlockedRun.statusCode);
+  const paidListRes = await appQ.inject({ method: 'GET', url: '/api/webcheck', headers: { cookie: henry.cookie } });
+  const paidList = paidListRes.json() as {
+    usage: { used: number; limit: number | null; left: number | null };
+    runs: Array<Record<string, unknown>>;
+  };
+  check('paid usage reports no limit', paidList.usage.limit === null && paidList.usage.left === null && paidList.usage.used === 10, paidList.usage);
+  check('paid list drops every lock', paidList.runs.length === 10 && paidList.runs.every((r) => r.locked !== true), paidList.runs.length);
+
+  const paidPatrol = await appQ.inject({
+    method: 'POST',
+    url: '/api/webcheck',
+    headers: { cookie: henry.cookie },
+    payload: { url: 'https://demo.example', authorized: true },
+  });
+  const paidPatrolBody = paidPatrol.json() as { usage: { used: number; limit: number | null } };
+  check('paid plan patrols past the free cap', paidPatrol.statusCode === 201, paidPatrol.statusCode);
+  check('paid usage counts without a cap', paidPatrolBody.usage.used === 11 && paidPatrolBody.usage.limit === null, paidPatrolBody.usage);
+  await appQ.close();
 
   await app.close();
   console.log(failures === 0 ? 'ALL WEBCHECK TESTS PASSED' : `${failures} FAILURES`);

@@ -55,6 +55,22 @@ const LOCKED = [
   },
 ] as const;
 
+/** Free accounts get a lifetime handful of patrols; plans patrol freely. */
+const FREE_PATROL_LIMIT = 10;
+/** Free accounts keep their newest few runs readable; the rest sit in the vault. */
+const FREE_HISTORY_OPEN = 3;
+
+interface PatrolUsage {
+  used: number;
+  limit: number | null;
+  left: number | null;
+}
+
+function usageFor(plan: PlanTier, used: number): PatrolUsage {
+  const limit = plan === 'free' ? FREE_PATROL_LIMIT : null;
+  return { used, limit, left: limit === null ? null : Math.max(0, limit - used) };
+}
+
 const createSchema = z.object({
   url: z.string().min(1, 'Paste the site to patrol').max(2048),
   authorized: z.boolean(),
@@ -110,6 +126,8 @@ export function gatedView(rec: WebCheckRecord, plan: PlanTier): Record<string, u
         )
       : rec.findings.map(fullFinding),
     info: rec.info,
+    /** The trust verdict ("is it a trap?") — separate from the score, always. */
+    trust: rec.info.trust ?? null,
     /** The origin stamp stored with this run (the owner's own — shown back to them). */
     requester: { ip: rec.requesterIp, geo: rec.requesterGeo },
     locked: LOCKED,
@@ -148,6 +166,18 @@ export async function webCheckRoutes(
       if (body.data.authorized !== true) {
         return reply.status(400).send({
           error: 'Tick the box first — the patrol only visits sites you own or may test.',
+        });
+      }
+
+      /* The free handful is for keeps: ten patrols a lifetime, counted
+         from the stored runs. Refuse BEFORE the throttle stamps or a
+         single probe flies — a plan is the only way past this door. */
+      const usedBefore = await db.countWebChecks(user.id);
+      if (user.plan === 'free' && usedBefore >= FREE_PATROL_LIMIT) {
+        return reply.status(403).send({
+          error:
+            "You've used your 10 free patrols — a plan unlocks unlimited patrols and your full history.",
+          code: 'quota_exceeded',
         });
       }
 
@@ -210,7 +240,9 @@ export async function webCheckRoutes(
           requesterIp,
           requesterGeo,
         });
-        return reply.status(201).send(gatedView(rec, user.plan));
+        return reply
+          .status(201)
+          .send({ ...gatedView(rec, user.plan), usage: usageFor(user.plan, usedBefore + 1) });
       } catch (err) {
         const status = (err as { statusCode?: number }).statusCode ?? 500;
         if (status >= 500 && status !== 502) {
@@ -226,18 +258,28 @@ export async function webCheckRoutes(
   app.get('/api/webcheck', { preHandler: authenticate }, async (request) => {
     const user = requireUser(request);
     const runs = await db.listWebChecks(user.id, 20);
+    const used = await db.countWebChecks(user.id);
     return {
-      runs: runs.map((r) => ({
-        id: r.id,
-        url: r.url,
-        host: r.host,
-        score: r.score,
-        grade: r.grade,
-        findingCount: r.findings.length,
-        requesterIp: r.requesterIp,
-        requesterGeo: r.requesterGeo,
-        createdAt: r.createdAt,
-      })),
+      usage: usageFor(user.plan, used),
+      runs: runs.map((r, i) => {
+        /* History vault: past the newest few, a free account keeps the
+           fact of a run — its host and date — and none of its contents. */
+        if (user.plan === 'free' && i >= FREE_HISTORY_OPEN) {
+          return { id: r.id, host: r.host, createdAt: r.createdAt, locked: true };
+        }
+        return {
+          id: r.id,
+          url: r.url,
+          host: r.host,
+          score: r.score,
+          grade: r.grade,
+          findingCount: r.findings.length,
+          trustVerdict: r.info.trust?.verdict ?? null,
+          requesterIp: r.requesterIp,
+          requesterGeo: r.requesterGeo,
+          createdAt: r.createdAt,
+        };
+      }),
     };
   });
 
@@ -250,6 +292,17 @@ export async function webCheckRoutes(
       const rec = await db.getWebCheck(user.id, id);
       if (!rec) {
         return reply.status(404).send({ error: 'No such patrol run' });
+      }
+      /* The vault door: a free account reopens only its newest few
+         runs; anything older is a plan's to unlock. */
+      if (user.plan === 'free') {
+        const open = await db.listWebChecks(user.id, FREE_HISTORY_OPEN);
+        if (!open.some((r) => r.id === rec.id)) {
+          return reply.status(403).send({
+            error: 'That patrol rests in the vault — a plan unlocks your full history.',
+            code: 'history_locked',
+          });
+        }
       }
       return gatedView(rec, user.plan);
     },

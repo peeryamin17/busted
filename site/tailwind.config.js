@@ -27,6 +27,8 @@ export default {
         display: ['"Space Grotesk"', 'system-ui', '-apple-system', '"Segoe UI"', 'sans-serif'],
         sans: ['Inter', 'system-ui', '-apple-system', '"Segoe UI"', 'sans-serif'],
         mono: ['ui-monospace', '"SF Mono"', '"Cascadia Code"', 'Menlo', 'Consolas', 'monospace'],
+        // Terminal rain: only the hero's rolling word wears this.
+        rain: ['"Share Tech Mono"', 'ui-monospace', 'Menlo', 'monospace'],
       },
     },
   },

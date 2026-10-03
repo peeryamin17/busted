@@ -82,6 +82,12 @@ export interface Database {
   /** Look up a live session by token hash; expired rows are deleted and read as null. */
   getSessionByTokenHash(tokenHash: string): Promise<SessionRecord | null>;
   deleteSession(tokenHash: string): Promise<void>;
+  /** Stamp a session as used just now (the inactivity clock's reset). */
+  touchSession(tokenHash: string): Promise<void>;
+  /** One active session per account: drop a user's other sessions. */
+  deleteOtherSessions(userId: string, keepTokenHash: string): Promise<void>;
+  /** Sweep rows whose absolute expiry has passed. */
+  pruneExpiredSessions(): Promise<void>;
 
   createApiKey(
     userId: string,
@@ -118,6 +124,8 @@ export interface Database {
   listWebChecks(userId: string, limit: number): Promise<WebCheckRecord[]>;
   /** One patrol run, only when it belongs to the user. */
   getWebCheck(userId: string, id: string): Promise<WebCheckRecord | null>;
+  /** How many patrols a user has stored (quota counting — never fetch rows to count). */
+  countWebChecks(userId: string): Promise<number>;
 
   close(): Promise<void>;
 }
@@ -199,6 +207,7 @@ export class MemoryDatabase implements Database {
       tokenHash,
       createdAt: nowIso(),
       expiresAt: expiresAtIso,
+      lastSeenAt: nowIso(),
     };
     this.sessions.set(tokenHash, rec);
     return { ...rec };
@@ -216,6 +225,24 @@ export class MemoryDatabase implements Database {
 
   async deleteSession(tokenHash: string): Promise<void> {
     this.sessions.delete(tokenHash);
+  }
+
+  async touchSession(tokenHash: string): Promise<void> {
+    const rec = this.sessions.get(tokenHash);
+    if (rec) rec.lastSeenAt = nowIso();
+  }
+
+  async deleteOtherSessions(userId: string, keepTokenHash: string): Promise<void> {
+    for (const [hash, rec] of this.sessions) {
+      if (rec.userId === userId && hash !== keepTokenHash) this.sessions.delete(hash);
+    }
+  }
+
+  async pruneExpiredSessions(): Promise<void> {
+    const now = nowIso();
+    for (const [hash, rec] of this.sessions) {
+      if (rec.expiresAt <= now) this.sessions.delete(hash);
+    }
   }
 
   async listUsers(limit: number): Promise<UserRecord[]> {
@@ -393,6 +420,10 @@ export class MemoryDatabase implements Database {
     return rec ? { ...rec } : null;
   }
 
+  async countWebChecks(userId: string): Promise<number> {
+    return this.webChecks.reduce((n, r) => (r.userId === userId ? n + 1 : n), 0);
+  }
+
   async close(): Promise<void> {
     // nothing to release
   }
@@ -480,6 +511,9 @@ export class PostgresDatabase implements Database {
       tokenHash: row['token_hash'] as string,
       createdAt: (row['created_at'] as Date).toISOString(),
       expiresAt: (row['expires_at'] as Date).toISOString(),
+      lastSeenAt: row['last_seen_at']
+        ? (row['last_seen_at'] as Date).toISOString()
+        : (row['created_at'] as Date).toISOString(),
     };
   }
 
@@ -580,6 +614,23 @@ export class PostgresDatabase implements Database {
 
   async deleteSession(tokenHash: string): Promise<void> {
     await this.pool.query(`DELETE FROM sessions WHERE token_hash = $1`, [tokenHash]);
+  }
+
+  async touchSession(tokenHash: string): Promise<void> {
+    await this.pool.query(`UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1`, [
+      tokenHash,
+    ]);
+  }
+
+  async deleteOtherSessions(userId: string, keepTokenHash: string): Promise<void> {
+    await this.pool.query(
+      `DELETE FROM sessions WHERE user_id = $1 AND token_hash <> $2`,
+      [userId, keepTokenHash],
+    );
+  }
+
+  async pruneExpiredSessions(): Promise<void> {
+    await this.pool.query(`DELETE FROM sessions WHERE expires_at <= now()`);
   }
 
   async listUsers(limit: number): Promise<UserRecord[]> {
@@ -865,6 +916,14 @@ export class PostgresDatabase implements Database {
       [userId, id]
     );
     return rows[0] ? this.toWebCheck(rows[0]) : null;
+  }
+
+  async countWebChecks(userId: string): Promise<number> {
+    const { rows } = await this.pool.query(
+      `SELECT COUNT(*)::int AS n FROM web_checks WHERE user_id = $1`,
+      [userId]
+    );
+    return rows[0]?.n ?? 0;
   }
 
   async close(): Promise<void> {

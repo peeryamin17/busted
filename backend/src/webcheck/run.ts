@@ -14,6 +14,7 @@ import {
   type JsonFetcher,
 } from './info.js';
 import type { WebFinding, WebInfo } from './types.js';
+import { assessTrust, type TrustDeps } from './trust.js';
 
 /**
  * One full patrol run: guard → fetch → probe → analyse → matrix.
@@ -26,6 +27,8 @@ export interface PatrolDeps {
   resolver?: HostResolver;
   fetcher?: GuardedFetcher;
   jsonFetcher?: JsonFetcher;
+  /** Test seam for the trust layer's feed / Safe Browsing lookups. */
+  trust?: TrustDeps;
 }
 
 export interface PatrolOutcome {
@@ -215,6 +218,22 @@ export async function runWebPatrol(
     tls: tlsInfo,
   });
 
+  /* The trust layer reads the same page the checks did: is it a trap?
+     It never adds findings and never moves the score — verdict only. */
+  const titleMatch = /<title[^>]*>([^<]{0,200})<\/title>/i.exec(page.body);
+  const pageTitle = titleMatch ? (titleMatch[1] as string).trim() || null : null;
+  const trust = await assessTrust(
+    {
+      finalUrl,
+      host: final.hostname,
+      pageTitle,
+      body: page.body,
+      status: page.status,
+      domainCreatedIso: domainInfo.created,
+    },
+    deps.trust,
+  );
+
   const info: WebInfo = {
     perf: buildPerfInfo(page),
     server: serverInfo,
@@ -224,6 +243,7 @@ export async function runWebPatrol(
     api,
     robotsTxt: probes.robots !== null && probes.robots.status === 200,
     securityTxt: securityTxtRes !== null && securityTxtRes.status === 200,
+    trust,
   };
 
   return { url: target.toString(), host: target.hostname, findings, info };

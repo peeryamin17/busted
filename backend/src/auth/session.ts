@@ -16,7 +16,19 @@ export const SESSION_COOKIE = 'bs_session';
 export const STATE_COOKIE = 'bs_oauth_state';
 
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+/** Five quiet minutes and a website session signs itself out (server-side). */
+export const SESSION_IDLE_MS = 5 * 60 * 1000;
 export const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * The operator's account (ADMIN_EMAIL) is exempt from the inactivity
+ * sign-out and the one-active-session rule — the same email that
+ * unlocks /api/admin/users, so there is one source of truth.
+ */
+export function isAdminEmail(email: string): boolean {
+  const admin = (process.env['ADMIN_EMAIL'] ?? '').trim().toLowerCase();
+  return admin !== '' && email.trim().toLowerCase() === admin;
+}
 
 export function generateSessionToken(): string {
   return randomBytes(32).toString('base64url');

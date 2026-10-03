@@ -119,6 +119,42 @@ async function main() {
   const me2 = await app.inject({ method: 'GET', url: '/api/me', headers: { cookie: `bs_session=${encodeURIComponent(rawToken2)}` } });
   check('second sign-in → same user id', (me2.json() as { user: { id: string } }).user.id === user?.id, me2.body);
 
+  /* ── 5b. house rules: one active session, five quiet minutes ── */
+  const hashOf = (t: string) => createHash('sha256').update(t).digest('hex');
+  const sessionsMap = (db as unknown as { sessions: Map<string, { lastSeenAt: string }> }).sessions;
+
+  const meOld = await app.inject({ method: 'GET', url: '/api/me', headers: { cookie: `bs_session=${encodeURIComponent(rawToken)}` } });
+  check('second sign-in signed the first session out', meOld.statusCode === 401, meOld.statusCode);
+
+  const liveRec = sessionsMap.get(hashOf(rawToken2));
+  check('live session carries a last-seen stamp', Boolean(liveRec?.lastSeenAt), liveRec);
+  if (liveRec) liveRec.lastSeenAt = new Date(Date.now() - 6 * 60_000).toISOString();
+  const meIdle = await app.inject({ method: 'GET', url: '/api/me', headers: { cookie: `bs_session=${encodeURIComponent(rawToken2)}` } });
+  check('six idle minutes → 401', meIdle.statusCode === 401, meIdle.statusCode);
+  check('the idle-killed session is deleted', (await db.getSessionByTokenHash(hashOf(rawToken2))) === null);
+
+  process.env['ADMIN_EMAIL'] = 'hunter@example.com';
+  try {
+    const signIn = async (): Promise<string> => {
+      const s = await app.inject({ method: 'GET', url: '/api/auth/google' });
+      const st = new URL(s.headers.location as string).searchParams.get('state') ?? '';
+      const sc = (setCookiesOf(s).find((c) => c.startsWith('bs_oauth_state=')) ?? '').split(';')[0];
+      const cb = await app.inject({ method: 'GET', url: `/api/auth/google/callback?code=test-code&state=${encodeURIComponent(st)}`, headers: { cookie: sc } });
+      return decodeURIComponent(((setCookiesOf(cb).find((c) => c.startsWith('bs_session=')) ?? '').split(';')[0]).slice('bs_session='.length));
+    };
+    const adminTok1 = await signIn();
+    const adminTok2 = await signIn();
+    const aMe1 = await app.inject({ method: 'GET', url: '/api/me', headers: { cookie: `bs_session=${encodeURIComponent(adminTok1)}` } });
+    const aMe2 = await app.inject({ method: 'GET', url: '/api/me', headers: { cookie: `bs_session=${encodeURIComponent(adminTok2)}` } });
+    check('admin exempt: second sign-in keeps the first alive', aMe1.statusCode === 200 && aMe2.statusCode === 200, `${aMe1.statusCode}/${aMe2.statusCode}`);
+    const adminRec = sessionsMap.get(hashOf(adminTok1));
+    if (adminRec) adminRec.lastSeenAt = new Date(Date.now() - 60 * 60_000).toISOString();
+    const aMeIdle = await app.inject({ method: 'GET', url: '/api/me', headers: { cookie: `bs_session=${encodeURIComponent(adminTok1)}` } });
+    check('admin exempt: an idle hour changes nothing', aMeIdle.statusCode === 200, aMeIdle.statusCode);
+  } finally {
+    delete process.env['ADMIN_EMAIL'];
+  }
+
   /* ── 6. state protections ── */
   const badState = await app.inject({ method: 'GET', url: '/api/auth/google/callback?code=test-code&state=deadbeef.deadbeef', headers: { cookie: stateCookiePair } });
   check('state mismatch → 400', badState.statusCode === 400, badState.statusCode);

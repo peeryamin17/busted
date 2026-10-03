@@ -10,6 +10,7 @@ import {
   createState,
   generateSessionToken,
   hashSessionToken,
+  isAdminEmail,
   parseCookies,
   serializeCookie,
   verifyState,
@@ -92,11 +93,20 @@ export async function googleAuthRoutes(
     }
 
     const rawToken = generateSessionToken();
+    const tokenHash = hashSessionToken(rawToken);
     await db.createSession(
       user.id,
-      hashSessionToken(rawToken),
+      tokenHash,
       new Date(Date.now() + SESSION_TTL_MS).toISOString(),
     );
+    // House rules for browser sessions (the operator's ADMIN_EMAIL
+    // account is exempt): one active session per account — this
+    // sign-in signs the account out everywhere else — and dead rows
+    // get swept while we're here.
+    if (!isAdminEmail(user.email)) {
+      await db.deleteOtherSessions(user.id, tokenHash).catch(() => undefined);
+    }
+    void db.pruneExpiredSessions().catch(() => undefined);
     return reply
       .header('set-cookie', [
         serializeCookie(SESSION_COOKIE, rawToken, {
