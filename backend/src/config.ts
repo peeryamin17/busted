@@ -20,6 +20,13 @@ function bool(name: string, def: boolean): boolean {
   return raw === '1' || raw.toLowerCase() === 'true';
 }
 
+function list(name: string): string[] | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const items = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  return items.length > 0 ? items : undefined;
+}
+
 export interface AppConfig {
   port: number;
   nodeEnv: string;
@@ -43,7 +50,7 @@ export interface AppConfig {
   agentRequestsPerSecond: number;
   allowPrivateTargets: boolean;
   apiRateLimitPerMin: number;
-  corsOrigin: string;
+  corsOrigins: string[];
 }
 
 function loadConfig(): AppConfig {
@@ -90,6 +97,20 @@ function loadConfig(): AppConfig {
     throw new Error('ALLOW_PRIVATE_TARGETS must be false in production (SSRF guardrail)');
   }
 
+  // CORS: the website calls this API with cookies, so origins must be an
+  // explicit allowlist (a wildcard is invalid with credentialed CORS).
+  // ALLOWED_ORIGINS (comma-separated) wins; legacy single-origin CORS_ORIGIN
+  // is honoured when ALLOWED_ORIGINS is unset; otherwise localhost dev.
+  const corsOrigins =
+    list('ALLOWED_ORIGINS') ??
+    list('CORS_ORIGIN') ??
+    ['http://localhost:5173', 'http://localhost:4173'];
+  if (isProd && corsOrigins.includes('*')) {
+    throw new Error(
+      'CORS origins must be explicit in production (set ALLOWED_ORIGINS) — "*" is invalid with credentialed CORS'
+    );
+  }
+
   return {
     port: num('PORT', 3000),
     nodeEnv,
@@ -113,7 +134,7 @@ function loadConfig(): AppConfig {
     agentRequestsPerSecond: num('AGENT_REQUESTS_PER_SECOND', 2),
     allowPrivateTargets,
     apiRateLimitPerMin: num('API_RATE_LIMIT_PER_MIN', 120),
-    corsOrigin: str('CORS_ORIGIN', '*'),
+    corsOrigins,
   };
 }
 

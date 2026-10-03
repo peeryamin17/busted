@@ -27,7 +27,7 @@ export interface ServerDeps {
 export function buildApp(deps: ServerDeps): FastifyInstance {
   const app = Fastify({ logger: false });
 
-  app.register(cors, { origin: deps.config.corsOrigin });
+  app.register(cors, { origin: deps.config.corsOrigins, credentials: true });
   app.register(rateLimit, {
     max: deps.config.apiRateLimitPerMin,
     timeWindow: '1 minute',

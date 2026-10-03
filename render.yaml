@@ -1,0 +1,42 @@
+# Render blueprint for the BugSeek AI backend.
+#
+# Create via Render Dashboard → New → Blueprint (point it at this repo), or
+# create the web service manually with the same settings. Every env var is
+# filled in the Render dashboard (sync: false = enter it there, it is never
+# read from this file). After the first deploy, open the service Shell and
+# run the database migrations once:
+#   npm run migrate
+# (safe to re-run; applied migrations are skipped).
+
+services:
+  - type: web
+    name: bugseek-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: POST_LOGIN_REDIRECT
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false

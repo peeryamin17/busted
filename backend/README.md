@@ -55,7 +55,7 @@ cp .env.example .env # then fill in values (never commit .env)
 ```bash
 npm run dev    # tsx watch — zero infrastructure needed (memory DB + queue + mock LLM)
 npm run build  # tsc → dist/
-npm start      # node dist/index.js
+npm start      # node dist/src/index.js
 npm run smoke  # full in-process smoke test (no network, no paid APIs)
 ```
 
