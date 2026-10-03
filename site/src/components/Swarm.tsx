@@ -87,15 +87,15 @@ export function Swarm() {
                     <path
                       d={beamPath(s.x, s.y)}
                       fill="none"
-                      stroke="rgba(234,246,240,0.10)"
+                      stroke="rgba(234,246,240,0.16)"
                       strokeWidth="0.7"
                       vectorEffect="non-scaling-stroke"
                     />
                     <path
                       d={beamPath(s.x, s.y)}
                       fill="none"
-                      stroke="rgba(255,255,255,0.45)"
-                      strokeWidth="1.4"
+                      stroke="rgba(255,255,255,0.9)"
+                      strokeWidth="1.8"
                       vectorEffect="non-scaling-stroke"
                       className="beam-flow"
                     />
