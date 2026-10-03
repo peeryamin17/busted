@@ -501,7 +501,7 @@ export function WebCheck() {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 disabled={running}
-                className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-ink px-4 py-3.5 font-mono text-sm text-bone placeholder:text-slate2 focus:border-white/40 focus:outline-none disabled:opacity-60"
+                className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-ink px-4 py-3.5 font-mono text-sm text-bone placeholder:text-slate2 focus:border-white/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:opacity-60"
               />
               <LiquidGlassButton type="submit" size="lg" disabled={running || quotaUsedUp}>
                 <Radar className="h-4 w-4" aria-hidden />

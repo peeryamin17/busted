@@ -50,13 +50,13 @@ You must define the in-scope hosts, domains, and endpoints before active testing
 - Anonymized, aggregated scan telemetry may be used to improve detection models **only with your opt-in**.
 - We will never sell scan data.
 
-[A full Privacy Policy is required before launch — TO BE WRITTEN.]
+[See the companion Privacy Policy: `privacy-policy.md` (draft, to be reviewed before publication).]
 
 ## 7. Accounts, credits, billing
 
 - Paid tiers are metered by scan credits (§3 of the business plan). Credit balances, overage rates, and fair-use limits are as published on our pricing page at time of purchase.
 - Unused credits expire at the end of each billing period unless stated otherwise.
-- Refunds: [policy TO BE SET — e.g., 14-day pro-rata].
+- Refunds: see the companion Refund Policy (`refund-policy.md`, draft). No payments are taken yet, so there is currently nothing to refund; the policy will be completed and published before paid plans open.
 
 ## 8. Suspension and termination
 

@@ -105,7 +105,7 @@ export function Download() {
                         if (status === 'error') setStatus('idle');
                       }}
                       placeholder="you@hunter.dev"
-                      className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-ink px-4 py-3 text-sm text-bone placeholder:text-slate2 focus:border-mint/50 focus:outline-none disabled:opacity-60"
+                      className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-ink px-4 py-3 text-sm text-bone placeholder:text-slate2 focus:border-mint/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:opacity-60"
                     />
                     <LiquidGlassButton type="submit" size="md" className="shrink-0" disabled={status === 'sending'}>
                       <BellRing className="h-4 w-4" aria-hidden />

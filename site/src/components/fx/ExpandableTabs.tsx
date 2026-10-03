@@ -55,7 +55,7 @@ export function ExpandableTabs({ tabs, active, onChange, ariaLabel }: Props) {
               onChange(i);
               setExpanded(true);
             }}
-            className={`flex items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm font-semibold outline-none transition-colors duration-200 ${
+            className={`flex items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm font-semibold outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-ink ${
               selected
                 ? 'bg-white text-ink shadow-[0_8px_24px_-8px_rgba(255,255,255,0.4)]'
                 : 'text-body/70 hover:bg-white/5 hover:text-bone'
