@@ -6,6 +6,7 @@ import { Nav } from '../components/Nav';
 import { Reveal } from '../components/Reveal';
 import { Ticker } from '../components/Ticker';
 import { LiquidGlassButton } from '../components/fx/LiquidGlassButton';
+import { MysteryCrate } from '../components/fx/MysteryCrate';
 import { SonarGrid } from '../components/fx/SonarGrid';
 import { useAuth } from '../lib/auth';
 import { navigate } from '../lib/router';
@@ -24,7 +25,7 @@ function replaceTo(to: string) {
  * behind Google sign-in. Members who land here are forwarded inside.
  */
 export function Landing() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
 
   useEffect(() => {
     if (user) replaceTo('/app');
@@ -78,6 +79,14 @@ export function Landing() {
       <div className="relative z-10">
         <Footer home />
       </div>
+      {/* past the end of the site: a sealed crate for anyone who kept
+          scrolling. Signed-out visitors only, and only once the probe
+          has answered — members never see it (they're forwarded in). */}
+      {!loading && !user && (
+        <div className="relative z-10">
+          <MysteryCrate />
+        </div>
+      )}
     </div>
   );
 }
