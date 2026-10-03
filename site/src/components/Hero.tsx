@@ -1,7 +1,8 @@
 import { motion, useReducedMotion } from 'framer-motion';
-import { Gauge, Radar, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Gauge, Radar, ShieldCheck } from 'lucide-react';
 import { ScanDemo } from './ScanDemo';
 import { BorderBeam } from './fx/BorderBeam';
+import { ContainerScroll } from './fx/ContainerScroll';
 import { FlipWords } from './fx/FlipWords';
 import { LiquidGlassButton } from './fx/LiquidGlassButton';
 import { springQuiet } from '../lib/motion';
@@ -20,7 +21,7 @@ const STATS = [
  * the interactive scan demo framed by a travelling border beam.
  * Tap the black anywhere — the sonar answers.
  */
-export function Hero({ memberName }: { memberName?: string }) {
+export function Hero({ memberName, teaser = false }: { memberName?: string; teaser?: boolean }) {
   const reduce = useReducedMotion();
   const rise = (delay: number) => ({
     initial: reduce ? (false as const) : { opacity: 0, y: 18 },
@@ -65,19 +66,34 @@ export function Hero({ memberName }: { memberName?: string }) {
           </motion.p>
 
           <motion.div {...rise(0.36)} className="mt-9 flex flex-wrap items-center justify-center gap-4">
-            <LiquidGlassButton
-              href="/app/connect"
-              size="lg"
-              onClick={(e) => {
-                e.preventDefault();
-                navigate('/app/connect');
-              }}
-            >
-              Connect a website
-            </LiquidGlassButton>
-            <LiquidGlassButton href="#download" variant="glass" size="lg">
-              Get it for Chrome
-            </LiquidGlassButton>
+            {teaser ? (
+              <LiquidGlassButton
+                href="/signin"
+                size="lg"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate('/signin');
+                }}
+              >
+                Sign in to enter <ArrowRight className="h-4 w-4" aria-hidden />
+              </LiquidGlassButton>
+            ) : (
+              <>
+                <LiquidGlassButton
+                  href="/app/connect"
+                  size="lg"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigate('/app/connect');
+                  }}
+                >
+                  Connect a website
+                </LiquidGlassButton>
+                <LiquidGlassButton href="#download" variant="glass" size="lg">
+                  Get it for Chrome
+                </LiquidGlassButton>
+              </>
+            )}
           </motion.div>
 
           <motion.p {...rise(0.46)} className="mt-5 font-mono text-xs text-slate2">
@@ -94,19 +110,20 @@ export function Hero({ memberName }: { memberName?: string }) {
           </motion.ul>
         </div>
 
-        <motion.div
-          initial={reduce ? false : { opacity: 0, y: 40, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ ...springQuiet, delay: 0.42 }}
-          className="mx-auto mt-14 max-w-3xl"
-        >
-          <BorderBeam>
-            <ScanDemo bare />
-          </BorderBeam>
-          <p className="mt-3 text-center font-mono text-[11px] text-slate2">
-            simulated scan — the real thing runs in your browser
-          </p>
-        </motion.div>
+        <ContainerScroll className="mx-auto mt-14 max-w-3xl">
+          <motion.div
+            initial={reduce ? false : { opacity: 0, y: 40, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ ...springQuiet, delay: 0.42 }}
+          >
+            <BorderBeam>
+              <ScanDemo bare />
+            </BorderBeam>
+            <p className="mt-3 text-center font-mono text-[11px] text-slate2">
+              simulated scan — the real thing runs in your browser
+            </p>
+          </motion.div>
+        </ContainerScroll>
       </div>
     </section>
   );

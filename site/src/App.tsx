@@ -2,8 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Preloader } from './components/fx/Preloader';
 import { AuthProvider } from './lib/auth';
 import { usePathname } from './lib/router';
+import { Landing } from './pages/Landing';
 import { MemberApp } from './pages/MemberApp';
-import { MemberSite } from './pages/MemberSite';
 import { SignIn } from './pages/SignIn';
 
 const INTRO_KEY = 'bugseek-intro';
@@ -29,10 +29,11 @@ function RedirectTo({ to }: { to: string }) {
 
 /**
  * Route table:
- *   /            the public site (member experience, open to everyone)
+ *   /            the public teaser (hero, ticker, a door) — the full
+ *                site lives inside, behind sign-in
  *   /signin      the Google sign-in page
  *   /signup      → /signin (one door for new and returning members)
- *   /app         the guarded members' home
+ *   /app         the guarded members' home (the whole main site)
  *   anything else (old /app/connect, /welcome, …) → /
  */
 export default function App() {
@@ -61,7 +62,7 @@ export default function App() {
   }, [path]);
 
   let page: ReactNode;
-  if (path === '/') page = <MemberSite />;
+  if (path === '/') page = <Landing />;
   else if (path === '/signin') page = <SignIn />;
   else if (path === '/signup') page = <RedirectTo to="/signin" />;
   else if (path === '/app') page = <MemberApp />;

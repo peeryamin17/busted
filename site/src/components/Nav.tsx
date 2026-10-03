@@ -24,8 +24,11 @@ function scrollToHash(hash: string) {
  * Brand plus section links on the left of the account slot; the account
  * slot itself is a "Sign in" link signed out, and an avatar chip with
  * sign-out signed in.
+ *
+ * The landing variant drops the section links (their targets only exist
+ * inside the main site) and keeps just the brand and the account slot.
  */
-export function Nav() {
+export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
   const [scrolled, setScrolled] = useState(false);
   const { scrollY, scrollYProgress } = useScroll();
   const progress = useSpring(scrollYProgress, { stiffness: 120, damping: 26, mass: 0.4 });
@@ -90,28 +93,30 @@ export function Nav() {
             </span>
           </a>
           <div className="flex items-center gap-4 sm:gap-5">
-            <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
-              <a
-                href="/app/connect"
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate('/app/connect');
-                }}
-                className="text-sm font-semibold text-bone transition-colors hover:text-white"
-              >
-                Connect site
-              </a>
-              {LINKS.map((l) => (
+            {variant === 'site' && (
+              <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
                 <a
-                  key={l.hash}
-                  href={l.hash}
-                  onClick={(e) => goSection(e, l.hash)}
-                  className="text-sm font-medium text-body/80 transition-colors hover:text-bone"
+                  href="/app/connect"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigate('/app/connect');
+                  }}
+                  className="text-sm font-semibold text-bone transition-colors hover:text-white"
                 >
-                  {l.label}
+                  Connect site
                 </a>
-              ))}
-            </nav>
+                {LINKS.map((l) => (
+                  <a
+                    key={l.hash}
+                    href={l.hash}
+                    onClick={(e) => goSection(e, l.hash)}
+                    className="text-sm font-medium text-body/80 transition-colors hover:text-bone"
+                  >
+                    {l.label}
+                  </a>
+                ))}
+              </nav>
+            )}
             {/* account slot — nothing renders until the session probe
                 answers, so the wrong state never flashes */}
             {!loading &&

@@ -1,6 +1,7 @@
 import { animate, AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { springPop } from '../../lib/motion';
+import { BackgroundPaths } from './BackgroundPaths';
 
 /**
  * Glyph paths lifted from the onyx-glyph-preloader vocabulary (MIT) —
@@ -170,6 +171,9 @@ export function Preloader({ onDone }: { onDone: () => void }) {
       className="fixed inset-0 z-[100] flex cursor-pointer flex-col items-center justify-center bg-[#050505]"
       style={{ pointerEvents: phase === 'gone' ? 'none' : 'auto' }}
     >
+      {/* flowing strokes behind everything */}
+      <BackgroundPaths />
+
       {/* ambient glitter dust */}
       <AmbientDust />
 
