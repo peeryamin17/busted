@@ -6,6 +6,7 @@ import { Landing } from './pages/Landing';
 import { MemberApp } from './pages/MemberApp';
 import { SignIn } from './pages/SignIn';
 import { WebCheck } from './pages/WebCheck';
+import { Privacy } from './pages/Privacy';
 
 const INTRO_KEY = 'bugseek-intro';
 
@@ -69,6 +70,7 @@ export default function App() {
   else if (path === '/signup') page = <RedirectTo to="/signin" />;
   else if (path === '/app') page = <MemberApp />;
   else if (path === '/app/check') page = <WebCheck />;
+  else if (path === '/privacy') page = <Privacy />;
   else page = <RedirectTo to="/" />;
 
   return (

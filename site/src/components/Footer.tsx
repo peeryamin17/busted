@@ -15,6 +15,10 @@ const COLUMNS: Array<{ title: string; links: Array<{ label: string; href: string
       { label: 'Get the extension', href: '#download' },
     ],
   },
+  {
+    title: 'LEGAL',
+    links: [{ label: 'Privacy policy', href: '/privacy' }],
+  },
 ];
 
 /**
@@ -47,7 +51,10 @@ export function Footer({ home = true, member = false }: { home?: boolean; member
                 <ul className="mt-4 space-y-2.5">
                   {col.links.map((l) => (
                     <li key={l.label}>
-                      <a href={`${prefix}${l.href}`} className="text-sm text-body/80 transition-colors hover:text-bone">
+                      <a
+                        href={l.href.startsWith('/') ? l.href : `${prefix}${l.href}`}
+                        className="text-sm text-body/80 transition-colors hover:text-bone"
+                      >
                         {l.label}
                       </a>
                     </li>
