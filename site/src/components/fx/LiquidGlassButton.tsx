@@ -12,6 +12,8 @@ interface Props {
   size?: 'sm' | 'md' | 'lg';
   className?: string;
   ariaLabel?: string;
+  /** renders inert and dimmed while true — e.g. a form mid-submit */
+  disabled?: boolean;
 }
 
 const SIZES = {
@@ -35,6 +37,7 @@ export function LiquidGlassButton({
   size = 'md',
   className = '',
   ariaLabel,
+  disabled = false,
 }: Props) {
   const cls = `liquid-glass liquid-glass-${variant} inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 font-display font-semibold ${SIZES[size]} ${className}`;
   const motionProps = {
@@ -60,8 +63,9 @@ export function LiquidGlassButton({
     <motion.button
       type={type}
       onClick={onClick}
+      disabled={disabled}
       aria-label={ariaLabel}
-      className={cls}
+      className={`${cls}${disabled ? ' cursor-wait opacity-60' : ''}`}
       {...motionProps}
     >
       <span className="inline-flex items-center gap-2">{children}</span>

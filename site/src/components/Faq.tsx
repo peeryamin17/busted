@@ -27,7 +27,7 @@ const FAQS = [
   },
   {
     q: 'When can I download it?',
-    a: "Very soon — it's headed to the Chrome Web Store. The big friendly section below is, for now, a very fancy placeholder. Leave an email there and absolutely nothing will happen with it yet, which is more honesty than most waitlists offer.",
+    a: "Very soon — it's headed to the Chrome Web Store. Leave an email in the big friendly section below and it lands on a real list this time: written to once at launch, never before, never after. Which is more honesty than most waitlists offer.",
   },
 ];
 

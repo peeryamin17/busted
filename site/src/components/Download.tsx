@@ -1,18 +1,37 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { BellRing } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Reveal } from './Reveal';
 import { LiquidGlassButton } from './fx/LiquidGlassButton';
 import { springPop, springQuiet } from '../lib/motion';
 
 /**
- * The drop: aurora-lit CTA block with the world's most honest waitlist.
- * The store listing doesn't exist yet — the copy says so, loudly.
+ * The drop: aurora-lit CTA block with a real waitlist behind it now.
+ * The store listing doesn't exist yet — the email list does, in our
+ * own backend, and it gets written to once: at launch.
  */
 export function Download() {
   const reduce = useReducedMotion();
   const [email, setEmail] = useState('');
-  const [noted, setNoted] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'sending' | 'noted' | 'error'>('idle');
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const value = email.trim();
+    if (!value || status === 'sending') return;
+    setStatus('sending');
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: value }),
+      });
+      if (!res.ok) throw new Error(`waitlist ${res.status}`);
+      setStatus('noted');
+    } catch {
+      setStatus('error');
+    }
+  };
 
   return (
     <section id="download" className="relative scroll-mt-24 overflow-hidden py-28 sm:py-36">
@@ -51,7 +70,7 @@ export function Download() {
             <p className="font-mono text-xs text-slate2">COMING SOON TO THE CHROME WEB STORE</p>
             <div className="mt-4 min-h-[52px]">
               <AnimatePresence mode="wait" initial={false}>
-                {noted ? (
+                {status === 'noted' ? (
                   <motion.p
                     key="noted"
                     initial={reduce ? false : { opacity: 0, scale: 0.94 }}
@@ -61,7 +80,7 @@ export function Download() {
                   >
                     You're on the list.*
                     <span className="mt-1 block font-mono text-[11px] text-slate2">
-                      *there is no list yet — we're a student project, remember?
+                      *a real list this time — one email at launch, nothing else.
                     </span>
                   </motion.p>
                 ) : (
@@ -70,10 +89,7 @@ export function Download() {
                     exit={reduce ? undefined : { opacity: 0, scale: 0.96 }}
                     transition={springQuiet}
                     className="flex gap-2"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (email.trim()) setNoted(true);
-                    }}
+                    onSubmit={submit}
                   >
                     <label htmlFor="notify-email" className="sr-only">
                       Email for launch notification
@@ -83,17 +99,26 @@ export function Download() {
                       type="email"
                       required
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      disabled={status === 'sending'}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        if (status === 'error') setStatus('idle');
+                      }}
                       placeholder="you@hunter.dev"
-                      className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-ink px-4 py-3 text-sm text-bone placeholder:text-slate2 focus:border-mint/50 focus:outline-none"
+                      className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-ink px-4 py-3 text-sm text-bone placeholder:text-slate2 focus:border-mint/50 focus:outline-none disabled:opacity-60"
                     />
-                    <LiquidGlassButton type="submit" size="md" className="shrink-0">
+                    <LiquidGlassButton type="submit" size="md" className="shrink-0" disabled={status === 'sending'}>
                       <BellRing className="h-4 w-4" aria-hidden />
-                      Remind me
+                      {status === 'sending' ? 'Saving…' : 'Remind me'}
                     </LiquidGlassButton>
                   </motion.form>
                 )}
               </AnimatePresence>
+              {status === 'error' && (
+                <p className="mt-3 text-center font-mono text-[11px] text-slate2">
+                  That didn't save — check the address and try again.
+                </p>
+              )}
             </div>
           </div>
         </Reveal>
