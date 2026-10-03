@@ -56,9 +56,8 @@ function ConnectSiteCard() {
 }
 
 /**
- * The main BugSeek site — the whole product story, open to everyone.
- * This used to sit behind Google sign-in; the door is gone and this is
- * simply the front page now.
+ * The main BugSeek site — the whole product story. It renders inside
+ * /app behind Google sign-in; the public front page is Landing.
  */
 export function MemberSite() {
   return (
