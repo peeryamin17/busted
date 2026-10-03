@@ -150,10 +150,23 @@ export interface UserRecord {
   passwordHash: string;
   plan: PlanTier;
   createdAt: string; // ISO
-  /** Clerk `sub` when the account is backed by Clerk (Google sign-in). */
-  clerkUserId?: string;
-  /** Most recent login (Clerk webhooks stamp this); ISO string. */
+  /** Google `sub` when the account signs in with Google. */
+  googleSub?: string;
+  /** Display name from the Google profile. */
+  name?: string;
+  /** Avatar URL from the Google profile. */
+  avatarUrl?: string;
+  /** Most recent login; ISO string. */
   lastLoginAt?: string;
+}
+
+/** Server-side website session. Only the token's SHA-256 hash is stored. */
+export interface SessionRecord {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  createdAt: string; // ISO
+  expiresAt: string; // ISO
 }
 
 export interface ApiKeyRecord {

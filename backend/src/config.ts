@@ -25,6 +25,11 @@ export interface AppConfig {
   nodeEnv: string;
   isProd: boolean;
   jwtSecret: string;
+  sessionSecret: string;
+  googleClientId?: string;
+  googleClientSecret?: string;
+  googleRedirectUri?: string;
+  postLoginRedirect: string;
   databaseUrl?: string;
   redisUrl?: string;
   llmProvider: 'mock' | 'claude' | 'gemini';
@@ -53,6 +58,19 @@ function loadConfig(): AppConfig {
     console.warn('[config] JWT_SECRET not set — using insecure dev default');
   }
 
+  // Signs the OAuth `state` cookie (CSRF protection for the Google flow).
+  // Falls back to JWT_SECRET so existing setups keep booting.
+  const sessionSecret = process.env['SESSION_SECRET'] || jwtSecret;
+  if (!process.env['SESSION_SECRET'] && isProd) {
+    console.warn('[config] SESSION_SECRET not set — using JWT_SECRET for OAuth state signing');
+  }
+
+  // Google sign-in is OPTIONAL config: when any of these is unset the app
+  // still boots and the /api/auth/google* routes answer 503 instead.
+  const googleClientId = process.env['GOOGLE_CLIENT_ID'] || undefined;
+  const googleClientSecret = process.env['GOOGLE_CLIENT_SECRET'] || undefined;
+  const googleRedirectUri = process.env['GOOGLE_REDIRECT_URI'] || undefined;
+
   const llmProviderRaw = str('LLM_PROVIDER', 'gemini').toLowerCase();
   if (llmProviderRaw !== 'mock' && llmProviderRaw !== 'claude' && llmProviderRaw !== 'gemini') {
     throw new Error(`Unsupported LLM_PROVIDER=${llmProviderRaw} (expected "mock", "claude", or "gemini")`);
@@ -77,6 +95,11 @@ function loadConfig(): AppConfig {
     nodeEnv,
     isProd,
     jwtSecret,
+    sessionSecret,
+    googleClientId,
+    googleClientSecret,
+    googleRedirectUri,
+    postLoginRedirect: str('POST_LOGIN_REDIRECT', '/app'),
     databaseUrl: process.env['DATABASE_URL'] || undefined,
     redisUrl: process.env['REDIS_URL'] || undefined,
     llmProvider: llmProviderRaw,

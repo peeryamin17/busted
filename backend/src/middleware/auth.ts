@@ -1,7 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import type { Database } from '../db/db.js';
 import { hashApiKey, verifySession } from '../auth/auth.js';
-import { verifyClerkToken } from '../auth/clerk.js';
+import { SESSION_COOKIE, hashSessionToken, parseCookies } from '../auth/session.js';
 import { PLAN_QUOTAS } from '../auth/usage.js';
 import type { PlanTier } from '../types.js';
 
@@ -19,8 +19,12 @@ declare module 'fastify' {
 }
 
 /**
- * Authentication: Bearer JWT session OR `x-api-key` (bs_...).
- * Per the plan (§6.1), API-key access is a Pro+ feature.
+ * Authentication, three ways:
+ *  - `x-api-key: bs_…` — the extension's API keys (plan §6.1: Pro+ feature).
+ *  - `bs_session` cookie — the website's server-side session, created by
+ *    the Google sign-in flow (src/routes/googleAuth.ts).
+ *  - `Authorization: Bearer <jwt>` — the email/password accounts' session
+ *    token (register/login in src/routes/auth.ts).
  */
 export function buildAuthenticate(db: Database) {
   return async function authenticate(request: FastifyRequest): Promise<void> {
@@ -44,33 +48,29 @@ export function buildAuthenticate(db: Database) {
       return;
     }
 
+    const sessionToken = parseCookies(request.headers.cookie)[SESSION_COOKIE];
+    if (sessionToken) {
+      const session = await db.getSessionByTokenHash(hashSessionToken(sessionToken));
+      const user = session ? await db.getUserById(session.userId) : null;
+      if (!session || !user) {
+        throw Object.assign(new Error('Invalid or expired session'), { statusCode: 401 });
+      }
+      request.user = { id: user.id, email: user.email, plan: user.plan, viaApiKey: false };
+      return;
+    }
+
     if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.slice(7);
-      const claims = verifySession(token);
+      const claims = verifySession(authHeader.slice(7));
       if (claims) {
         const user = await db.getUserById(claims.sub);
         if (!user) throw Object.assign(new Error('User not found'), { statusCode: 401 });
         request.user = { id: user.id, email: user.email, plan: user.plan, viaApiKey: false };
         return;
       }
-      // Clerk session token (Google sign-in via the website/extension):
-      // verified against the Clerk app's public JWKS — no secret needed.
-      const clerk = await verifyClerkToken(token);
-      if (clerk) {
-        const user = await db.getUserByClerkId(clerk.clerkUserId);
-        if (!user) {
-          throw Object.assign(
-            new Error('Clerk account not linked yet — POST /api/auth/clerk/link first'),
-            { statusCode: 401 },
-          );
-        }
-        request.user = { id: user.id, email: user.email, plan: user.plan, viaApiKey: false };
-        return;
-      }
       throw Object.assign(new Error('Invalid or expired token'), { statusCode: 401 });
     }
 
-    throw Object.assign(new Error('Authentication required (Bearer token or x-api-key)'), {
+    throw Object.assign(new Error('Authentication required (session cookie, Bearer token or x-api-key)'), {
       statusCode: 401,
     });
   };

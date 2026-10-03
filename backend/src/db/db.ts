@@ -7,6 +7,7 @@ import type {
   PlanTier,
   Scan,
   ScanStatus,
+  SessionRecord,
   UserRecord,
 } from '../types.js';
 
@@ -45,19 +46,28 @@ export interface Database {
   readonly kind: 'memory' | 'postgres';
 
   createUser(email: string, passwordHash: string): Promise<UserRecord>;
-  getUserByClerkId(clerkUserId: string): Promise<UserRecord | null>;
-  createClerkUser(email: string, clerkUserId: string): Promise<UserRecord>;
-  linkClerkUser(userId: string, clerkUserId: string): Promise<void>;
+  getUserByGoogleSub(googleSub: string): Promise<UserRecord | null>;
   /**
-   * Webhook-fed upsert: record a Clerk sign-up/sign-in. Finds by Clerk id,
-   * else by email (linking), else creates the user; stamps lastLoginAt.
-   * Returns null when the event carries no email and the user is unknown.
+   * Google sign-in upsert: find by Google subject id, else by email
+   * (linking the Google id onto that account), else create the user.
+   * Refreshes profile fields and stamps lastLoginAt. Returns the user.
    */
-  recordClerkLogin(clerkUserId: string, email: string | null): Promise<UserRecord | null>;
+  recordGoogleLogin(profile: {
+    googleSub: string;
+    email: string;
+    name?: string;
+    avatarUrl?: string;
+  }): Promise<UserRecord>;
   listUsers(limit: number): Promise<UserRecord[]>;
   getUserByEmail(email: string): Promise<UserRecord | null>;
   getUserById(id: string): Promise<UserRecord | null>;
   setUserPlan(userId: string, plan: PlanTier): Promise<void>;
+
+  /** Create a website session; only the token's SHA-256 hash is passed in/stored. */
+  createSession(userId: string, tokenHash: string, expiresAtIso: string): Promise<SessionRecord>;
+  /** Look up a live session by token hash; expired rows are deleted and read as null. */
+  getSessionByTokenHash(tokenHash: string): Promise<SessionRecord | null>;
+  deleteSession(tokenHash: string): Promise<void>;
 
   createApiKey(
     userId: string,
@@ -94,7 +104,8 @@ export class MemoryDatabase implements Database {
   readonly kind = 'memory' as const;
   private users = new Map<string, UserRecord>();
   private usersByEmail = new Map<string, UserRecord>();
-  private usersByClerkId = new Map<string, UserRecord>();
+  private usersByGoogleSub = new Map<string, UserRecord>();
+  private sessions = new Map<string, SessionRecord>(); // by token hash
   private apiKeys = new Map<string, ApiKeyRecord>();
   private apiKeysByHash = new Map<string, ApiKeyRecord>();
   private authorizations = new Map<string, AuthorizationRecord>();
@@ -121,46 +132,64 @@ export class MemoryDatabase implements Database {
     return this.usersByEmail.get(email.trim().toLowerCase()) ?? null;
   }
 
-  async getUserByClerkId(clerkUserId: string): Promise<UserRecord | null> {
-    return this.usersByClerkId.get(clerkUserId) ?? null;
+  async getUserByGoogleSub(googleSub: string): Promise<UserRecord | null> {
+    const u = this.usersByGoogleSub.get(googleSub);
+    return u ? { ...u } : null;
   }
 
-  async createClerkUser(email: string, clerkUserId: string): Promise<UserRecord> {
-    const created = await this.createUser(email, '');
-    // createUser returns a copy — mutate the STORED record so every
-    // lookup path (id, email, clerk id) sees the same user.
-    const stored = this.users.get(created.id);
-    if (!stored) return created;
-    stored.clerkUserId = clerkUserId;
-    this.usersByClerkId.set(clerkUserId, stored);
-    return { ...stored };
-  }
-
-  async linkClerkUser(userId: string, clerkUserId: string): Promise<void> {
-    const u = this.users.get(userId);
-    if (!u) return;
-    if (u.clerkUserId) this.usersByClerkId.delete(u.clerkUserId);
-    u.clerkUserId = clerkUserId;
-    this.usersByClerkId.set(clerkUserId, u);
-  }
-
-  async recordClerkLogin(clerkUserId: string, email: string | null): Promise<UserRecord | null> {
-    let user = this.usersByClerkId.get(clerkUserId) ?? null;
-    if (!user && email) {
-      const byEmail = this.usersByEmail.get(email.trim().toLowerCase()) ?? null;
+  async recordGoogleLogin(profile: {
+    googleSub: string;
+    email: string;
+    name?: string;
+    avatarUrl?: string;
+  }): Promise<UserRecord> {
+    let user = this.usersByGoogleSub.get(profile.googleSub) ?? null;
+    if (!user) {
+      const byEmail = this.usersByEmail.get(profile.email.trim().toLowerCase()) ?? null;
       if (byEmail) {
-        await this.linkClerkUser(byEmail.id, clerkUserId);
-        user = this.usersByClerkId.get(clerkUserId) ?? null;
+        byEmail.googleSub = profile.googleSub;
+        this.usersByGoogleSub.set(profile.googleSub, byEmail);
+        user = byEmail;
       }
     }
     if (!user) {
-      if (!email) return null;
-      await this.createClerkUser(email, clerkUserId);
-      user = this.usersByClerkId.get(clerkUserId) ?? null;
+      const created = await this.createUser(profile.email, '');
+      const stored = this.users.get(created.id);
+      if (!stored) return created;
+      stored.googleSub = profile.googleSub;
+      this.usersByGoogleSub.set(profile.googleSub, stored);
+      user = stored;
     }
-    if (!user) return null;
+    if (profile.name !== undefined) user.name = profile.name;
+    if (profile.avatarUrl !== undefined) user.avatarUrl = profile.avatarUrl;
     user.lastLoginAt = nowIso();
     return { ...user };
+  }
+
+  async createSession(userId: string, tokenHash: string, expiresAtIso: string): Promise<SessionRecord> {
+    const rec: SessionRecord = {
+      id: randomUUID(),
+      userId,
+      tokenHash,
+      createdAt: nowIso(),
+      expiresAt: expiresAtIso,
+    };
+    this.sessions.set(tokenHash, rec);
+    return { ...rec };
+  }
+
+  async getSessionByTokenHash(tokenHash: string): Promise<SessionRecord | null> {
+    const rec = this.sessions.get(tokenHash);
+    if (!rec) return null;
+    if (rec.expiresAt <= nowIso()) {
+      this.sessions.delete(tokenHash);
+      return null;
+    }
+    return { ...rec };
+  }
+
+  async deleteSession(tokenHash: string): Promise<void> {
+    this.sessions.delete(tokenHash);
   }
 
   async listUsers(limit: number): Promise<UserRecord[]> {
@@ -370,22 +399,38 @@ export class PostgresDatabase implements Database {
     };
   }
 
+  private toUser(row: Record<string, unknown>): UserRecord {
+    return {
+      id: row['id'] as string,
+      email: row['email'] as string,
+      passwordHash: row['password_hash'] as string,
+      plan: row['plan'] as UserRecord['plan'],
+      createdAt: (row['created_at'] as Date).toISOString(),
+      googleSub: (row['google_sub'] as string) ?? undefined,
+      name: (row['name'] as string) ?? undefined,
+      avatarUrl: (row['avatar_url'] as string) ?? undefined,
+      lastLoginAt: row['last_login_at'] ? (row['last_login_at'] as Date).toISOString() : undefined,
+    };
+  }
+
+  private toSession(row: Record<string, unknown>): SessionRecord {
+    return {
+      id: row['id'] as string,
+      userId: row['user_id'] as string,
+      tokenHash: row['token_hash'] as string,
+      createdAt: (row['created_at'] as Date).toISOString(),
+      expiresAt: (row['expires_at'] as Date).toISOString(),
+    };
+  }
+
   async createUser(email: string, passwordHash: string): Promise<UserRecord> {
     const normalized = email.trim().toLowerCase();
     try {
       const { rows } = await this.pool.query(
-        `INSERT INTO users (email, password_hash) VALUES ($1, $2)
-         RETURNING id, email, password_hash, plan, created_at`,
+        `INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING *`,
         [normalized, passwordHash]
       );
-      const r = rows[0];
-      return {
-        id: r.id,
-        email: r.email,
-        passwordHash: r.password_hash,
-        plan: r.plan,
-        createdAt: r.created_at.toISOString(),
-      };
+      return this.toUser(rows[0]);
     } catch (e: unknown) {
       if (e && typeof e === 'object' && (e as { code?: string }).code === '23505') {
         throw new Error('email_taken');
@@ -398,109 +443,90 @@ export class PostgresDatabase implements Database {
     const { rows } = await this.pool.query(`SELECT * FROM users WHERE email = $1`, [
       email.trim().toLowerCase(),
     ]);
-    if (!rows[0]) return null;
-    const r = rows[0];
-    return {
-      id: r.id,
-      email: r.email,
-      passwordHash: r.password_hash,
-      plan: r.plan,
-      createdAt: r.created_at.toISOString(),
-      clerkUserId: (r.clerk_user_id as string) ?? undefined,
-      lastLoginAt: r.last_login_at ? (r.last_login_at as Date).toISOString() : undefined,
-    };
+    return rows[0] ? this.toUser(rows[0]) : null;
   }
 
   async getUserById(id: string): Promise<UserRecord | null> {
     const { rows } = await this.pool.query(`SELECT * FROM users WHERE id = $1`, [id]);
-    if (!rows[0]) return null;
-    const r = rows[0];
-    return {
-      id: r.id,
-      email: r.email,
-      passwordHash: r.password_hash,
-      plan: r.plan,
-      createdAt: r.created_at.toISOString(),
-      clerkUserId: (r.clerk_user_id as string) ?? undefined,
-      lastLoginAt: r.last_login_at ? (r.last_login_at as Date).toISOString() : undefined,
-    };
+    return rows[0] ? this.toUser(rows[0]) : null;
   }
 
-  async getUserByClerkId(clerkUserId: string): Promise<UserRecord | null> {
-    const { rows } = await this.pool.query(`SELECT * FROM users WHERE clerk_user_id = $1`, [clerkUserId]);
-    if (!rows[0]) return null;
-    const r = rows[0];
-    return {
-      id: r.id,
-      email: r.email,
-      passwordHash: r.password_hash,
-      plan: r.plan,
-      createdAt: r.created_at.toISOString(),
-      clerkUserId: (r.clerk_user_id as string) ?? undefined,
-      lastLoginAt: r.last_login_at ? (r.last_login_at as Date).toISOString() : undefined,
-    };
+  async getUserByGoogleSub(googleSub: string): Promise<UserRecord | null> {
+    const { rows } = await this.pool.query(`SELECT * FROM users WHERE google_sub = $1`, [googleSub]);
+    return rows[0] ? this.toUser(rows[0]) : null;
   }
 
-  async createClerkUser(email: string, clerkUserId: string): Promise<UserRecord> {
-    const normalized = email.trim().toLowerCase();
-    try {
-      const { rows } = await this.pool.query(
-        `INSERT INTO users (email, password_hash, clerk_user_id) VALUES ($1, '', $2)
-         RETURNING id, email, password_hash, plan, created_at, clerk_user_id`,
-        [normalized, clerkUserId],
-      );
-      const r = rows[0];
-      return {
-        id: r.id,
-        email: r.email,
-        passwordHash: r.password_hash,
-        plan: r.plan,
-        createdAt: r.created_at.toISOString(),
-        clerkUserId: (r.clerk_user_id as string) ?? undefined,
-      };
-    } catch (e: unknown) {
-      if (e && typeof e === 'object' && (e as { code?: string }).code === '23505') {
-        throw new Error('email_taken');
+  async recordGoogleLogin(profile: {
+    googleSub: string;
+    email: string;
+    name?: string;
+    avatarUrl?: string;
+  }): Promise<UserRecord> {
+    let user = await this.getUserByGoogleSub(profile.googleSub);
+    if (!user) {
+      user = await this.getUserByEmail(profile.email);
+      if (user) {
+        // Link the Google identity onto the existing account.
+        await this.pool.query(`UPDATE users SET google_sub = $2 WHERE id = $1`, [
+          user.id,
+          profile.googleSub,
+        ]);
       }
-      throw e;
-    }
-  }
-
-  async linkClerkUser(userId: string, clerkUserId: string): Promise<void> {
-    await this.pool.query(`UPDATE users SET clerk_user_id = $2 WHERE id = $1`, [userId, clerkUserId]);
-  }
-
-  async recordClerkLogin(clerkUserId: string, email: string | null): Promise<UserRecord | null> {
-    let user = await this.getUserByClerkId(clerkUserId);
-    if (!user && email) {
-      user = await this.getUserByEmail(email);
-      if (user) await this.linkClerkUser(user.id, clerkUserId);
     }
     if (!user) {
-      if (!email) return null;
-      user = await this.createClerkUser(email, clerkUserId);
+      try {
+        const { rows } = await this.pool.query(
+          `INSERT INTO users (email, password_hash, google_sub, name, avatar_url)
+           VALUES ($1, '', $2, $3, $4) RETURNING *`,
+          [profile.email.trim().toLowerCase(), profile.googleSub, profile.name ?? null, profile.avatarUrl ?? null],
+        );
+        user = this.toUser(rows[0]);
+      } catch (e: unknown) {
+        // Lost a race with a concurrent first sign-in: re-read by Google id.
+        if (e && typeof e === 'object' && (e as { code?: string }).code === '23505') {
+          user = (await this.getUserByGoogleSub(profile.googleSub)) ?? (await this.getUserByEmail(profile.email));
+          if (!user) throw e;
+        } else {
+          throw e;
+        }
+      }
     }
-    await this.pool.query(`UPDATE users SET last_login_at = now() WHERE id = $1`, [user.id]);
-    const fresh = await this.getUserById(user.id);
-    return fresh ?? user;
+    await this.pool.query(
+      `UPDATE users SET name = COALESCE($2, name), avatar_url = COALESCE($3, avatar_url),
+         last_login_at = now() WHERE id = $1`,
+      [user.id, profile.name ?? null, profile.avatarUrl ?? null],
+    );
+    return (await this.getUserById(user.id)) ?? user;
+  }
+
+  async createSession(userId: string, tokenHash: string, expiresAtIso: string): Promise<SessionRecord> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3::timestamptz) RETURNING *`,
+      [userId, tokenHash, expiresAtIso],
+    );
+    return this.toSession(rows[0]);
+  }
+
+  async getSessionByTokenHash(tokenHash: string): Promise<SessionRecord | null> {
+    const { rows } = await this.pool.query(`SELECT * FROM sessions WHERE token_hash = $1`, [tokenHash]);
+    if (!rows[0]) return null;
+    const rec = this.toSession(rows[0]);
+    if (rec.expiresAt <= new Date().toISOString()) {
+      await this.deleteSession(tokenHash);
+      return null;
+    }
+    return rec;
+  }
+
+  async deleteSession(tokenHash: string): Promise<void> {
+    await this.pool.query(`DELETE FROM sessions WHERE token_hash = $1`, [tokenHash]);
   }
 
   async listUsers(limit: number): Promise<UserRecord[]> {
     const { rows } = await this.pool.query(`SELECT * FROM users ORDER BY created_at DESC LIMIT $1`, [
       Math.max(1, Math.min(1000, limit)),
     ]);
-    return rows.map((row: Record<string, unknown>) => {
-      const r = row;
-      return {
-        id: r['id'] as string,
-        email: r['email'] as string,
-        passwordHash: r['password_hash'] as string,
-        plan: r['plan'] as UserRecord['plan'],
-        createdAt: (r['created_at'] as Date).toISOString(),
-        clerkUserId: (r['clerk_user_id'] as string) ?? undefined,
-        lastLoginAt: r['last_login_at'] ? (r['last_login_at'] as Date).toISOString() : undefined,
-      };
-    });
+    return rows.map((row: Record<string, unknown>) => this.toUser(row));
   }
 
   async setUserPlan(userId: string, plan: PlanTier): Promise<void> {

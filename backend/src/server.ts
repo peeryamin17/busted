@@ -8,11 +8,11 @@ import type { LLMProvider } from './llm/provider.js';
 import { ScanOrchestrator } from './orchestrator/orchestrator.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
+import { googleAuthRoutes } from './routes/googleAuth.js';
 import { scanRoutes, type ScanRouteDeps } from './routes/scans.js';
 import { reportRoutes } from './routes/reports.js';
 import { oastRoutes } from './routes/oast.js';
 import { engineRoutes } from './routes/engines.js';
-import { webhookRoutes } from './routes/webhooks.js';
 import { swarmRoutes } from './routes/multiagent.js';
 import { v1CompatRoutes } from './routes/v1compat.js';
 
@@ -52,18 +52,13 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
   app.register(async (instance) => {
     await healthRoutes(instance, routeDeps);
     await authRoutes(instance, routeDeps);
+    await googleAuthRoutes(instance, routeDeps);
     await scanRoutes(instance, routeDeps);
     await swarmRoutes(instance, routeDeps);
     await v1CompatRoutes(instance, routeDeps);
     await reportRoutes(instance, routeDeps);
     await oastRoutes(instance, routeDeps);
     await engineRoutes(instance, routeDeps);
-  });
-
-  // Webhooks live in their own scope: they need the raw request body for
-  // signature verification, so their JSON parser must not leak globally.
-  app.register(async (instance) => {
-    await webhookRoutes(instance, routeDeps);
   });
 
   return app;
