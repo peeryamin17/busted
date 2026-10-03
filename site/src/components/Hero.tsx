@@ -58,7 +58,7 @@ export function Hero({ memberName, teaser = false }: { memberName?: string; teas
             Find what{' '}
             <TextMarquee
               speed={2.2}
-              className="text-white underline decoration-white/30 decoration-[0.06em] underline-offset-[0.14em]"
+              className="text-signal underline decoration-signal/50 decoration-[0.06em] underline-offset-[0.14em]"
             >
               {ROTATE.map((w) => (
                 <span key={w}>{w}</span>
@@ -88,11 +88,11 @@ export function Hero({ memberName, teaser = false }: { memberName?: string; teas
             ) : (
               <>
                 <LiquidGlassButton
-                  href="/app/connect"
+                  href="/app/check"
                   size="lg"
                   onClick={(e) => {
                     e.preventDefault();
-                    navigate('/app/connect');
+                    navigate('/app/check');
                   }}
                 >
                   Connect a website

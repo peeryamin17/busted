@@ -101,14 +101,14 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
     if (variant === 'landing') {
       navigate('/signin');
     } else if (tab.connect) {
-      navigate('/app/connect');
+      navigate('/app/check');
     } else if (tab.hash) {
       scrollToHash(tab.hash);
     }
   };
 
   const tabHref = (tab: NavTab) =>
-    variant === 'landing' ? '/signin' : tab.connect ? '/app/connect' : (tab.hash ?? '#top');
+    variant === 'landing' ? '/signin' : tab.connect ? '/app/check' : (tab.hash ?? '#top');
 
   const goSection = (e: MouseEvent, hash: string) => {
     e.preventDefault();
@@ -210,11 +210,11 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
             {variant === 'site' && (
               <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
                 <a
-                  href="/app/connect"
+                  href="/app/check"
                   data-cat-tab="connect"
                   onClick={(e) => {
                     e.preventDefault();
-                    navigate('/app/connect');
+                    navigate('/app/check');
                   }}
                   className="text-sm font-semibold text-bone transition-colors hover:text-white"
                 >

@@ -15,7 +15,7 @@ import { usePathname } from '../../lib/router';
  *
  * It lives in the header and stands ON the nav: on desktop it perches
  * on the active tab (scroll-spy over the MemberSite sections; the
- * Connect tab when the route is /app/connect) and hops tab to tab with
+ * Connect tab when the route is /app/check) and hops tab to tab with
  * a crouch–arc–squash as the active section changes. Where there are
  * no tabs (the landing teaser, or below lg) it perches on the brand
  * mark instead. Tapping it startles a hop in place.
@@ -66,9 +66,9 @@ export function TabCat({
   const hopTokenRef = useRef(0);
 
   const tabsMode = variant === 'site' && wide;
-  // The Connect tab is a route, not a section: on /app/connect it owns
+  // The Connect tab is a route, not a section: on /app/check it owns
   // the cat outright; everywhere else the scroll-spy decides.
-  const activeKey: TabKey = pathname === '/app/connect' ? 'connect' : spyKey;
+  const activeKey: TabKey = pathname === '/app/check' ? 'connect' : spyKey;
   const perchKey = tabsMode ? activeKey : 'brand';
 
   /* ——— measurement ——— */

@@ -35,14 +35,14 @@ function ConnectSiteCard() {
             </div>
             <div className="lg:text-right">
               <LiquidGlassButton
-                href="/app/connect"
+                href="/app/check"
                 size="lg"
                 onClick={(e) => {
                   e.preventDefault();
-                  navigate('/app/connect');
+                  navigate('/app/check');
                 }}
               >
-                Prepare website connection <ArrowRight className="h-4 w-4" aria-hidden />
+                Run the web demo <ArrowRight className="h-4 w-4" aria-hidden />
               </LiquidGlassButton>
               <p className="mt-3 font-mono text-[11px] leading-relaxed text-slate2">
                 Ownership verification comes before testing. Always.
