@@ -10,6 +10,7 @@ import type {
   SessionRecord,
   UserRecord,
 } from '../types.js';
+import type { WebCheckRecord, WebFinding, WebInfo } from '../webcheck/types.js';
 
 export interface CreateScanInput {
   userId: string;
@@ -35,6 +36,17 @@ export interface ScanPatch {
   error?: string;
   startedAt?: string;
   finishedAt?: string;
+}
+
+export interface InsertWebCheckInput {
+  userId: string;
+  url: string;
+  host: string;
+  authorized: boolean;
+  score: number | null;
+  grade: string | null;
+  findings: WebFinding[];
+  info: WebInfo;
 }
 
 /**
@@ -98,6 +110,13 @@ export interface Database {
   /** Add an email to the launch waitlist; `already` is true when it was on the list already. */
   addWaitlistEmail(email: string, source?: string): Promise<{ already: boolean }>;
 
+  /** Store a completed web-demo patrol (full, ungated result). */
+  insertWebCheck(input: InsertWebCheckInput): Promise<WebCheckRecord>;
+  /** A user's patrol runs, newest first. */
+  listWebChecks(userId: string, limit: number): Promise<WebCheckRecord[]>;
+  /** One patrol run, only when it belongs to the user. */
+  getWebCheck(userId: string, id: string): Promise<WebCheckRecord | null>;
+
   close(): Promise<void>;
 }
 
@@ -116,6 +135,7 @@ export class MemoryDatabase implements Database {
   private findings = new Map<string, Finding[]>();
   private usage: Array<{ userId: string; kind: string; quantity: number; scanId?: string; at: string }> = [];
   private waitlist = new Set<string>(); // normalised emails
+  private webChecks: WebCheckRecord[] = [];
 
   async createUser(email: string, passwordHash: string): Promise<UserRecord> {
     const normalized = email.trim().toLowerCase();
@@ -342,6 +362,31 @@ export class MemoryDatabase implements Database {
     if (this.waitlist.has(normalized)) return { already: true };
     this.waitlist.add(normalized);
     return { already: false };
+  }
+
+  async insertWebCheck(input: InsertWebCheckInput): Promise<WebCheckRecord> {
+    const rec: WebCheckRecord = {
+      id: randomUUID(),
+      createdAt: nowIso(),
+      ...input,
+      findings: input.findings.map((f) => ({ ...f })),
+      info: structuredClone(input.info),
+    };
+    this.webChecks.push(rec);
+    return { ...rec };
+  }
+
+  async listWebChecks(userId: string, limit: number): Promise<WebCheckRecord[]> {
+    return this.webChecks
+      .filter((r) => r.userId === userId)
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .slice(0, Math.max(1, limit))
+      .map((r) => ({ ...r }));
+  }
+
+  async getWebCheck(userId: string, id: string): Promise<WebCheckRecord | null> {
+    const rec = this.webChecks.find((r) => r.userId === userId && r.id === id);
+    return rec ? { ...rec } : null;
   }
 
   async close(): Promise<void> {
@@ -763,6 +808,55 @@ export class PostgresDatabase implements Database {
       [email.trim().toLowerCase(), source]
     );
     return { already: (rowCount ?? 0) === 0 };
+  }
+
+  private toWebCheck(row: Record<string, unknown>): WebCheckRecord {
+    return {
+      id: row['id'] as string,
+      userId: row['user_id'] as string,
+      url: row['url'] as string,
+      host: row['host'] as string,
+      authorized: Boolean(row['authorized']),
+      score: row['score'] != null ? Number(row['score']) : null,
+      grade: (row['grade'] as string) ?? null,
+      findings: (row['findings'] as WebFinding[]) ?? [],
+      info: row['info'] as WebInfo,
+      createdAt: (row['created_at'] as Date).toISOString(),
+    };
+  }
+
+  async insertWebCheck(input: InsertWebCheckInput): Promise<WebCheckRecord> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO web_checks (user_id, url, host, authorized, score, grade, findings, info)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb) RETURNING *`,
+      [
+        input.userId,
+        input.url,
+        input.host,
+        input.authorized,
+        input.score,
+        input.grade,
+        JSON.stringify(input.findings),
+        JSON.stringify(input.info),
+      ]
+    );
+    return this.toWebCheck(rows[0]);
+  }
+
+  async listWebChecks(userId: string, limit: number): Promise<WebCheckRecord[]> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM web_checks WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+      [userId, Math.max(1, Math.min(50, limit))]
+    );
+    return rows.map((r: Record<string, unknown>) => this.toWebCheck(r));
+  }
+
+  async getWebCheck(userId: string, id: string): Promise<WebCheckRecord | null> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM web_checks WHERE user_id = $1 AND id = $2`,
+      [userId, id]
+    );
+    return rows[0] ? this.toWebCheck(rows[0]) : null;
   }
 
   async close(): Promise<void> {
