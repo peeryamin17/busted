@@ -12,9 +12,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 export function ContainerScroll({
   children,
   className = '',
+  innerClassName = '',
 }: {
   children: ReactNode;
   className?: string;
+  innerClassName?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
@@ -47,7 +49,7 @@ export function ContainerScroll({
     <div ref={ref} className={className} style={{ perspective: 1100 }}>
       <motion.div
         style={{ rotateX, scale, transformOrigin: '50% 42%' }}
-        className="shadow-[0_36px_70px_-28px_rgba(0,0,0,0.75)] will-change-transform"
+        className={`shadow-[0_36px_70px_-28px_rgba(0,0,0,0.75)] will-change-transform ${innerClassName}`}
       >
         {children}
       </motion.div>

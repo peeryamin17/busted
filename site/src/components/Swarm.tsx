@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Reveal } from './Reveal';
 import { ScoreRing } from './fx/ScoreRing';
+import { ContainerScroll } from './fx/ContainerScroll';
 import { springPop } from '../lib/motion';
 
 interface Specialist {
@@ -75,7 +76,11 @@ export function Swarm() {
         <div className="mt-14 grid items-center gap-12 lg:grid-cols-[1.3fr_0.7fr]">
           {/* ——— diagram ——— */}
           <Reveal>
-            <div className="relative mx-auto aspect-[4/4.4] w-full max-w-2xl sm:aspect-[16/12.5] lg:aspect-[4/3.6]">
+            <ContainerScroll
+              className="relative mx-auto aspect-[4/4.4] w-full max-w-2xl sm:aspect-[16/12.5] lg:aspect-[4/3.6]"
+              innerClassName="h-full w-full"
+            >
+              <div className="relative h-full w-full">
               <svg
                 viewBox="0 0 100 100"
                 preserveAspectRatio="none"
@@ -136,7 +141,8 @@ export function Swarm() {
                   </div>
                 </motion.div>
               ))}
-            </div>
+              </div>
+            </ContainerScroll>
           </Reveal>
 
           {/* ——— score + how a run lands ——— */}
