@@ -1,5 +1,6 @@
 import { motion, useScroll, useSpring, useMotionValueEvent } from 'framer-motion';
 import { useState, type MouseEvent } from 'react';
+import { useAuth } from '../lib/auth';
 import { springQuiet } from '../lib/motion';
 import { navigate } from '../lib/router';
 
@@ -20,13 +21,15 @@ function scrollToHash(hash: string) {
  * materializes as a detached pill once you scroll, and a white hairline
  * tracks reading progress across the very top of the viewport.
  *
- * One public face: brand plus the section links. The whole site is
- * open now, so there is no account entry here at all.
+ * Brand plus section links on the left of the account slot; the account
+ * slot itself is a "Sign in" link signed out, and an avatar chip with
+ * sign-out signed in.
  */
 export function Nav() {
   const [scrolled, setScrolled] = useState(false);
   const { scrollY, scrollYProgress } = useScroll();
   const progress = useSpring(scrollYProgress, { stiffness: 120, damping: 26, mass: 0.4 });
+  const { user, loading, signOut } = useAuth();
   useMotionValueEvent(scrollY, 'change', (v) => setScrolled(v > 24));
 
   const goSection = (e: MouseEvent, hash: string) => {
@@ -37,6 +40,17 @@ export function Nav() {
   const goHome = (e: MouseEvent) => {
     e.preventDefault();
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const goSignIn = (e: MouseEvent) => {
+    e.preventDefault();
+    navigate('/signin');
+  };
+
+  const handleSignOut = async (e: MouseEvent) => {
+    e.preventDefault();
+    await signOut();
+    navigate('/');
   };
 
   return (
@@ -75,28 +89,69 @@ export function Nav() {
               BugSeek <span className="text-white/50">AI</span>
             </span>
           </a>
-          <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
-            <a
-              href="/app/connect"
-              onClick={(e) => {
-                e.preventDefault();
-                navigate('/app/connect');
-              }}
-              className="text-sm font-semibold text-bone transition-colors hover:text-white"
-            >
-              Connect site
-            </a>
-            {LINKS.map((l) => (
+          <div className="flex items-center gap-4 sm:gap-5">
+            <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
               <a
-                key={l.hash}
-                href={l.hash}
-                onClick={(e) => goSection(e, l.hash)}
-                className="text-sm font-medium text-body/80 transition-colors hover:text-bone"
+                href="/app/connect"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate('/app/connect');
+                }}
+                className="text-sm font-semibold text-bone transition-colors hover:text-white"
               >
-                {l.label}
+                Connect site
               </a>
-            ))}
-          </nav>
+              {LINKS.map((l) => (
+                <a
+                  key={l.hash}
+                  href={l.hash}
+                  onClick={(e) => goSection(e, l.hash)}
+                  className="text-sm font-medium text-body/80 transition-colors hover:text-bone"
+                >
+                  {l.label}
+                </a>
+              ))}
+            </nav>
+            {/* account slot — nothing renders until the session probe
+                answers, so the wrong state never flashes */}
+            {!loading &&
+              (user ? (
+                <div className="flex items-center gap-2.5 sm:gap-3.5">
+                  <span className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pl-1 pr-3">
+                    {user.avatar ? (
+                      <img
+                        src={user.avatar}
+                        alt=""
+                        referrerPolicy="no-referrer"
+                        className="h-6 w-6 rounded-full"
+                      />
+                    ) : (
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/10 font-display text-[11px] font-semibold text-bone">
+                        {(user.name ?? user.email).charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="max-w-[6.5rem] truncate text-sm font-medium text-bone">
+                      {user.name ?? user.email}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="shrink-0 text-sm font-medium text-body/80 transition-colors hover:text-bone"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              ) : (
+                <a
+                  href="/signin"
+                  onClick={goSignIn}
+                  className="shrink-0 text-sm font-semibold text-bone transition-colors hover:text-white"
+                >
+                  Sign in
+                </a>
+              ))}
+          </div>
         </div>
       </motion.header>
     </>
