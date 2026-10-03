@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { useAuth } from '../lib/auth';
 import { springQuiet } from '../lib/motion';
 import { navigate } from '../lib/router';
+import { ConfirmSignOut } from './fx/ConfirmSignOut';
 
 const LINKS = [
   { label: 'Toolkit', hash: '#what' },
@@ -46,10 +47,15 @@ function scrollToHash(hash: string) {
  * the landing variant the tabs are locked doors — every one of them
  * routes to /signin. From lg up the brand is the plain scroll-to-top
  * mark it has always been.
+ *
+ * Sign out asks first: a small glass dialog (fx/ConfirmSignOut) stands
+ * in front of the actual logout.
  */
 export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmOut, setConfirmOut] = useState(false);
+  const signOutBtnRef = useRef<HTMLButtonElement | null>(null);
   const reduce = useReducedMotion();
   const headerRef = useRef<HTMLElement | null>(null);
   const brandBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -118,8 +124,20 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
     navigate('/signin');
   };
 
-  const handleSignOut = async (e: MouseEvent) => {
+  // Sign out is gated by the ConfirmSignOut dialog; the logout flow
+  // itself (lib/auth signOut, then home) runs only on confirm.
+  const openSignOut = (e: MouseEvent) => {
     e.preventDefault();
+    setConfirmOut(true);
+  };
+
+  const cancelSignOut = () => {
+    setConfirmOut(false);
+    signOutBtnRef.current?.focus();
+  };
+
+  const confirmSignOut = async () => {
+    setConfirmOut(false);
     await signOut();
     navigate('/');
   };
@@ -232,8 +250,9 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
                     </span>
                   </span>
                   <button
+                    ref={signOutBtnRef}
                     type="button"
-                    onClick={handleSignOut}
+                    onClick={openSignOut}
                     className="shrink-0 text-sm font-medium text-body/80 transition-colors hover:text-bone"
                   >
                     Sign out
@@ -282,6 +301,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
           )}
         </AnimatePresence>
       </motion.header>
+      <ConfirmSignOut open={confirmOut} onCancel={cancelSignOut} onConfirm={confirmSignOut} />
     </>
   );
 }
