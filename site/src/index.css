@@ -259,6 +259,13 @@ body {
   filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.8)) drop-shadow(0 0 10px rgba(255, 255, 255, 0.35));
 }
 
+/* Vertical word-cycle for the text marquee (fx/TextMarquee) */
+@keyframes tm-slide-vertical {
+  to {
+    translate: 0 var(--destination);
+  }
+}
+
 /* White shimmer sweep (kept for small inline CTAs) */
 @keyframes shimmer-slide {
   0% {

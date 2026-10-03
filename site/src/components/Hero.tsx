@@ -3,7 +3,7 @@ import { ArrowRight, Gauge, Radar, ShieldCheck } from 'lucide-react';
 import { ScanDemo } from './ScanDemo';
 import { BorderBeam } from './fx/BorderBeam';
 import { ContainerScroll } from './fx/ContainerScroll';
-import { FlipWords } from './fx/FlipWords';
+import { TextMarquee } from './fx/TextMarquee';
 import { LiquidGlassButton } from './fx/LiquidGlassButton';
 import { springQuiet } from '../lib/motion';
 import { navigate } from '../lib/router';
@@ -52,10 +52,18 @@ export function Hero({ memberName, teaser = false }: { memberName?: string; teas
 
           <motion.h1
             {...rise(memberName ? 0.24 : 0.14)}
+            aria-label="Find what scanners miss."
             className="mt-7 font-display text-[2.85rem] font-bold leading-[1.03] tracking-tight text-bone sm:text-6xl lg:text-[4.6rem]"
           >
             Find what{' '}
-            <FlipWords words={ROTATE} className="text-white underline decoration-white/30 decoration-[0.06em] underline-offset-[0.14em]" />{' '}
+            <TextMarquee
+              speed={2.2}
+              className="text-white underline decoration-white/30 decoration-[0.06em] underline-offset-[0.14em]"
+            >
+              {ROTATE.map((w) => (
+                <span key={w}>{w}</span>
+              ))}
+            </TextMarquee>{' '}
             miss.
           </motion.h1>
 
