@@ -55,6 +55,47 @@ function ConnectSiteCard() {
   );
 }
 
+function WebDemoBanner() {
+  return (
+    <section className="relative mx-auto max-w-6xl px-4 py-12 sm:px-6" aria-label="The web demo">
+      <Reveal>
+        <div className="glass overflow-hidden rounded-[2rem] p-7 sm:p-9">
+          <div className="grid items-center gap-8 lg:grid-cols-[1.15fr_0.85fr]">
+            <div>
+              <p className="font-mono text-[11px] tracking-[0.24em] text-slate2">
+                THE WEB DEMO
+              </p>
+              <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-bone sm:text-4xl">
+                Case your own site from the browser.
+              </h2>
+              <p className="mt-3 max-w-xl leading-relaxed text-body/85">
+                No extension, thirty seconds. Paste a site you own, tick the box,
+                and the patrol brings back what it finds — plus the full matrix on
+                your corner of the internet.
+              </p>
+            </div>
+            <div className="lg:text-right">
+              <LiquidGlassButton
+                href="/app/check"
+                size="lg"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate('/app/check');
+                }}
+              >
+                Run the demo <ArrowRight className="h-4 w-4" aria-hidden />
+              </LiquidGlassButton>
+              <p className="mt-3 font-mono text-[11px] leading-relaxed text-slate2">
+                Your site. Your tick. Our binoculars.
+              </p>
+            </div>
+          </div>
+        </div>
+      </Reveal>
+    </section>
+  );
+}
+
 /**
  * The main BugSeek site — the whole product story. It renders inside
  * /app behind Google sign-in; the public front page is Landing.
@@ -74,6 +115,7 @@ export function MemberSite() {
         <Hero />
         <Ticker />
         <ConnectSiteCard />
+        <WebDemoBanner />
         <Bento />
         <Swarm />
         <HowItWorks />

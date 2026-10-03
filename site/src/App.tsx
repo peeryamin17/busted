@@ -5,6 +5,7 @@ import { usePathname } from './lib/router';
 import { Landing } from './pages/Landing';
 import { MemberApp } from './pages/MemberApp';
 import { SignIn } from './pages/SignIn';
+import { WebCheck } from './pages/WebCheck';
 
 const INTRO_KEY = 'bugseek-intro';
 
@@ -34,6 +35,7 @@ function RedirectTo({ to }: { to: string }) {
  *   /signin      the Google sign-in page
  *   /signup      → /signin (one door for new and returning members)
  *   /app         the guarded members' home (the whole main site)
+ *   /app/check   the guarded web demo (patrol a site you own)
  *   anything else (old /app/connect, /welcome, …) → /
  */
 export default function App() {
@@ -49,10 +51,10 @@ export default function App() {
     setShowIntro(false);
   };
 
-  // Arriving at the site with a hash (e.g. /#download) — scroll to the
-  // anchor once the sections exist.
+  // Arriving with a hash (e.g. /#download, or /app#pricing from the
+  // demo's plan card) — scroll to the anchor once sections exist.
   useEffect(() => {
-    if (path === '/' && window.location.hash) {
+    if ((path === '/' || path === '/app') && window.location.hash) {
       const hash = window.location.hash;
       const t = window.setTimeout(() => {
         document.querySelector(hash)?.scrollIntoView();
@@ -66,6 +68,7 @@ export default function App() {
   else if (path === '/signin') page = <SignIn />;
   else if (path === '/signup') page = <RedirectTo to="/signin" />;
   else if (path === '/app') page = <MemberApp />;
+  else if (path === '/app/check') page = <WebCheck />;
   else page = <RedirectTo to="/" />;
 
   return (
