@@ -49,6 +49,7 @@ export function SignIn() {
   const reduce = useReducedMotion();
   const { user, loading } = useAuth();
   const [busy, setBusy] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const catRoofRef = useRef<HTMLDivElement>(null);
 
   // Already signed in? This door leads straight to the members' home.
@@ -57,7 +58,7 @@ export function SignIn() {
   }, [loading, user]);
 
   const beginSignIn = () => {
-    if (busy) return;
+    if (busy || !agreed) return;
     setBusy(true);
     window.location.assign('/api/auth/google');
   };
@@ -157,10 +158,36 @@ export function SignIn() {
               account is your BugSeek account.
             </p>
 
-            <div className="mt-8">
+            <label className="mt-8 flex cursor-pointer items-start gap-3 text-sm leading-relaxed text-body/85">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                aria-required="true"
+                className="mt-0.5 h-4 w-4 shrink-0 accent-white"
+              />
+              <span>
+                I've read and agree to the{' '}
+                <a
+                  href="/privacy"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigate('/privacy');
+                  }}
+                  className="font-medium text-bone underline decoration-white/40 underline-offset-2 transition-colors hover:decoration-white"
+                >
+                  Privacy Policy
+                </a>
+                .{' '}
+                <span className="text-slate2">Required to create your account.</span>
+              </span>
+            </label>
+
+            <div className="mt-5">
               <LiquidGlassButton
                 variant="glass"
                 size="lg"
+                disabled={!agreed}
                 className={`w-full ${busy ? 'pointer-events-none opacity-60' : ''}`}
                 onClick={beginSignIn}
                 ariaLabel="Sign in with Google"
