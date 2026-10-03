@@ -36,9 +36,9 @@ export function CrowdCanvas() {
 
     const seed = () => {
       figures.length = 0;
-      const count = Math.max(22, Math.floor(w / 34));
+      const count = Math.max(18, Math.floor(w / 46));
       for (let i = 0; i < count; i++) {
-        const depth = 0.55 + Math.random() * 0.6;
+        const depth = 0.8 + Math.random() * 0.8;
         figures.push({
           x: Math.random() * w,
           speed: (14 + Math.random() * 26) * (Math.random() < 0.5 ? -1 : 1),
@@ -124,8 +124,8 @@ export function CrowdCanvas() {
       for (const f of figures) {
         f.x += f.speed * dt;
         f.phase += dt * (Math.abs(f.speed) / 3.4);
-        if (f.x < -20) f.x = w + 20;
-        if (f.x > w + 20) f.x = -20;
+        if (f.x < -32) f.x = w + 32;
+        if (f.x > w + 32) f.x = -32;
       }
       draw(now);
       raf = requestAnimationFrame(loop);
