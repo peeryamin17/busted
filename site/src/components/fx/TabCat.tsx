@@ -13,12 +13,13 @@ import { usePathname } from '../../lib/router';
  * language (fx/CrowdCanvas) — filled round head, triangle ears, thin
  * white stroke body, legs and tail. Faceless, like the people.
  *
- * It lives in the header and stands ON the nav: on desktop it perches
- * on the active tab (scroll-spy over the MemberSite sections; the
- * Connect tab when the route is /app/check) and hops tab to tab with
- * a crouch–arc–squash as the active section changes. Where there are
- * no tabs (the landing teaser, or below lg) it perches on the brand
- * mark instead. Tapping it startles a hop in place.
+ * It lives in the header and runs the top boundary of the nav: on
+ * desktop its paws track the active tab's top edge (scroll-spy over
+ * the MemberSite sections; the Connect tab when the route is
+ * /app/check) and it hops tab to tab with a crouch–arc–squash as the
+ * active section changes. Where there are no tabs (the landing teaser,
+ * below lg, the sign-in door) it perches on the brand mark's top edge
+ * instead. Tapping it startles a hop in place.
  *
  * Positioning is measurement, never constants: Nav tags its tabs with
  * data-cat-tab, the brand with data-cat-brand and the pill with
@@ -30,7 +31,7 @@ import { usePathname } from '../../lib/router';
 type TabKey = 'connect' | 'what' | 'swarm' | 'how' | 'pricing' | 'faq';
 
 const SECTION_KEYS: TabKey[] = ['what', 'swarm', 'how', 'pricing', 'faq'];
-const CAT = 38; // px — the tap target and the drawing share one box
+const CAT = 34; // px — the tap target and the drawing share one box
 
 interface Perch {
   /** centre x of the perch, relative to the header container */
@@ -83,7 +84,9 @@ export function TabCat({
       const r = el.getBoundingClientRect();
       return {
         cx: r.left + (centreOffset ?? r.width / 2) - cRect.left,
-        feet: r.top + r.height / 2 + 6 - cRect.top,
+        // feet ON the element's top edge — the cat runs the boundary
+        // line of the tabs, never inside them (1px sink so paws touch)
+        feet: r.top + 1 - cRect.top,
       };
     };
 
@@ -135,7 +138,10 @@ export function TabCat({
       hoppingRef.current = true;
       const token = ++hopTokenRef.current;
       const dist = Math.abs(toX - xv.get());
-      const height = Math.min(34, Math.max(12, 10 + dist * 0.09));
+      // Arc grows with distance, but the roof is real: never let the
+      // ears leave the top of the screen mid-flight.
+      const maxRise = Math.max(6, restY + CAT * 0.25 - 2);
+      const height = Math.min(Math.min(30, Math.max(12, 10 + dist * 0.09)), maxRise);
       animate(xv, toX, { type: 'spring', bounce: 0.16, duration: 0.62 });
       animate(yv, [restYRef.current, restY - height, restY], {
         duration: 0.6,
@@ -157,7 +163,8 @@ export function TabCat({
   const startle = useCallback(() => {
     if (reduce || hoppingRef.current) return;
     const restY = restYRef.current;
-    animate(yv, [restY, restY - 16, restY], {
+    const rise = Math.min(16, Math.max(6, restY + CAT * 0.25 - 2));
+    animate(yv, [restY, restY - rise, restY], {
       duration: 0.48,
       times: [0, 0.4, 1],
       ease: ['easeOut', 'easeIn'],

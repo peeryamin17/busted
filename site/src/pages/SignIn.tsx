@@ -1,7 +1,8 @@
 import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowLeft, Coins, History, Loader2, Radar } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SonarGrid } from '../components/fx/SonarGrid';
+import { TabCat } from '../components/fx/TabCat';
 import { LiquidGlassButton } from '../components/fx/LiquidGlassButton';
 import { useAuth } from '../lib/auth';
 import { springQuiet } from '../lib/motion';
@@ -48,6 +49,7 @@ export function SignIn() {
   const reduce = useReducedMotion();
   const { user, loading } = useAuth();
   const [busy, setBusy] = useState(false);
+  const catRoofRef = useRef<HTMLDivElement>(null);
 
   // Already signed in? This door leads straight to the members' home.
   useEffect(() => {
@@ -61,12 +63,15 @@ export function SignIn() {
   };
 
   return (
-    <div className="relative flex min-h-screen flex-col bg-ink">
+    <div ref={catRoofRef} className="relative flex min-h-screen flex-col bg-ink">
       <SonarGrid />
+      {/* the cat keeps watch over the door too — brand perch, no tabs here */}
+      <TabCat variant="landing" containerRef={catRoofRef} />
 
       {/* top bar */}
-      <header className="relative z-10 flex items-center justify-between px-5 py-5 sm:px-8">
+      <header className="relative z-10 flex items-center justify-between px-5 pb-5 pt-12 sm:px-8">
         <a
+          data-cat-brand
           href="/"
           onClick={(e) => {
             e.preventDefault();

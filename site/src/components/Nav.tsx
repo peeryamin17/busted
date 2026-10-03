@@ -167,7 +167,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
         <div
           data-cat-pill
           className={`glass nav-material mx-auto flex items-center justify-between gap-3 px-4 py-3 transition-all duration-300 sm:px-5 ${
-            scrolled ? 'mt-3 max-w-3xl rounded-full' : 'mt-3 max-w-6xl rounded-3xl'
+            scrolled ? 'mt-6 max-w-3xl rounded-full' : 'mt-6 max-w-6xl rounded-3xl'
           }`}
         >
           {/* desktop brand — the plain scroll-to-top mark */}
