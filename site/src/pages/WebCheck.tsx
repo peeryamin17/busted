@@ -99,7 +99,12 @@ interface RunSummary {
   grade: string | null;
   findingCount: number;
   requesterIp: string | null;
-  requesterGeo: { country: string | null; city: string | null; region: string | null } | null;
+  requesterGeo: {
+    country: string | null;
+    city: string | null;
+    region: string | null;
+    source?: string;
+  } | null;
   createdAt: string;
 }
 
@@ -143,6 +148,28 @@ const fmtDate = (iso: string | null): string | null => {
 
 const scoreColor = (v: number): string =>
   v >= 90 ? '#2EEA8C' : v >= 75 ? '#A3E635' : v >= 55 ? '#FFD60A' : v >= 35 ? '#FF9F0A' : '#FF453A';
+
+/**
+ * Ask the browser for the device's position (the visitor decides via
+ * the browser's own prompt). Resolves null on refusal, timeout or an
+ * unsupported browser — never throws, and the server stamps the run
+ * from the IP instead when no position arrives.
+ */
+function capturePosition(): Promise<{ lat: number; lon: number; accuracy: number } | null> {
+  return new Promise((resolve) => {
+    if (!('geolocation' in navigator)) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (p) =>
+        resolve({
+          lat: p.coords.latitude,
+          lon: p.coords.longitude,
+          accuracy: p.coords.accuracy,
+        }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 },
+    );
+  });
+}
 
 /* ── small building blocks ────────────────────────────────────── */
 
@@ -291,11 +318,15 @@ export function WebCheck() {
     setRunning(true);
     setPhase(0);
     try {
+      // The browser asks for the device's location right here, while
+      // the tap that asked for the patrol is still fresh. Refused or
+      // unavailable simply means the IP stamp speaks for the run.
+      const gps = await capturePosition();
       const res = await fetch('/api/webcheck', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: target, authorized }),
+        body: JSON.stringify({ url: target, authorized, ...(gps ? { gps } : {}) }),
       });
       const data = (await res.json().catch(() => null)) as CheckView | { error?: string } | null;
       if (!res.ok) {
@@ -399,8 +430,9 @@ export function WebCheck() {
               </span>
             </label>
             <p className="mt-3 font-mono text-[11px] leading-relaxed text-slate2">
-              RUNNING A PATROL ALSO STORES YOUR IP ADDRESS AND APPROXIMATE LOCATION (CITY, COUNTRY) WITH THE
-              RUN — IT SHOWS BACK TO YOU IN YOUR PATROL HISTORY BELOW.
+              RUNNING A PATROL STORES YOUR IP AND — ONLY IF YOU ALLOW THE LOCATION PROMPT — YOUR DEVICE'S
+              GPS POSITION (CITY AND COUNTRY INCLUDED). DECLINE AND THE IP ALONE SPEAKS FOR THE RUN. EITHER
+              WAY IT SHOWS IN YOUR PATROL HISTORY BELOW.
             </p>
 
             {error && (
@@ -466,6 +498,7 @@ export function WebCheck() {
                           {[run.requesterGeo.city, run.requesterGeo.country]
                             .filter(Boolean)
                             .join(', ')}
+                          {run.requesterGeo.source === 'gps' ? ' · GPS' : ''}
                         </span>
                       )}
                       {run.score !== null && (

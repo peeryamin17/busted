@@ -93,6 +93,13 @@ export interface GeoStamp {
   country: string | null;
   city: string | null;
   region: string | null;
+  /** Device coordinates when the visitor allowed the browser prompt. */
+  lat?: number;
+  lon?: number;
+  /** Reported GPS accuracy radius in metres, when known. */
+  accuracyM?: number;
+  /** How the stamp was derived: the device's GPS, or the address's IP. */
+  source?: 'gps' | 'ip';
 }
 
 /** One stored patrol run (row of web_checks). */

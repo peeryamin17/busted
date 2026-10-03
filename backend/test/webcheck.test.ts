@@ -320,6 +320,59 @@ async function main() {
   check('geo is null, not invented', unstampedView.requester.geo === null);
   await app3.close();
 
+  /* ── GPS beats IP when the visitor shares it ── */
+  const app4 = Fastify();
+  await webCheckRoutes(app4 as never, deps, {
+    patrol: stampedPatrol,
+    geo: async () => {
+      throw new Error('ip geo must not be consulted when GPS is shared');
+    },
+    reverseGeo: async () => ({ city: 'Srinagar', region: 'Jammu and Kashmir', country: 'India' }),
+  });
+  const erin = await makeCookie('erin@example.com');
+  const gpsRun = await app4.inject({
+    method: 'POST',
+    url: '/api/webcheck',
+    headers: { cookie: erin.cookie, 'x-forwarded-for': '203.0.113.9' },
+    payload: {
+      url: 'https://demo.example',
+      authorized: true,
+      gps: { lat: 34.0837, lon: 74.7973, accuracy: 18 },
+    },
+  });
+  check('gps run → 201 (ip geo never consulted)', gpsRun.statusCode === 201, gpsRun.statusCode);
+  const gpsView = gpsRun.json() as {
+    requester: {
+      ip: string | null;
+      geo: { source?: string; lat?: number; lon?: number; accuracyM?: number; city: string | null } | null;
+    };
+  };
+  check('ip still stamped alongside', gpsView.requester.ip === '203.0.113.9', gpsView.requester);
+  check('stamp says gps', gpsView.requester.geo?.source === 'gps', gpsView.requester.geo);
+  check(
+    'coordinates stored as given',
+    gpsView.requester.geo?.lat === 34.0837 && gpsView.requester.geo?.lon === 74.7973 && gpsView.requester.geo?.accuracyM === 18,
+    gpsView.requester.geo,
+  );
+  check('reverse-geocoded city rides along', gpsView.requester.geo?.city === 'Srinagar', gpsView.requester.geo);
+  await app4.close();
+
+  const app5 = Fastify();
+  await webCheckRoutes(app5 as never, deps, {
+    patrol: stampedPatrol,
+    geo: async () => ({ country: 'India', city: 'Srinagar', region: 'Jammu and Kashmir' }),
+  });
+  const frank = await makeCookie('frank@example.com');
+  const ipRun = await app5.inject({
+    method: 'POST',
+    url: '/api/webcheck',
+    headers: { cookie: frank.cookie, 'x-forwarded-for': '198.51.100.7' },
+    payload: { url: 'https://demo.example', authorized: true },
+  });
+  const ipView = ipRun.json() as { requester: { geo: { source?: string } | null } };
+  check('an unshared run is labelled ip', ipView.requester.geo?.source === 'ip', ipView.requester);
+  await app5.close();
+
   await app.close();
   console.log(failures === 0 ? 'ALL WEBCHECK TESTS PASSED' : `${failures} FAILURES`);
   process.exit(failures === 0 ? 0 : 1);

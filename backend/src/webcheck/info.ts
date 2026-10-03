@@ -215,6 +215,39 @@ export async function fetchRequesterGeo(
   return { country: s.country, city: s.city, region: s.region };
 }
 
+interface BigDataCloudResponse {
+  city?: string;
+  locality?: string;
+  principalSubdivision?: string;
+  countryName?: string;
+}
+
+/**
+ * Place names for device coordinates (BigDataCloud's free, key-less
+ * reverse geocoder). Garnish only — the coordinates are the record;
+ * failure leaves the names blank rather than inventing them.
+ */
+export async function fetchReverseGeo(
+  lat: number,
+  lon: number,
+  fetchJson: JsonFetcher = defaultJsonFetcher,
+): Promise<{ city: string | null; region: string | null; country: string | null } | null> {
+  try {
+    const data = (await fetchJson(
+      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`,
+      { timeoutMs: 5_000 },
+    )) as BigDataCloudResponse;
+    const out = {
+      city: data.city ?? data.locality ?? null,
+      region: data.principalSubdivision ?? null,
+      country: data.countryName ?? null,
+    };
+    return out.city || out.region || out.country ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 /* ── Performance census (from the main fetch, measured here) ──── */
 
 export function buildPerfInfo(page: FetchedResponse): PerfInfo {

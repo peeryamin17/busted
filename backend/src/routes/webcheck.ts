@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { buildAuthenticate, requireUser } from '../middleware/auth.js';
 import { securityScore } from '../reports/score.js';
 import { runWebPatrol, type PatrolOutcome } from '../webcheck/run.js';
-import { fetchRequesterGeo } from '../webcheck/info.js';
+import { fetchRequesterGeo, fetchReverseGeo } from '../webcheck/info.js';
 import type { GeoStamp, WebCheckRecord, WebFinding } from '../webcheck/types.js';
 import type { PlanTier, Severity } from '../types.js';
 import type { RouteDeps } from './health.js';
@@ -35,6 +35,11 @@ export interface WebCheckRouteOptions {
    * wire; a slow or failed lookup never blocks the patrol.
    */
   geo?: (ip: string) => Promise<GeoStamp | null>;
+  /** Test seam: place names for device coordinates, when GPS was shared. */
+  reverseGeo?: (
+    lat: number,
+    lon: number,
+  ) => Promise<{ city: string | null; region: string | null; country: string | null } | null>;
 }
 
 const LOCKED = [
@@ -53,6 +58,18 @@ const LOCKED = [
 const createSchema = z.object({
   url: z.string().min(1, 'Paste the site to patrol').max(2048),
   authorized: z.boolean(),
+  /**
+   * The device's position, present only when the visitor allowed the
+   * browser's location prompt. Coordinates are taken as given; they
+   * outrank the IP-based stamp on the run.
+   */
+  gps: z
+    .object({
+      lat: z.number().min(-90).max(90),
+      lon: z.number().min(-180).max(180),
+      accuracy: z.number().nonnegative().max(1_000_000).optional(),
+    })
+    .optional(),
 });
 
 function fullFinding(f: WebFinding): Record<string, unknown> {
@@ -148,14 +165,34 @@ export async function webCheckRoutes(
         // Stamp the run with who asked and roughly where from
         // (disclosed on the form). Behind Vercel → Render the
         // visitor's address is the first forwarded hop; request.ip
-        // is the fallback. Geo is best-effort.
+        // is the fallback. A device position the visitor chose to
+        // share outranks the IP guess; both lookups are best-effort.
         const xff = request.headers['x-forwarded-for'];
         const firstHop = (Array.isArray(xff) ? xff[0] : xff)?.split(',')[0]?.trim();
         const requesterIp = firstHop || request.ip || null;
         let requesterGeo: GeoStamp | null = null;
-        if (requesterIp) {
+        const gps = body.data.gps;
+        if (gps) {
+          let place: { city: string | null; region: string | null; country: string | null } | null =
+            null;
           try {
-            requesterGeo = await (opts.geo ?? fetchRequesterGeo)(requesterIp);
+            place = await (opts.reverseGeo ?? fetchReverseGeo)(gps.lat, gps.lon);
+          } catch {
+            place = null;
+          }
+          requesterGeo = {
+            country: place?.country ?? null,
+            city: place?.city ?? null,
+            region: place?.region ?? null,
+            lat: gps.lat,
+            lon: gps.lon,
+            ...(gps.accuracy !== undefined ? { accuracyM: gps.accuracy } : {}),
+            source: 'gps',
+          };
+        } else if (requesterIp) {
+          try {
+            const ipGeo = await (opts.geo ?? fetchRequesterGeo)(requesterIp);
+            if (ipGeo) requesterGeo = { ...ipGeo, source: 'ip' };
           } catch {
             requesterGeo = null;
           }
