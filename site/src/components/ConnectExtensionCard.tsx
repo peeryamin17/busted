@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Copy, KeyRound, Puzzle, Trash2 } from 'lucide-react';
+import { Check, Copy, KeyRound, Link2, Puzzle, Trash2 } from 'lucide-react';
 import { Reveal } from './Reveal';
 
 /**
@@ -36,6 +36,9 @@ export function ConnectExtensionCard() {
   const [freshKey, setFreshKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [link, setLink] = useState<{ code: string; expiresAt: string } | null>(null);
+  const [linkState, setLinkState] = useState<'idle' | 'working' | 'error'>('idle');
+  const [codeCopied, setCodeCopied] = useState(false);
   const ackWaiter = useRef<((ok: boolean) => void) | null>(null);
 
   const loadKeys = useCallback(async () => {
@@ -117,6 +120,33 @@ export function ConnectExtensionCard() {
     }
   };
 
+  const doGenerateCode = async () => {
+    setLinkState('working');
+    try {
+      const res = await fetch('/api/auth/pairing-codes', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`Link code request failed (${res.status})`);
+      const data = (await res.json()) as { code: string; expiresAt: string };
+      setLink(data);
+      setLinkState('idle');
+    } catch {
+      setLinkState('error');
+    }
+  };
+
+  const doCopyCode = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link.code);
+      setCodeCopied(true);
+      window.setTimeout(() => setCodeCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable; the code stays visible to copy by hand */
+    }
+  };
+
   const doRevoke = async (id: string) => {
     try {
       await fetch(`/api/auth/api-keys/${id}`, {
@@ -155,9 +185,10 @@ export function ConnectExtensionCard() {
                 Connect the extension to your account.
               </h2>
               <p className="mt-3 max-w-xl leading-relaxed text-body/85">
-                One click mints a fresh key here and hands it straight to the extension — no
-                copying, no pasting into strangers. The key is stored hashed on our side and
-                only ever unlocks your own backend runs.
+                Two ways in: generate a one-time link code here and paste it into the extension,
+                or let this page hand a key over directly. Either way the extension ends up signed
+                in as you — keys are stored hashed on our side and only ever unlock your own
+                backend runs.
               </p>
               <p className="mt-3 font-mono text-[11px] leading-relaxed text-slate2">
                 {ext === 'checking' && 'LOOKING FOR THE EXTENSION ON THIS PAGE…'}
@@ -168,6 +199,60 @@ export function ConnectExtensionCard() {
             </div>
 
             <div>
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                <p className="flex items-center gap-2 font-mono text-[11px] tracking-[0.18em] text-slate2">
+                  <Link2 className="h-3.5 w-3.5" aria-hidden /> LINK WITH A CODE
+                </p>
+                <p className="mt-2 text-sm leading-relaxed text-body/85">
+                  Generate a one-time code, then paste it into the extension under “Link your
+                  account”. It works once and dies in ten minutes.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void doGenerateCode()}
+                  disabled={linkState === 'working'}
+                  className="mt-3 inline-flex items-center gap-2 rounded-full bg-bone px-5 py-2.5 font-display text-sm font-bold tracking-tight text-ink transition-transform duration-300 hover:scale-[1.03] disabled:opacity-50"
+                >
+                  {linkState === 'working' ? 'Generating…' : link ? 'Generate a fresh code' : 'Generate link code'}
+                </button>
+                {linkState === 'error' && (
+                  <p className="mt-3 text-sm text-red-300" role="alert">
+                    Couldn't generate a code just now — the backend may be waking up. Try again in
+                    a moment.
+                  </p>
+                )}
+                {link && (
+                  <div className="mt-4">
+                    <p className="break-all font-mono text-base tracking-[0.14em] text-bone">
+                      {link.code.match(/.{4}/g)?.join('-')}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void doCopyCode()}
+                      className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-bone transition-colors hover:bg-white/5"
+                    >
+                      {codeCopied ? (
+                        <>
+                          <Check className="h-3.5 w-3.5" aria-hidden /> Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3.5 w-3.5" aria-hidden /> Copy the code
+                        </>
+                      )}
+                    </button>
+                    <p className="mt-3 text-xs leading-relaxed text-body/75">
+                      Valid until {new Date(link.expiresAt).toLocaleTimeString()} · single use ·
+                      generating a fresh one kills this one.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <p className="my-4 text-center font-mono text-[11px] tracking-[0.24em] text-slate2">
+                — OR CONNECT AUTOMATICALLY —
+              </p>
+
               <button
                 type="button"
                 onClick={() => void doConnect()}
@@ -212,7 +297,7 @@ export function ConnectExtensionCard() {
                     )}
                   </button>
                   <p className="mt-3 text-xs leading-relaxed text-body/75">
-                    In the extension: Active testing → Backend API key → paste → Save. We keep
+                    In the extension: Active testing → Link your account → paste → Save. We keep
                     only a hash; lose it and you mint another here.
                   </p>
                 </div>
