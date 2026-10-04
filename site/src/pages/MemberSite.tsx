@@ -1,5 +1,6 @@
 import { ArrowRight } from 'lucide-react';
 import { Bento } from '../components/Bento';
+import { ConnectExtensionCard } from '../components/ConnectExtensionCard';
 import { Download } from '../components/Download';
 import { Faq } from '../components/Faq';
 import { Footer } from '../components/Footer';
@@ -116,6 +117,7 @@ export function MemberSite() {
         <Ticker />
         <ConnectSiteCard />
         <WebDemoBanner />
+        <ConnectExtensionCard />
         <Bento />
         <Swarm />
         <HowItWorks />

@@ -22,6 +22,15 @@
         "<all_urls>"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "src/connectRelay.ts"
+      ],
+      "matches": [
+        "https://bugseek-ai.vercel.app/*"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "description": "Security recon for sites you own or may test: passive checks on your device, deeper AI scans when you ask.",

@@ -25,6 +25,7 @@ import { STORAGE_KEYS } from './lib/config';
 import { runActiveScan } from './active/activeRunner';
 import type { RateLimiter } from './lib/rateLimiter';
 import { getMainFrameHeaders, recordMainFrameHeaders } from './active/traffic';
+import { setBackendApiKey } from './lib/apiClient';
 
 const MAX_EXTERNAL_SCRIPTS = 12;
 const MAX_SCRIPT_BYTES = 1_500_000;
@@ -48,16 +49,31 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   // Tab-scoped traffic state is cleaned up inside traffic.ts.
 });
 
-chrome.runtime.onMessage.addListener((msg: ScanMessage) => {
-  if (msg.type === 'RUN_SCAN') {
-    // Fire-and-forget: progress + result are pushed back as messages.
-    void runScan(msg.tabId);
-  } else if (msg.type === 'RUN_ACTIVE_SCAN') {
-    // Active testing: gated on the authorization record (checked in the runner).
-    void runActive(msg.tabId, msg.deepInspect ?? false);
-  }
-  return false;
-});
+chrome.runtime.onMessage.addListener(
+  (msg: ScanMessage | { type: string; apiKey?: string }, _sender, sendResponse) => {
+    if (msg.type === 'RUN_SCAN') {
+      // Fire-and-forget: progress + result are pushed back as messages.
+      void runScan((msg as ScanMessage & { tabId: number }).tabId);
+    } else if (msg.type === 'RUN_ACTIVE_SCAN') {
+      // Active testing: gated on the authorization record (checked in the runner).
+      const m = msg as ScanMessage & { tabId: number; deepInspect?: boolean };
+      void runActive(m.tabId, m.deepInspect ?? false);
+    } else if (msg.type === 'BUGSEEK_SET_API_KEY') {
+      // Website connect hand-off (see connectRelay.ts): the signed-in
+      // user clicked "Connect the extension" on our own site. Store the
+      // key as the backend key; format-checked before it lands.
+      const keyMsg = msg as { type: string; apiKey?: string };
+      const apiKey = typeof keyMsg.apiKey === 'string' ? keyMsg.apiKey.trim() : '';
+      if (!apiKey.startsWith('bs_')) {
+        sendResponse({ ok: false });
+        return false;
+      }
+      void setBackendApiKey(apiKey).then(() => sendResponse({ ok: true }));
+      return true;
+    }
+    return false;
+  },
+);
 
 function sendProgress(step: string): void {
   chrome.runtime
