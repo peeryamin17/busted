@@ -182,3 +182,13 @@ export interface ApiKeyRecord {
   lastUsedAt?: string; // ISO
   revokedAt?: string; // ISO
 }
+
+/** One-time extension link code; only the SHA-256 hash is stored. */
+export interface PairingCodeRecord {
+  id: string;
+  userId: string;
+  codeHash: string;
+  createdAt: string; // ISO
+  expiresAt: string; // ISO
+  usedAt?: string; // ISO
+}

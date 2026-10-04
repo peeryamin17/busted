@@ -4,6 +4,7 @@ import type {
   AuthorizationRecord,
   AuthzType,
   Finding,
+  PairingCodeRecord,
   PlanTier,
   Scan,
   ScanStatus,
@@ -104,6 +105,17 @@ export interface Database {
   touchApiKey(id: string): Promise<void>;
   revokeApiKey(id: string, userId: string): Promise<boolean>;
 
+  createPairingCode(
+    userId: string,
+    codeHash: string,
+    expiresAtIso: string
+  ): Promise<PairingCodeRecord>;
+  getPairingCodeByHash(codeHash: string): Promise<PairingCodeRecord | null>;
+  /** Mark a link code used; false when it was already used (single-use race guard). */
+  markPairingCodeUsed(id: string): Promise<boolean>;
+  /** Drop a user's unused link codes (a fresh mint supersedes them). */
+  deleteUnusedPairingCodes(userId: string): Promise<void>;
+
   createAuthorization(input: CreateAuthorizationInput): Promise<AuthorizationRecord>;
   getAuthorization(id: string): Promise<AuthorizationRecord | null>;
 
@@ -171,6 +183,8 @@ export class MemoryDatabase implements Database {
   private sessions = new Map<string, SessionRecord>(); // by token hash
   private apiKeys = new Map<string, ApiKeyRecord>();
   private apiKeysByHash = new Map<string, ApiKeyRecord>();
+  private pairingCodes = new Map<string, PairingCodeRecord>();
+  private pairingCodesByHash = new Map<string, PairingCodeRecord>();
   private authorizations = new Map<string, AuthorizationRecord>();
   private scans = new Map<string, Scan>();
   private findings = new Map<string, Finding[]>();
@@ -342,6 +356,43 @@ export class MemoryDatabase implements Database {
     if (!k || k.userId !== userId || k.revokedAt) return false;
     k.revokedAt = nowIso();
     return true;
+  }
+
+  async createPairingCode(
+    userId: string,
+    codeHash: string,
+    expiresAtIso: string
+  ): Promise<PairingCodeRecord> {
+    const rec: PairingCodeRecord = {
+      id: randomUUID(),
+      userId,
+      codeHash,
+      createdAt: nowIso(),
+      expiresAt: expiresAtIso,
+    };
+    this.pairingCodes.set(rec.id, rec);
+    this.pairingCodesByHash.set(codeHash, rec);
+    return { ...rec };
+  }
+
+  async getPairingCodeByHash(codeHash: string): Promise<PairingCodeRecord | null> {
+    return this.pairingCodesByHash.get(codeHash) ?? null;
+  }
+
+  async markPairingCodeUsed(id: string): Promise<boolean> {
+    const rec = this.pairingCodes.get(id);
+    if (!rec || rec.usedAt) return false;
+    rec.usedAt = nowIso();
+    return true;
+  }
+
+  async deleteUnusedPairingCodes(userId: string): Promise<void> {
+    for (const rec of [...this.pairingCodes.values()]) {
+      if (rec.userId === userId && !rec.usedAt) {
+        this.pairingCodes.delete(rec.id);
+        this.pairingCodesByHash.delete(rec.codeHash);
+      }
+    }
   }
 
   async createAuthorization(input: CreateAuthorizationInput): Promise<AuthorizationRecord> {
@@ -837,6 +888,59 @@ export class PostgresDatabase implements Database {
       [id, userId]
     );
     return (rowCount ?? 0) > 0;
+  }
+
+  async createPairingCode(
+    userId: string,
+    codeHash: string,
+    expiresAtIso: string
+  ): Promise<PairingCodeRecord> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO pairing_codes (user_id, code_hash, expires_at)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [userId, codeHash, expiresAtIso]
+    );
+    const r = rows[0];
+    return {
+      id: r.id,
+      userId: r.user_id,
+      codeHash: r.code_hash,
+      createdAt: r.created_at.toISOString(),
+      expiresAt: r.expires_at.toISOString(),
+      usedAt: r.used_at?.toISOString(),
+    };
+  }
+
+  async getPairingCodeByHash(codeHash: string): Promise<PairingCodeRecord | null> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM pairing_codes WHERE code_hash = $1`,
+      [codeHash]
+    );
+    if (!rows[0]) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      userId: r.user_id,
+      codeHash: r.code_hash,
+      createdAt: r.created_at.toISOString(),
+      expiresAt: r.expires_at.toISOString(),
+      usedAt: r.used_at?.toISOString(),
+    };
+  }
+
+  async markPairingCodeUsed(id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE pairing_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL`,
+      [id]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async deleteUnusedPairingCodes(userId: string): Promise<void> {
+    await this.pool.query(
+      `DELETE FROM pairing_codes WHERE user_id = $1 AND used_at IS NULL`,
+      [userId]
+    );
   }
 
   async createAuthorization(input: CreateAuthorizationInput): Promise<AuthorizationRecord> {

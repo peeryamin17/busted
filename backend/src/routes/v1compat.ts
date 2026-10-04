@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { buildAuthenticate, requireUser } from '../middleware/auth.js';
 import { isAdminEmail } from '../auth/session.js';
+import { generateApiKey, hashPairingCode, normalizePairingCode } from '../auth/auth.js';
 import { redactFindingEvidence, redactText } from '../guardrails/redact.js';
 import { estimateCvss } from '../reports/cvss.js';
 import type { RouteDeps } from './health.js';
@@ -18,6 +19,7 @@ import type { Confidence, Severity } from '../types.js';
  * - GET  /api/v1/health          (public)  liveness probe for the popup badge
  * - GET  /api/v1/account         (auth)    who the API key belongs to; the operator
  *                                          flag drives the popup's developer unlock
+ * - POST /api/v1/pair            (public)  exchange a one-time link code for an API key
  * - POST /api/v1/chains/analyze (auth)    AI deepening of extension-built attack chains
  * - POST /api/v1/scans          (auth)    ingest a finished extension scan (history/reports)
  *
@@ -112,6 +114,29 @@ export async function v1CompatRoutes(app: FastifyInstance, deps: RouteDeps): Pro
   app.get('/api/v1/account', { preHandler: authenticate }, async (request) => {
     const user = requireUser(request);
     return { email: user.email, plan: user.plan, operator: isAdminEmail(user.email) };
+  });
+
+  // Exchange a one-time link code (minted by the signed-in website via
+  // POST /api/auth/pairing-codes) for a regular API key. The code is the
+  // credential here, so this route is public; failures never say which
+  // check failed.
+  app.post('/api/v1/pair', async (request, reply) => {
+    const fail = () =>
+      reply.status(400).send({
+        error: 'That link code did not work — it may be wrong, already used, or expired.',
+      });
+    const body = z.object({ code: z.string().min(8).max(80) }).safeParse(request.body);
+    if (!body.success) return fail();
+    const rec = await db.getPairingCodeByHash(
+      hashPairingCode(normalizePairingCode(body.data.code)),
+    );
+    if (!rec || rec.usedAt || Date.parse(rec.expiresAt) <= Date.now()) return fail();
+    if (!(await db.markPairingCodeUsed(rec.id))) return fail();
+    const user = await db.getUserById(rec.userId);
+    if (!user) return fail();
+    const { key, keyHash, keyPrefix } = generateApiKey();
+    await db.createApiKey(user.id, 'Extension (link code)', keyHash, keyPrefix);
+    return reply.status(201).send({ apiKey: key });
   });
 
   app.post('/api/v1/chains/analyze', { preHandler: authenticate }, async (request, reply) => {

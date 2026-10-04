@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { hashPassword, verifyPassword, signSession, generateApiKey } from '../auth/auth.js';
+import { hashPassword, verifyPassword, signSession, generateApiKey, generatePairingCode, PAIRING_CODE_TTL_MS } from '../auth/auth.js';
 import { buildAuthenticate, requireUser } from '../middleware/auth.js';
 import type { RouteDeps } from './health.js';
 
@@ -112,6 +112,19 @@ export async function authRoutes(app: FastifyInstance, deps: RouteDeps): Promise
       key,
       createdAt: rec.createdAt,
     });
+  });
+
+  // Extension link code: shown once here, typed into the extension,
+  // exchanged exactly once for an API key (POST /api/v1/pair). Minting
+  // a fresh code supersedes any unused ones.
+  app.post('/api/auth/pairing-codes', { preHandler: authenticate }, async (request, reply) => {
+    const user = requireUser(request);
+    await db.deleteUnusedPairingCodes(user.id);
+    const { code, codeHash } = generatePairingCode();
+    const expiresAt = new Date(Date.now() + PAIRING_CODE_TTL_MS).toISOString();
+    await db.createPairingCode(user.id, codeHash, expiresAt);
+    // The raw code is returned ONCE — only its hash is stored.
+    return reply.status(201).send({ code, expiresAt });
   });
 
   app.get('/api/auth/api-keys', { preHandler: authenticate }, async (request) => {

@@ -55,3 +55,30 @@ export function generateApiKey(): { key: string; keyHash: string; keyPrefix: str
 export function hashApiKey(key: string): string {
   return createHash('sha256').update(key).digest('hex');
 }
+
+/**
+ * Extension link codes: a 32-character code the website shows once and
+ * the user types into the extension, which exchanges it (exactly once)
+ * for a real API key. Only a SHA-256 hash is stored server-side. The
+ * alphabet skips look-alike characters (0/O, 1/I) because humans type it.
+ */
+export const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
+const PAIRING_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+export function generatePairingCode(): { code: string; codeHash: string } {
+  const bytes = randomBytes(32);
+  let code = '';
+  for (let i = 0; i < 32; i++) {
+    code += PAIRING_ALPHABET[bytes[i] % PAIRING_ALPHABET.length];
+  }
+  return { code, codeHash: createHash('sha256').update(code).digest('hex') };
+}
+
+/** Codes are typed by humans: dashes/spaces and case do not matter. */
+export function normalizePairingCode(raw: string): string {
+  return raw.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+}
+
+export function hashPairingCode(normalizedCode: string): string {
+  return createHash('sha256').update(normalizedCode).digest('hex');
+}
