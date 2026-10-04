@@ -33,6 +33,7 @@ import {
   getBackendApiKey,
   getEnginesStatus,
   importFindingsReport,
+  pairWithCode,
   runEngineScan,
   runSwarmScan,
   setBackendApiKey,
@@ -55,6 +56,7 @@ const el = {
   pane: document.getElementById('pane-active') as HTMLElement,
   hostLine: document.getElementById('active-host') as HTMLElement,
   backendBadge: document.getElementById('backend-status') as HTMLElement,
+  backendAccount: document.getElementById('backend-account') as HTMLElement,
   // Authorization form
   authzForm: document.getElementById('authz-form') as HTMLElement,
   authzAuthorized: document.getElementById('authz-authorized') as HTMLElement,
@@ -95,6 +97,8 @@ let currentTabUrl: string | null = null;
 let currentResult: ScanResult | null = null;
 /** Set when the stored API key belongs to the operator account (developer unlock). */
 let operatorAccount: BackendAccount | null = null;
+/** Whose account the stored key belongs to, when the backend answered. */
+let linkedAccount: BackendAccount | null = null;
 let running = false;
 let swarmRunning = false;
 let enginesRunning = false;
@@ -229,7 +233,23 @@ async function refreshAuthzState(): Promise<void> {
  */
 async function initOperatorUnlock(): Promise<void> {
   const acct = await getBackendAccount();
+  linkedAccount = acct;
   operatorAccount = acct?.operator ? acct : null;
+  renderLinkedAccount();
+}
+
+/** Say whose account the extension acts for, right under the key row. */
+function renderLinkedAccount(): void {
+  if (!el.backendAccount) return;
+  if (!linkedAccount) {
+    el.backendAccount.hidden = true;
+    el.backendAccount.textContent = '';
+    return;
+  }
+  el.backendAccount.textContent =
+    `Linked to ${linkedAccount.email} · ${linkedAccount.plan} plan` +
+    (linkedAccount.operator ? ' · operator' : '');
+  el.backendAccount.hidden = false;
 }
 
 /**
@@ -1128,30 +1148,61 @@ async function refreshBackendBadge(): Promise<void> {
   }
 }
 
-/** Backend API-key row: stored locally, sent as x-api-key on backend calls. */
+/** Backend API-key row: stored locally, sent as x-api-key on backend calls.
+    Accepts a bs_ key directly, or a one-time link code from the website,
+    which is exchanged for a key (the code itself is never stored). */
 async function initBackendKeyRow(): Promise<void> {
   const input = document.getElementById('backend-api-key') as HTMLInputElement | null;
   const save = document.getElementById('backend-api-key-save') as HTMLButtonElement | null;
   if (!input || !save) return;
   input.value = (await getBackendApiKey()) ? '••••••••' : '';
-  input.placeholder = 'bs_… (optional — enables AI deepening & history)';
+  input.placeholder = 'Link code from bugseek-ai.vercel.app (or a bs_ key)';
   const doSave = async () => {
     const v = input.value.trim();
     if (v === '••••••••') return; // unchanged placeholder
-    if (v && !v.startsWith('bs_')) {
-      input.setCustomValidity('Key should start with bs_');
-      input.reportValidity();
+    input.setCustomValidity('');
+    if (!v) {
+      // Cleared: unlink this browser.
+      await setBackendApiKey(null);
+      linkedAccount = null;
+      operatorAccount = null;
+      renderLinkedAccount();
+      await refreshAuthzState();
       return;
     }
-    input.setCustomValidity('');
-    await setBackendApiKey(v || null);
-    input.value = v ? '••••••••' : '';
-    void refreshBackendBadge();
-    void refreshEnginesStatus();
-    void (async () => {
-      await initOperatorUnlock();
+    if (v.startsWith('bs_')) {
+      await setBackendApiKey(v);
+      input.value = '••••••••';
+      void refreshBackendBadge();
+      void refreshEnginesStatus();
+      void (async () => {
+        await initOperatorUnlock();
+        await refreshAuthzState();
+      })();
+      return;
+    }
+    // Anything else is a one-time link code from the website.
+    save.disabled = true;
+    input.value = 'Linking…';
+    try {
+      const account = await pairWithCode(v);
+      linkedAccount = account;
+      operatorAccount = account.operator ? account : null;
+      renderLinkedAccount();
+      input.value = '••••••••';
+      void refreshBackendBadge();
+      void refreshEnginesStatus();
       await refreshAuthzState();
-    })();
+      setStatus(`Linked to ${account.email}.`);
+    } catch (err) {
+      input.value = '';
+      input.setCustomValidity(
+        err instanceof Error ? err.message : 'That link code did not work.',
+      );
+      input.reportValidity();
+    } finally {
+      save.disabled = false;
+    }
   };
   save.addEventListener('click', () => void doSave());
   input.addEventListener('keydown', (e) => {

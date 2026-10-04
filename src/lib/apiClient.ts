@@ -115,6 +115,51 @@ export async function getBackendAccount(): Promise<BackendAccount | null> {
 }
 
 /**
+ * Exchange a one-time link code (generated on the website, typed here)
+ * for a real API key, store it, and return whose account it belongs to.
+ * The code itself is never stored.
+ */
+export async function pairWithCode(rawCode: string): Promise<BackendAccount> {
+  const code = rawCode.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  if (code.length !== 32) {
+    throw new Error('A link code is 32 characters — copy it again from the website.');
+  }
+  const ctrl = new AbortController();
+  // The backend sleeps when idle; a first call can take a while to wake it.
+  const timer = setTimeout(() => ctrl.abort(), 45_000);
+  let res: Response;
+  try {
+    res = await fetch(`${BACKEND_BASE_URL}/api/v1/pair`, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+  } catch {
+    throw new Error('Backend unreachable — check your connection and try again.');
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) {
+    let message = 'That link code did not work — it may be wrong, already used, or expired.';
+    try {
+      const body = (await res.json()) as { error?: unknown };
+      if (typeof body?.error === 'string' && body.error) message = body.error;
+    } catch {
+      /* keep the generic message */
+    }
+    throw new Error(message);
+  }
+  const { apiKey } = (await res.json()) as { apiKey: string };
+  await setBackendApiKey(apiKey);
+  const account = await getBackendAccount();
+  if (!account) {
+    throw new Error('Linked, but the account could not be verified — reopen the popup.');
+  }
+  return account;
+}
+
+/**
  * Ask the backend AI agent to deepen/verify locally-built attack chains
  * (plan → act → observe → reflect loop, plan §4.4). Returns the chains with
  * aiDeepened flags/verdicts merged in, or null when offline.

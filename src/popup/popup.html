@@ -172,10 +172,11 @@
 
         <div id="backend-status" class="backend-badge backend-unknown">Backend: checking…</div>
         <div class="backend-key-row">
-          <label for="backend-api-key" class="label">Backend API key</label>
-          <input id="backend-api-key" type="password" placeholder="bs_… (optional — enables AI deepening & history)" autocomplete="off" spellcheck="false" />
+          <label for="backend-api-key" class="label">Link your account</label>
+          <input id="backend-api-key" type="password" placeholder="Link code from bugseek-ai.vercel.app (or a bs_ key)" autocomplete="off" spellcheck="false" />
           <button id="backend-api-key-save" type="button">Save</button>
         </div>
+        <div id="backend-account" class="backend-account" hidden></div>
 
         <!-- Authorization confirmation (shown when no record exists) -->
         <form id="authz-form" class="authz-form" onsubmit="return false">
