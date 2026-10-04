@@ -1,16 +1,14 @@
 # BugSeek AI — Privacy Policy
 
-> **DRAFT — NOT LEGAL ADVICE. Requires review by a qualified lawyer before any public use, store listing, or paid launch.** This draft describes what the product actually does today, verified against the codebase. Bracketed items are for the operator to complete.
-
-**Effective date:** [TO BE SET — do not publish without one]
-**Operator:** [Legal entity / individual name, address — TO BE FILLED]
-**Privacy contact:** [TO BE SET — an email you control and read]
+**Effective date:** 4 October 2026
+**Operator:** Peer, the maker of BugSeek AI
+**Privacy contact:** tempoacer67@gmail.com
 
 ---
 
 ## 1. What BugSeek AI is
 
-BugSeek AI ("the Service", "we") is a Chrome extension, a companion backend API, and a website with a members' area. It helps people check websites they own or are authorised to test for security weaknesses, and it can tell you whether an address looks like a phishing trap. This policy covers the website, the web-based patrol (website checker), the extension, and the backend behind them.
+BugSeek AI ("the Service", "we") is a security-checking tool: a browser extension, a members' website, and the service behind them. It helps people check websites they own or are authorised to test for security weaknesses, and it can warn you when an address looks like a phishing trap. This policy covers the website, the web-based patrol (website checker), the extension, and the backend behind them.
 
 BugSeek has no advertising, no analytics trackers, and no data brokerage. We never sell personal data.
 
@@ -25,14 +23,14 @@ BugSeek AI's use of information received from Google APIs will adhere to the Chr
 ### 2.2 When you sign in
 Sign-in is through Google only — BugSeek has no password of its own for you.
 - From Google we receive and store: **your name, your email address, your profile picture address (URL), and Google's identifier for your account**, plus **when you last signed in** and **when your account was created**.
-- We store a **session record** so the site recognises you. Only a cryptographic hash of your session token is stored — never the token itself. Sessions end after 30 days, after 5 minutes of inactivity, or when you sign in again (a new sign-in signs out your other sessions). The account used to administer BugSeek is exempt from the inactivity and single-session rules.
+- We store a **session record** so the site recognises you. Only a cryptographic hash of your session token is stored — never the token itself. Sessions end after 30 days, after a short period of inactivity, or when you sign in again (a new sign-in signs out your other sessions).
 - We use two strictly necessary cookies: one for your session, one short-lived cookie that protects the Google sign-in round-trip. No third-party or advertising cookies are set.
 
-**Our complete cookie list** — this is every cookie BugSeek sets, gathered from the code:
+**Our complete cookie list** — this is every cookie BugSeek sets:
 
 | Cookie | What it does | Type | Lifetime |
 |---|---|---|---|
-| `bs_session` | Keeps you signed in | Strictly necessary (first-party, httpOnly) | 30 days; also ends after 5 minutes of inactivity or when you sign in elsewhere |
+| `bs_session` | Keeps you signed in | Strictly necessary (first-party, httpOnly) | 30 days; also ends after a short period of inactivity or when you sign in elsewhere |
 | `bs_oauth_state` | Protects the Google sign-in round-trip against forgery | Strictly necessary (first-party, httpOnly) | 10 minutes |
 
 Because both cookies are strictly necessary for sign-in to work at all, BugSeek does not show a cookie consent banner — there are no optional cookies to consent to. If optional cookies are ever added, this policy will name them first, and consent will be asked before they are set. The site also uses one `sessionStorage` entry (not a cookie) so the intro animation plays once per visit; it holds no personal data and vanishes when the tab closes.
@@ -46,38 +44,35 @@ For each patrol you run, we store:
 
 Your patrol history is private to your account. Nobody else can see your runs, and there is no public listing of them.
 
-### 2.4 When you use the extension and the AI swarm
-- **Passive checks run on your device.** Results, your per-site authorisation records, and your API key are stored in your browser's local extension storage and stay there unless you send a scan to the backend.
-- If you run an AI swarm scan or an engine scan, the **page context needed for the analysis** (the target address, page content, headers and similar technical material) is sent to our backend over an encrypted connection, and the scan, its findings and its credit cost are stored against your account.
+### 2.4 When you use the extension and its deeper scans
+- **Standard checks run on your device.** Results, your per-site authorisation records, and your API key are stored in your browser's local extension storage and stay there unless you send a scan to the backend. Before the extension collects anything, it shows you a short disclosure and waits for your agreement; the same happens again before the first backend run.
+- If you run a deeper scan that uses our backend, the **material needed for the analysis** (the target address, page content, response headers and similar technical material) is sent to our backend over an encrypted connection, and the scan, its findings and its credit cost are stored against your account.
 - **API keys** for the extension are stored only as a cryptographic hash plus a short visible prefix, so a key can be recognised and revoked but never read back.
 
 ### 2.5 What we deliberately never store
 - The **contents of secret files**. If a patrol finds an exposed `.env` file, we record the *names* of the variables, never their values.
-- **Secret values found in JavaScript** — only the *type* of pattern (for example, "looks like an AWS key"), never the value itself.
+- **Secret values found in code** — only the *type* of pattern (for example, "looks like a cloud access key"), never the value itself.
 - **Cookie values, passwords, or personal data belonging to a patrolled site's visitors.** Our checks describe weaknesses; they do not harvest the data those weaknesses might expose.
 - Your GPS position without your permission (see 2.3).
 
 ## 3. Who else touches the data
 
-We use a small number of processors, each for one job:
+We use a small number of service providers, each for one job:
 
-| Service | What it does for us | What it receives |
+| Provider type | What it does for us | What it receives |
 |---|---|---|
-| Google | Sign-in; AI analysis (Gemini); optionally, phishing checks (Safe Browsing) | Your Google identity at sign-in; scan context you send for analysis; addresses being trust-checked (when Safe Browsing is enabled) |
-| Neon | Our database hosting | Everything in section 2, at rest |
-| Render | Our backend hosting | Data passing through the API |
-| Vercel | Our website hosting | Page requests |
-| ipwho.is | Turns an IP address into a coarse location | The requester's IP address |
-| BigDataCloud | Turns GPS coordinates into a place name | Coordinates, only when you shared your location |
-| rdap.org / Cloudflare | Domain registration and DNS lookups about **patrolled sites** | The patrolled domain — nothing about you |
+| Identity provider (Google) | Sign-in | Your Google identity at sign-in |
+| AI service provider | Analyses scan material and helps explain findings | Scan material you send for analysis |
+| Cloud hosting providers | Host the website, the application and the database | Page requests; data passing through the service; account and patrol data at rest |
+| Geolocation services | Turn an IP address — or, when you share it, GPS coordinates — into a coarse place | The requester's IP address; coordinates only when you shared your location |
+| Domain and DNS data services | Registration and DNS lookups about **patrolled sites** | The patrolled domain — nothing about you |
+| Public threat-intelligence feeds | Tell us whether an address is a known phishing or malware trap | Downloaded and compared on our server; the address you patrol is not sent to them |
 
-Public phishing feeds (URLhaus and OpenPhish) are downloaded by our server and compared on our side; the address you patrol is not sent to them.
-
-Apart from these processors, we disclose data only if the law requires it.
+Apart from these providers, we disclose data only if the law requires it.
 
 ## 4. AI processing
 
-Scan context sent to our backend may be passed to Google's Gemini models to analyse and explain findings. We do not use your scans, findings, or patrol history to train our own models, and we do not sell or share them for advertising.
+Scan material sent to our backend may be passed to third-party AI models to analyse and explain findings. We do not use your scans, findings, or patrol history to train our own models, and we do not sell or share them for advertising.
 
 ## 5. How long we keep things
 
@@ -114,4 +109,4 @@ If we change what we collect or who receives it, we will update this page, chang
 
 ---
 
-*A full legal review is required before launch. Companion document: `terms-of-service.md`.*
+*Companion document: `terms-of-service.md`.*

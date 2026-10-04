@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BugSeek AI — Privacy Policy</title>
+<style>
+  body { font-family: Georgia, 'Times New Roman', serif; max-width: 720px; margin: 40px auto; padding: 0 20px 60px; color: #111; line-height: 1.65; }
+  h1 { font-size: 28px; margin-bottom: 4px; }
+  h2 { font-size: 19px; margin-top: 34px; }
+  h3 { font-size: 16px; margin-top: 24px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid #bbb; padding: 6px 9px; text-align: left; vertical-align: top; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .meta { color: #444; font-size: 14px; }
+  hr { border: 0; border-top: 1px solid #ccc; margin: 28px 0; }
+</style>
+</head>
+<body>
+<h1>BugSeek AI — Privacy Policy</h1>
+<p class="meta"><strong>Effective date:</strong> 4 October 2026<br />
+<strong>Operator:</strong> Peer, the maker of BugSeek AI<br />
+<strong>Privacy contact:</strong> tempoacer67@gmail.com</p>
+<hr />
+
+<h2>1. What BugSeek AI is</h2>
+<p>BugSeek AI ("the Service", "we") is a security-checking tool: a browser extension, a members' website, and the service behind them. It helps people check websites they own or are authorised to test for security weaknesses, and it can warn you when an address looks like a phishing trap. This policy covers the website, the web-based patrol (website checker), the extension, and the backend behind them.</p>
+<p>BugSeek has no advertising, no analytics trackers, and no data brokerage. We never sell personal data.</p>
+<p>BugSeek AI's use of information received from Google APIs will adhere to the Chrome Web Store User Data Policy, including the Limited Use requirements.</p>
+
+<h2>2. What we collect, and why</h2>
+
+<h3>2.1 When you join the waitlist</h3>
+<ul>
+<li><strong>Your email address</strong>, and where the signup came from (which page or form).</li>
+<li>Used for one purpose: telling you when BugSeek launches. Nothing else is attached to it.</li>
+</ul>
+
+<h3>2.2 When you sign in</h3>
+<p>Sign-in is through Google only — BugSeek has no password of its own for you.</p>
+<ul>
+<li>From Google we receive and store: <strong>your name, your email address, your profile picture address (URL), and Google's identifier for your account</strong>, plus <strong>when you last signed in</strong> and <strong>when your account was created</strong>.</li>
+<li>We store a <strong>session record</strong> so the site recognises you. Only a cryptographic hash of your session token is stored — never the token itself. Sessions end after 30 days, after a short period of inactivity, or when you sign in again (a new sign-in signs out your other sessions).</li>
+<li>We use two strictly necessary cookies: one for your session, one short-lived cookie that protects the Google sign-in round-trip. No third-party or advertising cookies are set.</li>
+</ul>
+<p><strong>Our complete cookie list</strong> — this is every cookie BugSeek sets:</p>
+<table>
+<tr><th>Cookie</th><th>What it does</th><th>Type</th><th>Lifetime</th></tr>
+<tr><td><code>bs_session</code></td><td>Keeps you signed in</td><td>Strictly necessary (first-party, httpOnly)</td><td>30 days; also ends after a short period of inactivity or when you sign in elsewhere</td></tr>
+<tr><td><code>bs_oauth_state</code></td><td>Protects the Google sign-in round-trip against forgery</td><td>Strictly necessary (first-party, httpOnly)</td><td>10 minutes</td></tr>
+</table>
+<p>Because both cookies are strictly necessary for sign-in to work at all, BugSeek does not show a cookie consent banner — there are no optional cookies to consent to. If optional cookies are ever added, this policy will name them first, and consent will be asked before they are set. The site also uses one <code>sessionStorage</code> entry (not a cookie) so the intro animation plays once per visit; it holds no personal data and vanishes when the tab closes.</p>
+
+<h3>2.3 When you run a web patrol (the website checker)</h3>
+<p>For each patrol you run, we store:</p>
+<ul>
+<li><strong>The address you asked us to patrol</strong>, the fact that you ticked the authorisation box, the date and time, the findings, the scores, and the website information the patrol gathered (performance timings, server location, domain registration details, DNS records).</li>
+<li><strong>Your IP address</strong> and the coarse location it implies (city, region, country). This is automatic, and the patrol form tells you before you run.</li>
+<li><strong>Your device's GPS position — only if you allow the browser's location prompt</strong> shown when you start a patrol: the coordinates, how accurate they are, and the city, region and country they correspond to. If you decline, or your browser cannot share a position, we record the IP-based location alone and the patrol runs exactly the same.</li>
+<li>How many patrols you have run, so plan limits can be applied.</li>
+</ul>
+<p>Your patrol history is private to your account. Nobody else can see your runs, and there is no public listing of them.</p>
+
+<h3>2.4 When you use the extension and its deeper scans</h3>
+<ul>
+<li><strong>Standard checks run on your device.</strong> Results, your per-site authorisation records, and your API key are stored in your browser's local extension storage and stay there unless you send a scan to the backend. Before the extension collects anything, it shows you a short disclosure and waits for your agreement; the same happens again before the first backend run.</li>
+<li>If you run a deeper scan that uses our backend, the <strong>material needed for the analysis</strong> (the target address, page content, response headers and similar technical material) is sent to our backend over an encrypted connection, and the scan, its findings and its credit cost are stored against your account.</li>
+<li><strong>API keys</strong> for the extension are stored only as a cryptographic hash plus a short visible prefix, so a key can be recognised and revoked but never read back.</li>
+</ul>
+
+<h3>2.5 What we deliberately never store</h3>
+<ul>
+<li>The <strong>contents of secret files</strong>. If a patrol finds an exposed <code>.env</code> file, we record the <em>names</em> of the variables, never their values.</li>
+<li><strong>Secret values found in code</strong> — only the <em>type</em> of pattern (for example, "looks like a cloud access key"), never the value itself.</li>
+<li><strong>Cookie values, passwords, or personal data belonging to a patrolled site's visitors.</strong> Our checks describe weaknesses; they do not harvest the data those weaknesses might expose.</li>
+<li>Your GPS position without your permission (see 2.3).</li>
+</ul>
+
+<h2>3. Who else touches the data</h2>
+<p>We use a small number of service providers, each for one job:</p>
+<table>
+<tr><th>Provider type</th><th>What it does for us</th><th>What it receives</th></tr>
+<tr><td>Identity provider (Google)</td><td>Sign-in</td><td>Your Google identity at sign-in</td></tr>
+<tr><td>AI service provider</td><td>Analyses scan material and helps explain findings</td><td>Scan material you send for analysis</td></tr>
+<tr><td>Cloud hosting providers</td><td>Host the website, the application and the database</td><td>Page requests; data passing through the service; account and patrol data at rest</td></tr>
+<tr><td>Geolocation services</td><td>Turn an IP address — or, when you share it, GPS coordinates — into a coarse place</td><td>The requester's IP address; coordinates only when you shared your location</td></tr>
+<tr><td>Domain and DNS data services</td><td>Registration and DNS lookups about <strong>patrolled sites</strong></td><td>The patrolled domain — nothing about you</td></tr>
+<tr><td>Public threat-intelligence feeds</td><td>Tell us whether an address is a known phishing or malware trap</td><td>Downloaded and compared on our server; the address you patrol is not sent to them</td></tr>
+</table>
+<p>Apart from these providers, we disclose data only if the law requires it.</p>
+
+<h2>4. AI processing</h2>
+<p>Scan material sent to our backend may be passed to third-party AI models to analyse and explain findings. We do not use your scans, findings, or patrol history to train our own models, and we do not sell or share them for advertising.</p>
+
+<h2>5. How long we keep things</h2>
+<ul>
+<li><strong>Account data and your runs</strong> are kept while your account exists, so your history, limits and vault work as described.</li>
+<li><strong>Session records</strong> expire as described in 2.2 and are removed when they lapse or are replaced.</li>
+<li><strong>Waitlist emails</strong> are kept until launch mailings are done and any unsubscribe is honoured.</li>
+<li>If you ask us to delete your account, we delete the account and the runs, findings and keys attached to it. Aggregated, de-identified counts (for example, "patrols run this month") may survive deletion because they no longer point at you.</li>
+</ul>
+
+<h2>6. Security</h2>
+<ul>
+<li>All traffic between you, the website, the extension and the backend uses TLS encryption.</li>
+<li>Session tokens and API keys are stored as cryptographic hashes, never in readable form.</li>
+<li>Access to account data is limited to the account it belongs to; administrative access is limited to the operator's account.</li>
+</ul>
+<p>No system is perfectly secure, and we cannot guarantee absolute security — but we will tell affected users promptly if a breach exposes their personal data, as the law requires.</p>
+
+<h2>7. Your rights</h2>
+<p>You can ask us, via the privacy contact above, to:</p>
+<ul>
+<li>show you the personal data we hold about you,</li>
+<li>correct it,</li>
+<li>delete it (your account and everything attached to it),</li>
+<li>export your patrol history.</li>
+</ul>
+<p>There is no self-service button for this yet; a real person (the operator) handles requests, normally within 30 days. Depending on where you live (for example the EU/UK GDPR or India's DPDP Act), you may have additional rights, including complaining to your local data-protection authority.</p>
+
+<h2>8. Children</h2>
+<p>BugSeek is a security-testing tool for people who own or are authorised to test websites. It is not directed at children, and you must be old enough in your country to enter into these terms to use it.</p>
+
+<h2>9. Changes to this policy</h2>
+<p>If we change what we collect or who receives it, we will update this page, change the effective date, and — for material changes — tell signed-in users on the site before the change takes effect. The version history lives with this document.</p>
+<hr />
+<p class="meta">Summary version: <a href="/privacy">bugseek-ai.vercel.app/privacy</a></p>
+</body>
+</html>
