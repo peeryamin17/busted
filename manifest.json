@@ -51,9 +51,7 @@
     "storage",
     "webRequest",
     "activeTab",
-    "declarativeNetRequest"
-  ],
-  "optional_permissions": [
+    "declarativeNetRequest",
     "debugger"
   ],
   "version": "0.2.0"

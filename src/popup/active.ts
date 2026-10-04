@@ -345,13 +345,14 @@ async function startActiveScan(): Promise<void> {
   hideError();
   const wantDeep = inputChecked('active-deep-inspect');
   if (wantDeep) {
-    // chrome.permissions.request must run inside the click gesture.
-    const granted = await chrome.permissions.request({
+    // `debugger` is a required permission (Chrome does not allow it as an
+    // optional one), so this only confirms it is still in place.
+    const granted = await chrome.permissions.contains({
       permissions: ['debugger'],
     });
     if (!granted) {
       showError(
-        'Deep inspect needs the debugger permission. Untick it to run a standard scan, or grant the permission and try again.',
+        'Deep inspect needs the debugger permission, which Chrome is not granting. Untick it to run a standard scan.',
       );
       return;
     }

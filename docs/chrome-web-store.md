@@ -54,8 +54,8 @@ Live policy URLs:
 **Host permission `<all_urls>`**
 > BugSeek's purpose is to check the security posture of whichever website the user is currently visiting and chooses to scan; the user supplies the target by navigating to it. The extension performs no background browsing monitoring: content access happens only on pages the user opens the popup on and scans.
 
-**Optional permission `debugger`**
-> Requested at runtime, inside the click gesture, only when the user ticks "Deep inspect" for an active scan. It captures request/response bodies for the authorised target during that scan only; bodies stay in memory and are dropped when the scan ends. Chrome shows its own debugging banner while attached.
+**`debugger`**
+> Required for Deep inspect, an explicit opt-in inside user-initiated active scans. Chrome does not offer `debugger` as an optional permission, so it is declared as a regular permission; it is only ever attached while a Deep inspect scan the user started is running, captures request/response bodies for the authorised target during that scan only (bodies stay in memory and are dropped when the scan ends), and Chrome shows its own debugging banner while attached.
 
 **Content script on `<all_urls>`**
 > Reads the page's DOM and script inventory at document idle so the passive checks (DOM analysis, secret-pattern types, source-map discovery) have data when the user opens the popup. It performs no network requests and no data leaves the device from the content script.
