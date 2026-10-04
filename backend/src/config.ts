@@ -111,6 +111,13 @@ function loadConfig(): AppConfig {
     );
   }
 
+  // Same reasoning as JWT_SECRET above: without DATABASE_URL the app
+  // would silently boot on the in-memory store and lose everything on
+  // the next restart, so refuse to start in production instead.
+  if (isProd && !process.env['DATABASE_URL']) {
+    throw new Error('DATABASE_URL must be set in production');
+  }
+
   return {
     port: num('PORT', 3000),
     nodeEnv,
