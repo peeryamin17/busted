@@ -163,6 +163,9 @@ export function isPlaceholder(match: string): boolean {
 
 /** Keep only a short prefix of a secret for display; never show the full value. */
 export function redactSecret(match: string): string {
-  const prefix = match.slice(0, 8);
+  // Short secrets keep almost nothing: showing 8 of a 10-char value
+  // would be showing the secret. Reveal shrinks with length.
+  const keep = match.length <= 4 ? 1 : match.length <= 10 ? 2 : 8;
+  const prefix = match.slice(0, keep);
   return `${prefix}… (redacted)`;
 }

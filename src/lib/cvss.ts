@@ -246,6 +246,20 @@ const PRESETS: Record<string, CvssPreset> = {
       'Informational: an interesting endpoint (API, admin, debug, GraphQL) was observed in the tab traffic. Useful for scoping follow-up tests.',
     references: [],
   },
+  'secrets:response-body': {
+    metrics: { AV: 'N', AC: 'L', PR: 'N', UI: 'N', S: 'U', C: 'H', I: 'N', A: 'N' },
+    justification:
+      'A secret pattern matched inside a live HTTP response body (Deep inspect). Anyone who can reach the endpoint receives the ' +
+      'credential material, so confidentiality impact is high; whether the credential is still valid needs manual confirmation.',
+    references: ['https://cwe.mitre.org/data/definitions/200.html'],
+  },
+  'network:debug-output': {
+    metrics: { AV: 'N', AC: 'L', PR: 'N', UI: 'N', S: 'U', C: 'L', I: 'N', A: 'N' },
+    justification:
+      'Verbose debug or error output discloses internals (paths, queries, framework details) to unauthenticated requesters. ' +
+      'Low direct impact, but it materially assists targeted follow-on attacks.',
+    references: ['https://cwe.mitre.org/data/definitions/209.html'],
+  },
 };
 
 const DEFAULT_PRESET: CvssPreset = {

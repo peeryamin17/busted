@@ -58,6 +58,22 @@ interface IdTarget {
   idValue: string;
 }
 
+/**
+ * Findings are stored and reported, so identifiers are described, not
+ * retained: sequential IDs show their shape (length, last digits) and
+ * opaque IDs are masked at both ends — never the full value.
+ */
+export function maskIdValue(v: string): string {
+  if (/^\d+$/.test(v)) {
+    return v.length <= 3 ? v : `…${v.slice(-2)} (numeric, ${v.length} digits)`;
+  }
+  return v.length <= 4 ? '••••' : `${v.slice(0, 2)}…${v.slice(-2)}`;
+}
+
+function displayTargetUrl(target: IdTarget): string {
+  return target.url.split(target.idValue).join(maskIdValue(target.idValue));
+}
+
 function targetsFromEndpoints(
   endpoints: DiscoveredEndpoint[],
   origin: string,
@@ -230,13 +246,13 @@ export async function checkIdor(
         tags: ['idor'],
         title: `Predictable resource ID at ${new URL(target.url).pathname} — neighbors not enumerable`,
         description:
-          `The resource uses a sequential numeric ID (${target.idValue}), but neighboring IDs were rejected ` +
+          `The resource uses a sequential numeric ID (${maskIdValue(target.idValue)}), but neighboring IDs were rejected ` +
           `(${rejected.map((r) => r.status).join(', ') || 'no response'}). Object-level authorization may be in place — verify manually in an authenticated session.`,
         severity: 'info',
         confidence: 'medium',
         confirmed: false,
         location: new URL(target.url).pathname,
-        evidence: `id=${target.idValue} (sequential); neighbors → ${neighborResults.map((r) => r.status).join(', ') || 'unreachable'}`,
+        evidence: `id=${maskIdValue(target.idValue)} (sequential); neighbors → ${neighborResults.map((r) => r.status).join(', ') || 'unreachable'}`,
         remediation:
           'Confirm object-level authorization server-side: every ID lookup must verify the requester owns (or may access) the record.',
         ...cvssFields('idor:review-hint'),
@@ -260,7 +276,7 @@ export async function checkIdor(
         tags: ['idor-enumerable', 'idor-pii-fields'],
         title: `Sequential IDs expose records with personal-data fields — possible IDOR`,
         description:
-          `Neighboring IDs of ${target.idValue} returned record-shaped JSON containing personal-data field names ` +
+          `Neighboring IDs of ${maskIdValue(target.idValue)} returned record-shaped JSON containing personal-data field names ` +
           `(${piiFields.slice(0, 8).join(', ')}). Field VALUES were not recorded. Unauthenticated enumeration of ` +
           `other records suggests missing object-level authorization — verify in an authenticated session whether these belong to other users.`,
         severity: 'high',
@@ -275,7 +291,7 @@ export async function checkIdor(
           'Enforce object-level authorization on every record lookup; use unguessable IDs; never rely on ID secrecy alone.',
         ...cvssFields('idor:predictable-ids'),
         reproSteps: [
-          `GET ${target.url} and note the JSON structure.`,
+          `GET ${displayTargetUrl(target)} and note the JSON structure.`,
           `GET the same path with the numeric ID ±1.`,
           'Compare: neighboring IDs return record-shaped data with personal-data field names.',
         ],
@@ -288,18 +304,18 @@ export async function checkIdor(
         tags: ['idor-enumerable'],
         title: 'Sequential resource IDs are enumerable — verify access control',
         description:
-          `Neighboring IDs of ${target.idValue} returned the same record shape, so the ID space is enumerable. ` +
+          `Neighboring IDs of ${maskIdValue(target.idValue)} returned the same record shape, so the ID space is enumerable. ` +
           'No personal-data field names were seen in the unauthenticated responses, but object-level authorization should still be verified manually.',
         severity: 'medium',
         confidence: 'medium',
         confirmed: true,
         location: new URL(target.url).pathname,
-        evidence: `id=${target.idValue} neighbors → 200 with matching record shape`,
+        evidence: `id=${maskIdValue(target.idValue)} neighbors → 200 with matching record shape`,
         remediation:
           'Verify server-side that each ID lookup checks the requester’s permission for that specific record.',
         ...cvssFields('idor:predictable-ids'),
         reproSteps: [
-          `GET ${target.url}.`,
+          `GET ${displayTargetUrl(target)}.`,
           'GET the same path with the numeric ID ±1 and compare response shapes.',
         ],
       });

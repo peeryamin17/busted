@@ -33,9 +33,22 @@ import {
   EVIDENCE_MAX_CHARS,
 } from '../lib/config';
 import { scopeCheck, type AuthorizationRecord } from '../lib/authorization';
+import { scoreFinding } from '../lib/cvss';
 import { SECRET_PATTERNS, isPlaceholder, redactSecret } from '../lib/regexes';
 import type { Finding } from '../lib/types';
 import type { TrafficEntry } from './traffic';
+
+function cvssFields(presetKey: string): Pick<
+  Finding, 'cvssScore' | 'cvssVector' | 'cvssJustification' | 'references'
+> {
+  const s = scoreFinding(presetKey);
+  return {
+    cvssScore: s.score,
+    cvssVector: s.vector,
+    cvssJustification: s.justification,
+    references: s.references,
+  };
+}
 
 const CDP_VERSION = '1.3';
 
@@ -352,6 +365,7 @@ export function analyzeDeepBodies(bodies: CapturedBody[]): DeepAnalysis {
           remediation: pattern.remediation,
           mode: 'active',
           tags: ['deep-inspect'],
+          ...cvssFields('secrets:response-body'),
         });
       }
     }
@@ -373,6 +387,7 @@ export function analyzeDeepBodies(bodies: CapturedBody[]): DeepAnalysis {
           'Disable debug output in production; return generic error pages and log details server-side.',
         mode: 'active',
         tags: ['deep-inspect', 'info-disclosure'],
+        ...cvssFields('network:debug-output'),
       });
     }
 
