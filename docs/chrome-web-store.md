@@ -106,7 +106,7 @@ Rules of thumb: real product only, no mock data claims, black theme as-is.
 
 ## 5. Review notes (paste into "notes for reviewers")
 
-> Passive checks need no account and work offline of any account: open the popup on any page, accept the first-run disclosure, and choose "Scan this page". Active testing is intentionally locked behind an in-product authorisation form. Backend features (AI swarm, engines) need a BugSeek API key (Hunter plan); a reviewer key can be supplied on request.
+> Passive checks need no account and work offline of any account: open the popup on any page, accept the first-run disclosure, and choose "Scan this page". Active testing is intentionally locked behind an in-product authorisation form. Backend features (AI swarm, engines) need a BugSeek API key (Hunter plan); a reviewer key can be supplied on request. One deliberate exception: when the connected key belongs to our own operator account, the popup records the same authorisation automatically instead of showing the form (a developer unlock for our own testing); the per-request scope checks still run.
 
 ---
 

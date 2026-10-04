@@ -29,6 +29,7 @@ import {
 } from '../lib/config';
 import {
   checkBackendStatus,
+  getBackendAccount,
   getBackendApiKey,
   getEnginesStatus,
   importFindingsReport,
@@ -38,6 +39,7 @@ import {
 } from '../lib/apiClient';
 import { hasBackendConsent, saveBackendConsent } from '../lib/consent';
 import type {
+  BackendAccount,
   BackendFinding,
   EngineId,
   EngineStatusEntry,
@@ -56,6 +58,7 @@ const el = {
   // Authorization form
   authzForm: document.getElementById('authz-form') as HTMLElement,
   authzAuthorized: document.getElementById('authz-authorized') as HTMLElement,
+  devUnlock: document.getElementById('dev-unlock') as HTMLElement,
   authzSummary: document.getElementById('authz-summary') as HTMLElement,
   authzRevoke: document.getElementById('authz-revoke') as HTMLButtonElement,
   authzSave: document.getElementById('authz-save') as HTMLButtonElement,
@@ -90,6 +93,8 @@ let currentTabId: number | null = null;
 let currentHost: string | null = null;
 let currentTabUrl: string | null = null;
 let currentResult: ScanResult | null = null;
+/** Set when the stored API key belongs to the operator account (developer unlock). */
+let operatorAccount: BackendAccount | null = null;
 let running = false;
 let swarmRunning = false;
 let enginesRunning = false;
@@ -107,7 +112,7 @@ export async function initActivePane(tabId: number, tabUrl: string): Promise<voi
   } catch {
     currentHost = null;
   }
-  el.hostLine.textContent = currentHost ?? '(not a web page)';
+  el.hostLine.textContent = currentHost ?? '(no web page in this tab)';
   el.hostLine.title = tabUrl;
 
   el.authzSave.addEventListener('click', saveAuthorizationFromForm);
@@ -146,6 +151,10 @@ export async function initActivePane(tabId: number, tabUrl: string): Promise<voi
   void initBackendKeyRow();
   renderEnginesStatus(null);
   void refreshEnginesStatus();
+  void (async () => {
+    await initOperatorUnlock();
+    await refreshAuthzState();
+  })();
   await refreshAuthzState();
   await restoreLastResult();
 }
@@ -189,17 +198,74 @@ async function refreshAuthzState(): Promise<void> {
   if (!currentHost) {
     el.authzForm.hidden = true;
     el.authzAuthorized.hidden = true;
-    showAuthzError('Active testing needs a regular web page (http/https).');
+    el.devUnlock.hidden = true;
+    showAuthzError(
+      'Open the website you want to test in this tab, then reopen BugSeek — the target host is read from the page you are standing on.',
+    );
     el.runBtn.disabled = true;
     return;
   }
   const rec = await getAuthorization(currentHost);
   const authorized = !!rec;
-  el.authzForm.hidden = authorized;
+  const unlocked = !authorized && operatorAccount !== null;
+  el.authzForm.hidden = authorized || unlocked;
   el.authzAuthorized.hidden = !authorized;
-  el.runBtn.disabled = !authorized || running;
+  el.devUnlock.hidden = !unlocked;
+  if (unlocked && operatorAccount) {
+    el.devUnlock.textContent =
+      `Developer unlock active — ${operatorAccount.email}. ` +
+      'Authorisation for each host is recorded automatically on this machine; every request still passes the scope checks.';
+  }
+  el.runBtn.disabled = !(authorized || unlocked) || running;
   hideAuthzError();
   if (rec) renderAuthzSummary(rec);
+}
+
+/**
+ * Developer unlock: when the stored API key belongs to the operator
+ * account, the popup stops interrupting its owner with the per-host
+ * authorization form. Fails closed — no key, an unreachable backend, or
+ * a non-operator account all leave the form exactly as it was.
+ */
+async function initOperatorUnlock(): Promise<void> {
+  const acct = await getBackendAccount();
+  operatorAccount = acct?.operator ? acct : null;
+}
+
+/**
+ * The record a run is about to rely on. With the developer unlock, a
+ * missing record is saved on the spot — same fields, same statement,
+ * same scope checks on every request; only the form is skipped.
+ * Without the unlock this never writes anything.
+ */
+async function ensureAuthorization(): Promise<AuthorizationRecord | null> {
+  if (!currentHost) return null;
+  const existing = await getAuthorization(currentHost);
+  if (existing) return existing;
+  if (!operatorAccount) return null;
+  const rec: AuthorizationRecord = {
+    id: newAuthorizationId(),
+    targetHost: currentHost,
+    type: 'ownership',
+    statement:
+      `I confirm that I am authorized to actively test ${currentHost} ` +
+      `(ownership — operator account ${operatorAccount.email}, developer unlock). ` +
+      `I accept responsibility for this testing activity.`,
+    scope: {
+      mode: 'full-domain',
+      includeSubdomains: true,
+      excludedHosts: [],
+      excludedPaths: [],
+      maxRequestsPerSecond: Math.min(4, 1000 / DEFAULT_ACTIVE_REQUEST_GAP_MS),
+    },
+    allowAuthProbes: false,
+    rateLimitMs: DEFAULT_ACTIVE_REQUEST_GAP_MS,
+    confirmedAt: new Date().toISOString(),
+  };
+  await saveAuthorization(rec);
+  await refreshAuthzState();
+  setStatus(`Authorization recorded for ${currentHost} (developer unlock).`);
+  return rec;
 }
 
 function checkedRadio(name: string): string | null {
@@ -343,6 +409,13 @@ function hideAuthzError(): void {
 async function startActiveScan(): Promise<void> {
   if (currentTabId === null || running) return;
   hideError();
+  const authz = await ensureAuthorization();
+  if (!authz) {
+    showError(
+      'Save an authorization record first — active testing needs the same explicit confirmation.',
+    );
+    return;
+  }
   const wantDeep = inputChecked('active-deep-inspect');
   if (wantDeep) {
     // `debugger` is a required permission (Chrome does not allow it as an
@@ -410,7 +483,7 @@ async function startSwarmScan(): Promise<void> {
   if (swarmRunning || running) return;
   hideError();
 
-  const authz = currentHost ? await getAuthorization(currentHost) : null;
+  const authz = await ensureAuthorization();
   if (!authz || !currentTabUrl) {
     showError(
       !authz
@@ -626,7 +699,7 @@ async function startEnginesRun(): Promise<void> {
   if (enginesRunning || swarmRunning || running) return;
   hideError();
 
-  const authz = currentHost ? await getAuthorization(currentHost) : null;
+  const authz = await ensureAuthorization();
   if (!authz || !currentTabUrl) {
     showError(
       !authz
@@ -1034,10 +1107,16 @@ async function refreshBackendBadge(): Promise<void> {
   el.backendBadge.textContent = 'Backend: checking…';
   el.backendBadge.className = 'backend-badge backend-unknown';
   try {
-    const s = await checkBackendStatus();
+    const s = await checkBackendStatus(() => {
+      el.backendBadge.textContent = 'Backend: waking up… (it sleeps when idle)';
+      el.backendBadge.className = 'backend-badge backend-unknown';
+    });
     if (s.reachable) {
       el.backendBadge.textContent = `Backend: connected (${s.baseUrl}) — AI deepening available`;
       el.backendBadge.className = 'backend-badge backend-on';
+      // The engines panel probed while the backend was still asleep;
+      // ask again now that it is awake.
+      void refreshEnginesStatus();
     } else {
       el.backendBadge.textContent =
         'Backend: offline — running standalone (local checks only)';
@@ -1069,6 +1148,10 @@ async function initBackendKeyRow(): Promise<void> {
     input.value = v ? '••••••••' : '';
     void refreshBackendBadge();
     void refreshEnginesStatus();
+    void (async () => {
+      await initOperatorUnlock();
+      await refreshAuthzState();
+    })();
   };
   save.addEventListener('click', () => void doSave());
   input.addEventListener('keydown', (e) => {

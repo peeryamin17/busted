@@ -71,17 +71,47 @@ async function fetchJson<T>(
 }
 
 /** Cheap liveness probe used for the popup's backend status badge. */
-export async function checkBackendStatus(): Promise<BackendStatus> {
-  const health = await fetchJson<{ version?: string }>(
+export async function checkBackendStatus(
+  onWaking?: () => void,
+): Promise<BackendStatus> {
+  let health = await fetchJson<{ version?: string }>(
     '/api/v1/health',
     { method: 'GET' },
     2500,
   );
+  if (!health) {
+    // The backend sleeps when idle on the free tier and can take the
+    // better part of a minute to wake. One patient retry before the
+    // popup is allowed to declare it offline.
+    onWaking?.();
+    health = await fetchJson<{ version?: string }>(
+      '/api/v1/health',
+      { method: 'GET' },
+      45_000,
+    );
+  }
   return {
     reachable: health !== null,
     baseUrl: BACKEND_BASE_URL,
     version: health?.version,
   };
+}
+
+export interface BackendAccount {
+  email: string;
+  plan: string;
+  operator: boolean;
+}
+
+/**
+ * Who the stored API key belongs to (GET /api/v1/account). `operator` is
+ * true only for the operator (ADMIN_EMAIL) account and drives the popup's
+ * developer unlock. Null when there is no key, the backend is unreachable,
+ * or it predates the endpoint — callers fail closed (locked) on null.
+ */
+export async function getBackendAccount(): Promise<BackendAccount | null> {
+  if (!(await getBackendApiKey())) return null;
+  return fetchJson<BackendAccount>('/api/v1/account', { method: 'GET' }, 8000);
 }
 
 /**
