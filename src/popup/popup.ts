@@ -6,6 +6,7 @@
  */
 import type { ScanMessage, ScanResult, Severity } from '../lib/types';
 import { buildMarkdownReport, reportFilename } from '../lib/report';
+import { hasDisclosureConsent, saveDisclosureConsent } from '../lib/consent';
 import { renderFindings, renderSummary } from './render';
 import { getActiveResult, handleActiveMessage, initActivePane } from './active';
 
@@ -25,10 +26,20 @@ const el = {
   tabActive: document.getElementById('tab-active') as HTMLButtonElement,
   panePassive: document.getElementById('pane-passive') as HTMLElement,
   paneActive: document.getElementById('pane-active') as HTMLElement,
+  // First-run disclosure gate
+  appMain: document.getElementById('app-main') as HTMLElement,
+  gate: document.getElementById('disclosure-gate') as HTMLElement,
+  gateCheck: document.getElementById('disclosure-check') as HTMLInputElement,
+  gateYes: document.getElementById('disclosure-yes') as HTMLButtonElement,
+  gateNo: document.getElementById('disclosure-no') as HTMLButtonElement,
+  declined: document.getElementById('disclosure-declined') as HTMLElement,
+  declinedAgain: document.getElementById('disclosure-again') as HTMLButtonElement,
 };
 
 let currentTabId: number | null = null;
 let currentResult: ScanResult | null = null;
+let currentUrl = '';
+let entered = false;
 
 init().catch((err) => showError(err instanceof Error ? err.message : String(err)));
 
@@ -40,12 +51,56 @@ async function init(): Promise<void> {
     return;
   }
   currentTabId = tab.id;
-  el.targetUrl.textContent = tab.url ?? '(unknown page)';
-  el.targetUrl.title = tab.url ?? '';
+  currentUrl = tab.url ?? '';
+  el.tabPassive.addEventListener('click', () => selectTab('passive'));
+  el.tabActive.addEventListener('click', () => selectTab('active'));
+  document.addEventListener('bugseek:download-active', () => {
+    downloadReport(getActiveResult());
+  });
+  chrome.runtime.onMessage.addListener(handleMessage);
+
+  // Nothing is read or scanned before the disclosure gets its yes.
+  if (await hasDisclosureConsent()) {
+    await enterApp();
+  } else {
+    showGate();
+  }
+}
+
+function showGate(): void {
+  el.appMain.hidden = true;
+  el.declined.hidden = true;
+  el.gate.hidden = false;
+  el.gateYes.disabled = !el.gateCheck.checked;
+  el.gateCheck.onchange = () => {
+    el.gateYes.disabled = !el.gateCheck.checked;
+  };
+  el.gateYes.onclick = () => {
+    void (async () => {
+      await saveDisclosureConsent();
+      await enterApp();
+    })();
+  };
+  el.gateNo.onclick = () => {
+    el.gate.hidden = true;
+    el.declined.hidden = false;
+  };
+  el.declinedAgain.onclick = () => showGate();
+}
+
+async function enterApp(): Promise<void> {
+  if (entered || currentTabId === null) return;
+  entered = true;
+  el.gate.hidden = true;
+  el.declined.hidden = true;
+  el.appMain.hidden = false;
+
+  el.targetUrl.textContent = currentUrl || '(unknown page)';
+  el.targetUrl.title = currentUrl;
 
   // Restore the last passive scan for this tab, if any.
-  const stored = await chrome.storage.local.get(`scan:${tab.id}`);
-  const prev = stored[`scan:${tab.id}`] as ScanResult | undefined;
+  const stored = await chrome.storage.local.get(`scan:${currentTabId}`);
+  const prev = stored[`scan:${currentTabId}`] as ScanResult | undefined;
   if (prev) {
     currentResult = prev;
     renderResult(prev);
@@ -54,14 +109,8 @@ async function init(): Promise<void> {
 
   el.scanBtn.addEventListener('click', startScan);
   el.downloadBtn.addEventListener('click', () => downloadReport(currentResult));
-  el.tabPassive.addEventListener('click', () => selectTab('passive'));
-  el.tabActive.addEventListener('click', () => selectTab('active'));
-  document.addEventListener('bugseek:download-active', () => {
-    downloadReport(getActiveResult());
-  });
-  chrome.runtime.onMessage.addListener(handleMessage);
 
-  await initActivePane(tab.id, tab.url ?? '');
+  await initActivePane(currentTabId, currentUrl);
 }
 
 function selectTab(which: 'passive' | 'active'): void {
@@ -106,7 +155,7 @@ function handleMessage(msg: ScanMessage): void {
 }
 
 function startScan(): void {
-  if (currentTabId === null) return;
+  if (currentTabId === null || el.appMain.hidden) return;
   hideError();
   setScanning(true);
   setStatus('Starting scan…');

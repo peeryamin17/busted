@@ -14,6 +14,8 @@ BugSeek AI ("the Service", "we") is a Chrome extension, a companion backend API,
 
 BugSeek has no advertising, no analytics trackers, and no data brokerage. We never sell personal data.
 
+BugSeek AI's use of information received from Google APIs will adhere to the Chrome Web Store User Data Policy, including the Limited Use requirements.
+
 ## 2. What we collect, and why
 
 ### 2.1 When you join the waitlist

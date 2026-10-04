@@ -952,3 +952,49 @@ button:disabled {
 .import-controls input[type='file']:disabled {
   opacity: 0.45;
 }
+
+/* First-run disclosure gate + backend-runs consent */
+.disclosure-gate,
+.backend-consent {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.disclosure-gate h2,
+.backend-consent h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.disclosure-gate p,
+.backend-consent p {
+  margin: 0 0 10px;
+  color: var(--text);
+}
+
+.disclosure-gate a {
+  color: var(--accent);
+}
+
+.disclosure-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+}
+
+.disclosure-list li {
+  margin-bottom: 6px;
+}
+
+.disclosure-gate .actions,
+.backend-consent .actions {
+  margin-top: 10px;
+}
+
+.disclosure-gate .btn-primary:disabled,
+.backend-consent .btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

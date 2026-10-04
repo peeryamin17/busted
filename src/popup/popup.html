@@ -18,6 +18,87 @@
         </div>
       </header>
 
+      <!-- ============ First-run disclosure gate (before any scan) ============ -->
+      <section id="disclosure-gate" class="disclosure-gate" hidden>
+        <h2>Before BugSeek looks at anything</h2>
+        <p>
+          BugSeek is a security scanner, and scanners read things. Here is
+          exactly what this one reads, where it lives, and the one case
+          where data leaves this device. Nothing is collected until you
+          say yes.
+        </p>
+        <ul class="disclosure-list">
+          <li>
+            <strong>The page you are on</strong> — its content and scripts,
+            cookies, and response headers.
+          </li>
+          <li>
+            <strong>Linked source maps</strong>, when a site ships them.
+          </li>
+          <li>
+            <strong>Storage inventories</strong> — key names in local and
+            session storage, and JWT claim names. Values are never read or
+            kept.
+          </li>
+          <li>
+            <strong>Payment-gateway fingerprints</strong> and a map of the
+            third-party services the page talks to.
+          </li>
+        </ul>
+        <p>
+          All of it stays in this browser, in local extension storage. A
+          passive scan sends no requests beyond the page&rsquo;s own public
+          resources.
+        </p>
+        <p>
+          Two features run on BugSeek&rsquo;s backend — the AI swarm and
+          the open-source engines. Those send the target address to our
+          server, which fetches it and has the results analysed (the swarm
+          uses an AI model). BugSeek asks again, separately, before the
+          first of those runs.
+        </p>
+        <p>
+          Active testing sends real requests to a target. That is a
+          different door: it stays locked behind its own authorisation
+          form and never opens from this agreement.
+        </p>
+        <p>
+          <a
+            href="https://bugseek-ai.vercel.app/privacy"
+            target="_blank"
+            rel="noreferrer"
+            >Read the full privacy policy</a
+          >
+        </p>
+        <label class="check confirm-check">
+          <input id="disclosure-check" type="checkbox" />
+          I&rsquo;ve read this, and I&rsquo;m happy for BugSeek to work
+          this way.
+        </label>
+        <div class="actions">
+          <button id="disclosure-yes" class="btn-primary" type="button" disabled>
+            Continue
+          </button>
+          <button id="disclosure-no" class="btn-secondary" type="button">
+            Not now
+          </button>
+        </div>
+      </section>
+
+      <section id="disclosure-declined" class="disclosure-gate" hidden>
+        <h2>Nothing collected</h2>
+        <p>
+          No problem — BugSeek won&rsquo;t scan anything until you say
+          yes. Nothing has been read or stored.
+        </p>
+        <div class="actions">
+          <button id="disclosure-again" class="btn-secondary" type="button">
+            Read the disclosure again
+          </button>
+        </div>
+      </section>
+
+      <div id="app-main" hidden>
       <nav class="tabs" role="tablist" aria-label="Scan mode">
         <button
           id="tab-passive"
@@ -240,6 +321,31 @@
           </div>
         </div>
 
+        <!-- Backend-runs consent (just-in-time, before first swarm/engine run) -->
+        <div id="backend-consent" class="backend-consent" hidden>
+          <h2>One more yes — this runs on our backend</h2>
+          <p>
+            The AI swarm and the open-source engines don&rsquo;t run in
+            your browser. BugSeek sends the target address to its backend,
+            the backend fetches the target, and the results are analysed
+            there — the swarm&rsquo;s findings are read by an AI model.
+            Only run these against targets you&rsquo;re authorised to test.
+          </p>
+          <label class="check confirm-check">
+            <input id="backend-consent-check" type="checkbox" />
+            I understand the target and its server-side results go to the
+            BugSeek backend (and, for the swarm, an AI model).
+          </label>
+          <div class="actions">
+            <button id="backend-consent-yes" class="btn-primary" type="button" disabled>
+              Continue
+            </button>
+            <button id="backend-consent-no" class="btn-secondary" type="button">
+              Not now
+            </button>
+          </div>
+        </div>
+
         <div id="active-status" class="status" role="status"></div>
         <div id="active-error" class="error" hidden></div>
 
@@ -257,6 +363,7 @@
           </div>
         </section>
       </section>
+      </div>
 
       <footer class="app-footer">
         Only test targets you are authorized to test.

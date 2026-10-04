@@ -53,4 +53,6 @@ export const STORAGE_KEYS = {
   authzPrefix: 'authz:',
   activeScanPrefix: 'activeScan:',
   lastActiveResult: 'lastActiveResult',
+  disclosureConsent: 'consent:disclosure',
+  backendConsent: 'consent:backend',
 } as const;

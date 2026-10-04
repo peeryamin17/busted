@@ -36,6 +36,7 @@ import {
   runSwarmScan,
   setBackendApiKey,
 } from '../lib/apiClient';
+import { hasBackendConsent, saveBackendConsent } from '../lib/consent';
 import type {
   BackendFinding,
   EngineId,
@@ -78,6 +79,11 @@ const el = {
   enginesRunBtn: document.getElementById('engines-run-btn') as HTMLButtonElement,
   importFormat: document.getElementById('import-format') as HTMLSelectElement,
   importFile: document.getElementById('import-file') as HTMLInputElement,
+  // Backend-runs consent (just-in-time)
+  backendConsent: document.getElementById('backend-consent') as HTMLElement,
+  backendConsentCheck: document.getElementById('backend-consent-check') as HTMLInputElement,
+  backendConsentYes: document.getElementById('backend-consent-yes') as HTMLButtonElement,
+  backendConsentNo: document.getElementById('backend-consent-no') as HTMLButtonElement,
 };
 
 let currentTabId: number | null = null;
@@ -91,6 +97,7 @@ let importBusy = false;
 let engineStatusCache: EngineStatusEntry[] | null = null;
 let swarmTimers: number[] = [];
 let swarmFrame = 0;
+let pendingBackendRun: (() => void) | null = null;
 
 export async function initActivePane(tabId: number, tabUrl: string): Promise<void> {
   currentTabId = tabId;
@@ -115,6 +122,23 @@ export async function initActivePane(tabId: number, tabUrl: string): Promise<voi
   el.downloadBtn.addEventListener('click', () => {
     // Delegated to popup.ts via a custom event to reuse the download helper.
     document.dispatchEvent(new CustomEvent('bugseek:download-active'));
+  });
+  el.backendConsentCheck.addEventListener('change', () => {
+    el.backendConsentYes.disabled = !el.backendConsentCheck.checked;
+  });
+  el.backendConsentYes.addEventListener('click', () => {
+    void (async () => {
+      await saveBackendConsent();
+      hideBackendConsent();
+      const run = pendingBackendRun;
+      pendingBackendRun = null;
+      run?.();
+    })();
+  });
+  el.backendConsentNo.addEventListener('click', () => {
+    hideBackendConsent();
+    pendingBackendRun = null;
+    setStatus('Backend run cancelled — nothing was sent.');
   });
 
   wireScopeModeRadios();
@@ -353,6 +377,28 @@ function setRunning(v: boolean): void {
   if (!v) void refreshAuthzState();
 }
 
+function hideBackendConsent(): void {
+  el.backendConsent.hidden = true;
+  el.backendConsentCheck.checked = false;
+  el.backendConsentYes.disabled = true;
+}
+
+/**
+ * Just-in-time consent for runs that leave the device: the first swarm or
+ * engine run shows what is sent to the backend and waits for its own yes.
+ * The agreed version is stored; later runs skip the panel until the
+ * disclosure text's version bumps.
+ */
+async function ensureBackendConsent(run: () => void): Promise<void> {
+  if (await hasBackendConsent()) {
+    run();
+    return;
+  }
+  pendingBackendRun = run;
+  el.backendConsent.hidden = false;
+  el.backendConsent.scrollIntoView({ block: 'nearest' });
+}
+
 /**
  * Deploy the backend AI swarm: a head agent plus specialist worker agents
  * run inline on the server against the authorized target (Hunter plan,
@@ -385,6 +431,16 @@ async function startSwarmScan(): Promise<void> {
     confirmed: true,
   };
 
+  await ensureBackendConsent(() => {
+    void proceedSwarmScan(authz, authorization);
+  });
+}
+
+async function proceedSwarmScan(
+  authz: AuthorizationRecord,
+  authorization: SwarmAuthorizationInput,
+): Promise<void> {
+  if (swarmRunning || !currentTabUrl) return;
   swarmRunning = true;
   el.swarmBtn.disabled = true;
   el.swarmBtn.textContent = 'Swarm running…';
@@ -604,6 +660,16 @@ async function startEnginesRun(): Promise<void> {
     confirmed: true,
   };
 
+  await ensureBackendConsent(() => {
+    void proceedEnginesRun(available, authorization);
+  });
+}
+
+async function proceedEnginesRun(
+  available: typeof ENGINE_META,
+  authorization: SwarmAuthorizationInput,
+): Promise<void> {
+  if (enginesRunning || !currentTabUrl) return;
   enginesRunning = true;
   el.enginesRunBtn.disabled = true;
   el.enginesRunBtn.textContent = 'Engines running…';

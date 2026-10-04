@@ -69,6 +69,10 @@ export function Privacy() {
             The short version: no advertising, no analytics trackers, no data brokerage. We never
             sell personal data.
           </p>
+          <p className="mt-4 max-w-2xl leading-relaxed text-body/85">
+            BugSeek AI&rsquo;s use of information received from Google APIs adheres to the Chrome
+            Web Store User Data Policy, including the Limited Use requirements.
+          </p>
         </Reveal>
 
         <Section kicker="01" title="When you join the waitlist">
