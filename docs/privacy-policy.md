@@ -48,6 +48,7 @@ Your patrol history is private to your account. Nobody else can see your runs, a
 - **Standard checks run on your device.** Results, your per-site authorisation records, and your API key are stored in your browser's local extension storage and stay there unless you send a scan to the backend. Before the extension collects anything, it shows you a short disclosure and waits for your agreement; the same happens again before the first backend run.
 - If you run a deeper scan that uses our backend, the **material needed for the analysis** (the target address, page content, response headers and similar technical material) is sent to our backend over an encrypted connection, and the scan, its findings and its credit cost are stored against your account.
 - **API keys** for the extension are stored only as a cryptographic hash plus a short visible prefix, so a key can be recognised and revoked but never read back.
+- **Linking the extension to your account.** The website can generate a one-time link code for you to type into the extension, or — on your click — hand it a key automatically. A link code is exchanged once for an API key and is never stored by the extension; on our side, link codes are kept only as cryptographic hashes, expire after ten minutes, and generating a new one deletes unused older ones. The scans you send are shown back to you in your account home ("My reports").
 
 ### 2.5 What we deliberately never store
 - The **contents of secret files**. If a patrol finds an exposed `.env` file, we record the *names* of the variables, never their values.
@@ -78,6 +79,7 @@ Scan material sent to our backend may be passed to third-party AI models to anal
 
 - **Account data and your runs** are kept while your account exists, so your history, limits and vault work as described.
 - **Session records** expire as described in 2.2 and are removed when they lapse or are replaced.
+- **Link codes** expire after ten minutes and can each be used once; unused ones are deleted when a fresh code is generated.
 - **Waitlist emails** are kept until launch mailings are done and any unsubscribe is honoured.
 - If you ask us to delete your account, we delete the account and the runs, findings and keys attached to it. Aggregated, de-identified counts (for example, "patrols run this month") may survive deletion because they no longer point at you.
 
