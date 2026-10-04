@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { buildAuthenticate, requireUser } from '../middleware/auth.js';
+import { isAdminEmail } from '../auth/session.js';
 import { redactFindingEvidence, redactText } from '../guardrails/redact.js';
 import { estimateCvss } from '../reports/cvss.js';
 import type { RouteDeps } from './health.js';
@@ -15,6 +16,8 @@ import type { Confidence, Severity } from '../types.js';
  * These adapters close that gap:
  *
  * - GET  /api/v1/health          (public)  liveness probe for the popup badge
+ * - GET  /api/v1/account         (auth)    who the API key belongs to; the operator
+ *                                          flag drives the popup's developer unlock
  * - POST /api/v1/chains/analyze (auth)    AI deepening of extension-built attack chains
  * - POST /api/v1/scans          (auth)    ingest a finished extension scan (history/reports)
  *
@@ -101,6 +104,15 @@ export async function v1CompatRoutes(app: FastifyInstance, deps: RouteDeps): Pro
     llm: provider.name,
     time: new Date().toISOString(),
   }));
+
+  // Who the presented credential belongs to. `operator` is true only for
+  // the ADMIN_EMAIL account; the extension uses it to offer that account a
+  // developer unlock (authorization records are then saved automatically
+  // instead of through the form — every request still passes scope checks).
+  app.get('/api/v1/account', { preHandler: authenticate }, async (request) => {
+    const user = requireUser(request);
+    return { email: user.email, plan: user.plan, operator: isAdminEmail(user.email) };
+  });
 
   app.post('/api/v1/chains/analyze', { preHandler: authenticate }, async (request, reply) => {
     requireUser(request);

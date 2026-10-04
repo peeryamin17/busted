@@ -78,6 +78,24 @@ async function main() {
     payload: { targetUrl: 'not a url' },
   });
   console.log('bad url:', bad.statusCode);
+
+  const acct = await app.inject({ method: 'GET', url: '/api/v1/account', headers: { 'x-api-key': 'bs_test' } });
+  const acctBody = JSON.parse(acct.body);
+  console.log('account:', acct.statusCode, acct.body.slice(0, 120));
+  if (acct.statusCode !== 200 || acctBody.email !== 't@e.com' || acctBody.plan !== 'pro' || acctBody.operator !== false) {
+    throw new Error('account endpoint mismatch (non-operator)');
+  }
+  process.env['ADMIN_EMAIL'] = 't@e.com';
+  const op = await app.inject({ method: 'GET', url: '/api/v1/account', headers: { 'x-api-key': 'bs_test' } });
+  const opBody = JSON.parse(op.body);
+  console.log('account as operator:', op.statusCode, op.body.slice(0, 120));
+  if (op.statusCode !== 200 || opBody.operator !== true) {
+    throw new Error('account endpoint mismatch (operator)');
+  }
+  const noKey = await app.inject({ method: 'GET', url: '/api/v1/account' });
+  console.log('account no-auth:', noKey.statusCode);
+  if (noKey.statusCode !== 401) throw new Error('account endpoint must require auth');
+  console.log('ALL V1COMPAT TESTS PASSED');
   await app.close();
 }
 main().catch((e) => { console.error('FAIL', e); process.exit(1); });
