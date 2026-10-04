@@ -8,7 +8,7 @@
  */
 
 /** Base URL of the BugSeek backend API (Fastify). Override per deployment. */
-export const BACKEND_BASE_URL = 'http://localhost:3000';
+export const BACKEND_BASE_URL = 'https://bugseek-backend.onrender.com';
 
 /** Network timeout for backend API calls, ms. */
 export const BACKEND_REQUEST_TIMEOUT_MS = 8000;
