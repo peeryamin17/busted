@@ -117,6 +117,7 @@ Rules of thumb: real product only, no mock data claims, black theme as-is.
 - [x] Manifest description within the 132-char store limit
 - [x] Backend address defaults to production (no localhost in the store build)
 - [x] Icons 16/32/48/128 present
+- [x] 440×280 small promo tile rendered from the master logo (`brand/store-promo-tile-440x280.png`; mark + wordmark variant, picked 2026-10-13)
 - [ ] **[you]** Developer account ($5 one-time) + trader declaration (publishes your legal name, address and phone — use details you're comfortable making public)
 - [ ] **[you]** Screenshots per §4
 - [ ] **[you]** Paste §1–§3 into the dashboard; submit for review
