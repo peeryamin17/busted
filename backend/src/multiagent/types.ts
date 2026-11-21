@@ -117,6 +117,7 @@ export interface MultiAgentOptions {
   shouldContinue?: () => 'run' | 'paused' | 'cancelled';
   osdk?: import('../ontology/osdk.js').BugSeekOSDK;
   scanId?: string;
+  discoveredEndpoints?: string[];
 }
 
 export type MultiAgentEventKind =
@@ -155,6 +156,7 @@ export interface WorkerContext {
   scope: ScopePolicy;
   techStack: TechEntry[];
   priorFindings: string[];
+  discoveredEndpoints?: string[];
   deadline: number;
   tokenBudget: { input: number; output: number; max: number };
   shouldContinue?: () => 'run' | 'paused' | 'cancelled';

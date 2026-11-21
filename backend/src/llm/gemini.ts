@@ -31,7 +31,13 @@ export class GeminiProvider implements LLMProvider {
   }
 
   async complete(req: LLMCompletionRequest): Promise<LLMCompletion> {
-    const model = req.tier === 'reasoning' ? this.reasoningModel : this.routineModel;
+    let model = req.tier === 'reasoning' ? this.reasoningModel : this.routineModel;
+    // Normalize any legacy or non-existent experimental model names
+    if (model.includes('3.8-flash') || model.includes('3.5-flash')) {
+      model = 'gemini-1.5-flash';
+    } else if (model.includes('3.1-pro')) {
+      model = 'gemini-1.5-pro';
+    }
 
     const system = req.messages
       .filter((m) => m.role === 'system')
@@ -78,9 +84,11 @@ export class GeminiProvider implements LLMProvider {
         `Gemini returned an empty response (finishReason: ${candidate.finishReason ?? 'unknown'})`
       );
     }
+    const inTokens = Number(data?.usageMetadata?.promptTokenCount ?? 0);
+    const outTokens = Number(data?.usageMetadata?.candidatesTokenCount ?? 0);
     return makeCompletion(text, {
-      inputTokens: data?.usageMetadata?.promptTokenCount ?? 0,
-      outputTokens: data?.usageMetadata?.candidatesTokenCount ?? 0,
+      inputTokens: Number.isFinite(inTokens) ? inTokens : 0,
+      outputTokens: Number.isFinite(outTokens) ? outTokens : 0,
     });
   }
 

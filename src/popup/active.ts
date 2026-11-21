@@ -550,6 +550,110 @@ async function startSwarmScan(): Promise<void> {
   });
 }
 
+async function collectTabSurface(tabId: number, tabUrl: string): Promise<Record<string, unknown>> {
+  let bundleEndpoints: Array<{ path: string; scriptUrl: string }> = [];
+  let forms: Array<{ action?: string; method?: string; hasCsrfInput?: boolean }> = [];
+  let globals: string[] = [];
+  let cookies: Array<{ name: string; secure: boolean; httpOnly: boolean; sameSite: string }> = [];
+
+  try {
+    const rawCookies = await chrome.cookies.getAll({ url: tabUrl });
+    cookies = rawCookies.map((c) => ({
+      name: c.name,
+      secure: c.secure,
+      httpOnly: c.httpOnly,
+      sameSite: c.sameSite ?? 'lax',
+    }));
+  } catch {}
+
+  try {
+    const domRes = await chrome.tabs.sendMessage(tabId, { type: 'COLLECT_DOM' });
+    if (domRes?.ok && domRes.data) {
+      forms = domRes.data.forms ?? [];
+      globals = domRes.data.globals ?? [];
+    }
+  } catch {}
+
+  try {
+    const bundleRes = await chrome.tabs.sendMessage(tabId, { type: 'SCAN_BUNDLES' });
+    if (bundleRes?.ok && bundleRes.data) {
+      bundleEndpoints = bundleRes.data.endpoints ?? [];
+    }
+  } catch {}
+
+  let urlOrigin = '';
+  let urlPathname = '/';
+  try {
+    const parsed = new URL(tabUrl);
+    urlOrigin = parsed.origin;
+    urlPathname = parsed.pathname || '/';
+  } catch {}
+
+  const observedApis: Array<{
+    method: string;
+    path: string;
+    source: 'live_traffic' | 'js_bundle' | 'dom_form';
+    scriptUrl?: string;
+    hasAuthHeader: boolean;
+    hasCsrfHeader?: boolean;
+  }> = [
+    {
+      method: 'GET',
+      path: urlPathname,
+      source: 'live_traffic',
+      hasAuthHeader: false,
+    },
+  ];
+
+  for (const ep of bundleEndpoints) {
+    const p = ep.path;
+    const method = p.toLowerCase().includes('delete')
+      ? 'DELETE'
+      : p.toLowerCase().includes('login') ||
+        p.toLowerCase().includes('create') ||
+        p.toLowerCase().includes('basket') ||
+        p.toLowerCase().includes('update')
+      ? 'POST'
+      : 'GET';
+    observedApis.push({
+      method,
+      path: p,
+      source: 'js_bundle',
+      scriptUrl: ep.scriptUrl,
+      hasAuthHeader: false,
+    });
+  }
+
+  for (const f of forms) {
+    if (f.action) {
+      observedApis.push({
+        method: (f.method || 'POST').toUpperCase(),
+        path: f.action,
+        source: 'dom_form',
+        hasAuthHeader: false,
+        hasCsrfHeader: Boolean(f.hasCsrfInput),
+      });
+    }
+  }
+
+  return {
+    origin: urlOrigin,
+    headers: {},
+    cookies,
+    observedApis,
+    htmlForms: forms.map((f) => ({
+      action: f.action || '',
+      method: (f.method || 'POST').toUpperCase(),
+      hasCsrfInput: Boolean(f.hasCsrfInput),
+    })),
+    detectedLibraries: globals.map((g) => ({
+      name: g.split(' ')[0] || g,
+      version: g.split(' ')[1] || '',
+      scriptUrl: '',
+    })),
+  };
+}
+
 async function proceedSwarmScan(
   authz: AuthorizationRecord,
   authorization: SwarmAuthorizationInput,
@@ -558,10 +662,19 @@ async function proceedSwarmScan(
   swarmRunning = true;
   el.swarmBtn.disabled = true;
   el.swarmBtn.textContent = 'Swarm running…';
-  setStatus('AI swarm deployed — head agent coordinating specialist workers…');
+  setStatus('Collecting surface & scanning JavaScript bundles…');
   showSwarmDeploying();
 
   try {
+    let surfaceSnapshot: Record<string, unknown> | undefined = undefined;
+    if (currentTabId !== null) {
+      surfaceSnapshot = await collectTabSurface(currentTabId, currentTabUrl).catch(() => undefined);
+    }
+    const observedCount = Array.isArray(surfaceSnapshot?.observedApis)
+      ? (surfaceSnapshot!.observedApis as unknown[]).length
+      : 1;
+    setStatus(`Surface mapped: ${observedCount} endpoint(s). Deploying AI swarm…`);
+
     const outcome = await runSwarmScan(
       currentTabUrl,
       authorization,
@@ -580,6 +693,7 @@ async function proceedSwarmScan(
           setStatus('AI swarm queued — initializing head agent…');
         }
       },
+      surfaceSnapshot,
     );
     // Map swarm findings onto the extension Finding shape for rendering.
     const findings = toExtensionFindings(outcome.findings, 'swarm');
@@ -1110,8 +1224,18 @@ function renderSwarmPlayback(outcome: SwarmOutcome): void {
   // Run totals (the same accounting line the popup has always shown).
   const totals = document.createElement('div');
   totals.className = reduce ? 'stat-line' : 'stat-line swarm-enter';
+  const rawTok = outcome.tokensUsed;
+  const totalTokens =
+    typeof rawTok === 'number'
+      ? rawTok
+      : (Number((rawTok as any)?.total ?? 0) ||
+         Number((rawTok as any)?.input ?? 0) + Number((rawTok as any)?.output ?? 0));
+  const tokenDisplay =
+    Number.isFinite(totalTokens) && totalTokens > 0
+      ? `${(totalTokens / 1000).toFixed(1)}k tokens`
+      : '0k tokens';
   totals.textContent =
-    `${outcome.testsRun} tests · ${(outcome.tokensUsed / 1000).toFixed(1)}k tokens` +
+    `${outcome.testsRun} tests · ${tokenDisplay}` +
     ` · ${(outcome.durationMs / 1000).toFixed(1)}s · scan ${outcome.scanId}`;
   panel.appendChild(totals);
 

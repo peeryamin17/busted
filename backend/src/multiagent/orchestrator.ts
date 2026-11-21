@@ -37,6 +37,7 @@ export interface MultiAgentScanRequest {
   provider?: LLMProvider;
   osdk?: import('../ontology/osdk.js').BugSeekOSDK;
   scanId?: string;
+  discoveredEndpoints?: string[];
   onEvent?: (e: MultiAgentEvent) => void;
   shouldContinue?: () => 'run' | 'paused' | 'cancelled';
 }
@@ -63,6 +64,7 @@ export async function runMultiAgentScan(req: MultiAgentScanRequest): Promise<Mul
     shouldContinue: req.shouldContinue,
     osdk: req.osdk,
     scanId: req.scanId,
+    discoveredEndpoints: req.discoveredEndpoints,
   };
   return runHeadAgent(opts);
 }

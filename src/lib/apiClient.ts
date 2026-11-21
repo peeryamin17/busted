@@ -320,6 +320,7 @@ export async function runSwarmScan(
   authorization: SwarmAuthorizationInput,
   scope?: SwarmScopeInput,
   onProgress?: (progress: SwarmProgressInfo) => void,
+  surfaceSnapshot?: unknown,
 ): Promise<SwarmOutcome> {
   const baseUrl = await getBackendBaseUrl();
   const apiKey = await getBackendApiKey();
@@ -342,7 +343,7 @@ export async function runSwarmScan(
     startRes = await fetch(`${baseUrl}/api/swarm/scans`, {
       method: 'POST',
       headers: authHeaders,
-      body: JSON.stringify({ targetUrl, authorization, scope, async: true }),
+      body: JSON.stringify({ targetUrl, authorization, scope, surfaceSnapshot, async: true }),
       signal: ctrl.signal,
     });
   } catch (err: any) {

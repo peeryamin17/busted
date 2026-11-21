@@ -138,6 +138,7 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
     scope,
     techStack,
     priorFindings: prior,
+    discoveredEndpoints: opts.discoveredEndpoints,
     deadline,
     tokenBudget,
     shouldContinue: opts.shouldContinue,
@@ -158,6 +159,15 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
       techStack.push({ name: f.title.slice(0, 80) });
     }
   }
+  if (opts.osdk && opts.scanId && (!opts.discoveredEndpoints || opts.discoveredEndpoints.length === 0)) {
+    try {
+      const muts = await opts.osdk.getUnprotectedMutations(opts.scanId);
+      if (Array.isArray(muts) && muts.length > 0) {
+        opts.discoveredEndpoints = muts.map((m) => m.canonicalKey);
+      }
+    } catch {}
+  }
+
   const reconNotes = [
     reconReport.summary,
     ...reconReport.findings.map((f) => `${f.title} (${f.severity})`),
@@ -482,8 +492,15 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
     headSummary = `Multi-agent scan of ${opts.targetUrl} completed with ${deduped.length} unique findings (${parts.join(', ') || 'none'}).`;
   }
 
-  const testsRun = workerReports.reduce((n, r) => n + r.testsRun, 0);
-  const llmCalls = workerReports.reduce((n, r) => n + r.llmCalls, 0);
+  const testsRun = workerReports.reduce((n, r) => n + (Number.isFinite(r.testsRun) ? r.testsRun : 0), 0);
+  const llmCalls = workerReports.reduce((n, r) => n + (Number.isFinite(r.llmCalls) ? r.llmCalls : 0), 0);
+
+  const allWorkerErrors = workerReports.flatMap((r) => r.errors);
+  if (workerReports.length > 0 && testsRun === 0 && allWorkerErrors.length > 0) {
+    throw new Error(
+      `All specialist agents failed to execute tests. First error: ${allWorkerErrors[0]}`,
+    );
+  }
 
   event('done', `Multi-agent scan complete: ${deduped.length} findings, ${testsRun} tests`);
 
@@ -508,7 +525,10 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
     headSummary,
     testsRun,
     llmCalls,
-    tokensUsed: { input: tokenBudget.input, output: tokenBudget.output },
+    tokensUsed: {
+      input: Number.isFinite(tokenBudget.input) ? tokenBudget.input : 0,
+      output: Number.isFinite(tokenBudget.output) ? tokenBudget.output : 0,
+    },
     durationMs: Date.now() - started,
     errors,
   };

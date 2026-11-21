@@ -110,12 +110,14 @@ export async function runWorker(
   const event = (kind: 'worker_progress' | 'guardrail', message: string, data?: unknown) =>
     emit?.({ kind, message, data });
 
-  const spend = (input: number, output: number): boolean => {
+  const spend = (input?: number, output?: number): boolean => {
+    const inCount = Number.isFinite(input) ? Number(input) : 0;
+    const outCount = Number.isFinite(output) ? Number(output) : 0;
     report.llmCalls += 1;
-    report.tokensUsed.input += input;
-    report.tokensUsed.output += output;
-    ctx.tokenBudget.input += input;
-    ctx.tokenBudget.output += output;
+    report.tokensUsed.input += inCount;
+    report.tokensUsed.output += outCount;
+    ctx.tokenBudget.input += inCount;
+    ctx.tokenBudget.output += outCount;
     if (ctx.tokenBudget.input + ctx.tokenBudget.output > ctx.tokenBudget.max) {
       event('guardrail', `${def.name}: global token budget exhausted — stopping`);
       return false;
@@ -153,6 +155,7 @@ export async function runWorker(
             `TECH STACK: ${ctx.techStack.map((t) => t.version ? `${t.name} ${t.version}` : t.name).join(', ') || 'unknown'}\n` +
             `SCOPE: ${scopeSummary(ctx)}\n` +
             `MAX_ACTIONS: ${def.maxActions}\n` +
+            `DISCOVERED SURFACE / API ENDPOINTS: ${ctx.discoveredEndpoints?.slice(0, 30).join(', ') || 'root URL'}\n` +
             `PRIOR WORKER NOTES: ${ctx.priorFindings.join(' | ') || 'none'}\n\n` +
             `Tools you may use:\n${toolCatalog(tools)}\n\n` +
             `Produce your test plan as a JSON array.`,

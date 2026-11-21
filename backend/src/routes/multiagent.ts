@@ -213,6 +213,9 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
           provider,
           osdk,
           scanId: scan.id,
+          discoveredEndpoints: Array.isArray(d.surfaceSnapshot?.observedApis)
+            ? d.surfaceSnapshot.observedApis.map((a: any) => `${a.method || 'GET'}:${a.path}`)
+            : [],
         });
         // AI remediation suggestions for high/critical findings (Phase 3, best-effort).
         const fixes = await suggestFixes(outcome.findings, provider);
@@ -282,7 +285,11 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
           })),
           testsRun: outcome.testsRun,
           llmCalls: outcome.llmCalls,
-          tokensUsed: outcome.tokensUsed,
+          tokensUsed: {
+            input: Number(outcome.tokensUsed?.input ?? 0),
+            output: Number(outcome.tokensUsed?.output ?? 0),
+            total: Number(outcome.tokensUsed?.input ?? 0) + Number(outcome.tokensUsed?.output ?? 0),
+          },
           durationMs: outcome.durationMs,
           errors: outcome.errors,
         };
