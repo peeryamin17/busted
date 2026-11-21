@@ -568,11 +568,6 @@ async function proceedSwarmScan(
       excludedHosts: authz.scope.excludedHosts,
       excludedPaths: authz.scope.excludedPaths,
     });
-    if (!outcome) {
-      hideSwarmPanel();
-      showError('Backend unreachable — is the BugSeek backend running?');
-      return;
-    }
     // Map swarm findings onto the extension Finding shape for rendering.
     const findings = toExtensionFindings(outcome.findings, 'swarm');
     renderSwarmPlayback(outcome);
@@ -676,7 +671,7 @@ function renderEnginesStatus(entries: EngineStatusEntry[] | null): void {
     } else if (!entries) {
       state.className = 'engine-state engine-state-off';
       state.textContent = 'Unavailable';
-      detail = 'Backend unreachable';
+      detail = 'Backend unreachable — Render free tier is waking up, please wait ~30s or check your connection.';
     } else if (entry?.available) {
       state.className = 'engine-state engine-state-on';
       state.textContent = 'Available';
@@ -764,7 +759,7 @@ async function startEnginesRun(): Promise<void> {
     showError(
       status
         ? 'No open-source engines are available on the backend.'
-        : 'Backend unreachable — is the BugSeek backend running?',
+        : 'Backend unreachable — Render free tier is waking up, please wait ~30s or check your connection.',
     );
     return;
   }

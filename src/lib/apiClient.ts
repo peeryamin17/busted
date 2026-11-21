@@ -21,6 +21,29 @@ export interface BackendStatus {
   version?: string;
 }
 
+const BACKEND_URL_STORAGE_KEY = 'bugseek:backendUrl';
+
+export async function getBackendBaseUrl(): Promise<string> {
+  try {
+    const stored = await chrome.storage.local.get(BACKEND_URL_STORAGE_KEY);
+    const custom = stored[BACKEND_URL_STORAGE_KEY];
+    if (typeof custom === 'string' && custom.trim().length > 0) {
+      return custom.trim().replace(/\/+$/, '');
+    }
+  } catch {}
+  return BACKEND_BASE_URL;
+}
+
+export async function setBackendBaseUrl(url: string | null): Promise<void> {
+  try {
+    if (url && url.trim().length > 0) {
+      await chrome.storage.local.set({ [BACKEND_URL_STORAGE_KEY]: url.trim().replace(/\/+$/, '') });
+    } else {
+      await chrome.storage.local.remove(BACKEND_URL_STORAGE_KEY);
+    }
+  } catch {}
+}
+
 /** Backend API key (bs_…), stored by the user in extension settings. Sent as x-api-key. */
 const API_KEY_STORAGE_KEY = 'bugseek:apiKey';
 /** User's own Gemini API key (AIza…), stored locally in the extension for direct BYOK scans. */
@@ -72,9 +95,10 @@ async function fetchJson<T>(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
+    const baseUrl = await getBackendBaseUrl();
     const apiKey = await getBackendApiKey();
     const geminiKey = await getGeminiApiKey();
-    const res = await fetch(`${BACKEND_BASE_URL}${path}`, {
+    const res = await fetch(`${baseUrl}${path}`, {
       ...init,
       signal: ctrl.signal,
       headers: {
@@ -97,10 +121,11 @@ async function fetchJson<T>(
 export async function checkBackendStatus(
   onWaking?: () => void,
 ): Promise<BackendStatus> {
+  const baseUrl = await getBackendBaseUrl();
   let health = await fetchJson<{ version?: string }>(
     '/api/v1/health',
     { method: 'GET' },
-    2500,
+    3500,
   );
   if (!health) {
     // The backend sleeps when idle on the free tier and can take the
@@ -115,7 +140,7 @@ export async function checkBackendStatus(
   }
   return {
     reachable: health !== null,
-    baseUrl: BACKEND_BASE_URL,
+    baseUrl,
     version: health?.version,
   };
 }
@@ -135,8 +160,7 @@ export interface BackendAccount {
 export async function getBackendAccount(): Promise<BackendAccount | null> {
   const apiKey = await getBackendApiKey();
   const geminiKey = await getGeminiApiKey();
-  if (!apiKey && !geminiKey) return null;
-  if (!apiKey && geminiKey) {
+  if (geminiKey) {
     const hint = geminiKey.length > 8 ? `${geminiKey.slice(0, 4)}••••${geminiKey.slice(-4)}` : '••••••••';
     return {
       email: `Gemini AI (${hint})`,
@@ -144,7 +168,8 @@ export async function getBackendAccount(): Promise<BackendAccount | null> {
       operator: true,
     };
   }
-  return fetchJsonOrThrow<BackendAccount>('/api/v1/account', { method: 'GET' }, 8000);
+  if (!apiKey) return null;
+  return fetchJsonOrThrow<BackendAccount>('/api/v1/account', { method: 'GET' }, 25_000);
 }
 
 /**
@@ -157,12 +182,13 @@ export async function pairWithCode(rawCode: string): Promise<BackendAccount> {
   if (code.length !== 32) {
     throw new Error('A link code is 32 characters — copy it again from the website.');
   }
+  const baseUrl = await getBackendBaseUrl();
   const ctrl = new AbortController();
   // The backend sleeps when idle; a first call can take a while to wake it.
   const timer = setTimeout(() => ctrl.abort(), 45_000);
   let res: Response;
   try {
-    res = await fetch(`${BACKEND_BASE_URL}/api/v1/pair`, {
+    res = await fetch(`${baseUrl}/api/v1/pair`, {
       method: 'POST',
       signal: ctrl.signal,
       headers: { 'content-type': 'application/json' },
@@ -280,15 +306,21 @@ export interface SwarmOutcome {
   score?: { value: number; grade: string } | null;
 }
 
+export const SWARM_SCAN_TIMEOUT_MS = 120_000;
+
 export async function runSwarmScan(
   targetUrl: string,
   authorization: SwarmAuthorizationInput,
   scope?: SwarmScopeInput,
-): Promise<SwarmOutcome | null> {
-  return fetchJson<SwarmOutcome>('/api/swarm/scans', {
-    method: 'POST',
-    body: JSON.stringify({ targetUrl, authorization, scope }),
-  });
+): Promise<SwarmOutcome> {
+  return fetchJsonOrThrow<SwarmOutcome>(
+    '/api/swarm/scans',
+    {
+      method: 'POST',
+      body: JSON.stringify({ targetUrl, authorization, scope }),
+    },
+    SWARM_SCAN_TIMEOUT_MS,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -316,10 +348,11 @@ async function fetchJsonOrThrow<T>(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let res: Response;
+  const baseUrl = await getBackendBaseUrl();
   try {
     const apiKey = await getBackendApiKey();
     const geminiKey = await getGeminiApiKey();
-    res = await fetch(`${BACKEND_BASE_URL}${path}`, {
+    res = await fetch(`${baseUrl}${path}`, {
       ...init,
       signal: ctrl.signal,
       headers: {
@@ -329,9 +362,14 @@ async function fetchJsonOrThrow<T>(
         ...(init.headers ?? {}),
       },
     });
-  } catch {
+  } catch (err: any) {
     clearTimeout(timer);
-    throw new Error('Backend unreachable — is the BugSeek backend running?');
+    if (err?.name === 'AbortError') {
+      throw new Error(
+        `Backend request timed out (${Math.round(timeoutMs / 1000)}s) — Render may be waking up, please try again in a moment.`,
+      );
+    }
+    throw new Error('Backend unreachable — Render free tier is waking up, please wait ~30s or check your connection.');
   }
   clearTimeout(timer);
   if (!res.ok) {
