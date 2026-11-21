@@ -610,6 +610,10 @@ export class PostgresDatabase implements Database {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private pool: any;
 
+  getPool(): any {
+    return this.pool;
+  }
+
   private constructor(pool: unknown) {
     this.pool = pool;
   }

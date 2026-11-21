@@ -233,6 +233,35 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
     before: workerReports.reduce((n, r) => n + r.findings.length, 0),
   });
 
+  // Query typed security ontology for deterministic graph-proven findings
+  if (opts.osdk && opts.scanId) {
+    try {
+      const unprotected = await opts.osdk.getUnprotectedMutations(opts.scanId);
+      if (unprotected.length > 0) {
+        event('head_plan', `Ontology graph: ${unprotected.length} unprotected mutation endpoint(s) without CSRF protection`);
+        for (const mut of unprotected) {
+          deduped.push({
+            severity: 'medium',
+            confidence: 'high',
+            category: 'csrf',
+            title: `CSRF: State-changing mutation without CSRF token (${mut.canonicalKey})`,
+            description: `Deterministic ontology analysis verified endpoint ${mut.canonicalKey} mutates server resource without incoming PROTECTS control edge from CSRF_TOKEN. Invokable by role: ${mut.invokerRole || 'anonymous'}.`,
+            location: mut.canonicalKey,
+            evidence: `Endpoint: ${mut.canonicalKey} | Provenance ID: ${mut.provenanceId}`,
+            reproSteps: [`Submit cross-site request to ${mut.canonicalKey} without CSRF token`],
+            remediation: 'Implement anti-CSRF token verification or SameSite=Strict cookies on mutating state changes.',
+            references: ['https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html'],
+            provenanceIds: [mut.provenanceId],
+            trapProbability: 0,
+            chainWith: [],
+          });
+        }
+      }
+    } catch (err) {
+      errors.push(`Ontology query error: ${(err as Error).message}`);
+    }
+  }
+
   // ── Phase 4: head-level trap review (reasoning tier, capped) ──
   const reviewCandidates = deduped.filter(
     (f) => f.trapProbability >= 0.3 || (SEVERITY_RANK[f.severity] ?? 0) >= 4,
@@ -391,6 +420,24 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
     for (const f of validationCandidates) {
       if (!f.suggestedFix) {
         f.suggestedFix = buildFixInIdePrompt(f);
+      }
+    }
+  }
+
+  // Zero-Hallucination Gate: verify cryptographic provenance for all ontology-backed findings
+  if (opts.osdk && opts.scanId) {
+    for (let i = deduped.length - 1; i >= 0; i--) {
+      const f = deduped[i];
+      if (f.provenanceIds && f.provenanceIds.length > 0) {
+        try {
+          const verified = await opts.osdk.verifyProvenance(opts.scanId, f.provenanceIds);
+          if (!verified) {
+            event('guardrail', `Zero-Hallucination Gate dropped unverified finding "${f.title}" (provenance mismatch)`);
+            deduped.splice(i, 1);
+          }
+        } catch {
+          // If provenance check cannot reach DB, keep finding rather than crashing
+        }
       }
     }
   }

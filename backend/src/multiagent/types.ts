@@ -72,6 +72,7 @@ export interface WorkerFinding {
   references: string[];
   trapProbability: number;
   chainWith: string[];
+  provenanceIds?: string[];
 }
 
 export interface WorkerReport {
@@ -114,6 +115,8 @@ export interface MultiAgentOptions {
   specialists?: SpecialistId[];
   onEvent?: (e: MultiAgentEvent) => void;
   shouldContinue?: () => 'run' | 'paused' | 'cancelled';
+  osdk?: import('../ontology/osdk.js').BugSeekOSDK;
+  scanId?: string;
 }
 
 export type MultiAgentEventKind =

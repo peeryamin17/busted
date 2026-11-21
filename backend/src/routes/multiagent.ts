@@ -14,6 +14,8 @@ import { config } from '../config.js';
 import { getUserDecryptedAiKey } from './aiKey.js';
 import type { RouteDeps } from './health.js';
 import { runMultiAgentScan } from '../multiagent/orchestrator.js';
+import { BugSeekOSDK } from '../ontology/osdk.js';
+import { ingestSurfaceToOntology } from '../ontology/ingest.js';
 import type { Confidence, PlanTier, Severity } from '../types.js';
 
 /**
@@ -45,6 +47,7 @@ const swarmScanSchema = z.object({
   targetUrl: z.string().min(1).max(2000),
   authorization: z.unknown(), // REQUIRED — validated by verifyAndRecordAuthorization (plan §8)
   scope: scopeSchema.optional(),
+  surfaceSnapshot: z.any().optional(),
   maxWorkers: z.number().int().min(1).max(8).optional(),
   concurrency: z.number().int().min(1).max(4).optional(),
   requestsPerSecond: z.number().min(0.1).max(5).optional(),
@@ -143,6 +146,19 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
 
     const provider = createLLMProvider(userKey || config.geminiApiKey);
 
+    // Ingest SurfaceSnapshot into immutable ontology graph + evidence blobs if Postgres pool is available
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pool = (db as any).getPool ? (db as any).getPool() : (db as any).pool;
+    let osdk: BugSeekOSDK | undefined;
+    if (pool) {
+      osdk = new BugSeekOSDK(pool);
+      if (d.surfaceSnapshot) {
+        await ingestSurfaceToOntology(pool, scan.id, d.surfaceSnapshot).catch((err) => {
+          app.log.warn({ err }, 'Failed to ingest surface snapshot to ontology');
+        });
+      }
+    }
+
     try {
       const outcome = await runMultiAgentScan({
         targetUrl: target.toString(),
@@ -162,6 +178,8 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
         },
         specialists: d.specialists,
         provider,
+        osdk,
+        scanId: scan.id,
       });
       // AI remediation suggestions for high/critical findings (Phase 3, best-effort).
       const fixes = await suggestFixes(outcome.findings, provider);

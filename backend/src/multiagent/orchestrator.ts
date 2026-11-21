@@ -35,6 +35,8 @@ export interface MultiAgentScanRequest {
   limits?: Partial<MultiAgentLimits>;
   specialists?: SpecialistId[];
   provider?: LLMProvider;
+  osdk?: import('../ontology/osdk.js').BugSeekOSDK;
+  scanId?: string;
   onEvent?: (e: MultiAgentEvent) => void;
   shouldContinue?: () => 'run' | 'paused' | 'cancelled';
 }
@@ -59,6 +61,8 @@ export async function runMultiAgentScan(req: MultiAgentScanRequest): Promise<Mul
     specialists: req.specialists,
     onEvent: req.onEvent,
     shouldContinue: req.shouldContinue,
+    osdk: req.osdk,
+    scanId: req.scanId,
   };
   return runHeadAgent(opts);
 }
