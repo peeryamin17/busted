@@ -16,6 +16,7 @@ import type { RouteDeps } from './health.js';
 import { runMultiAgentScan } from '../multiagent/orchestrator.js';
 import { BugSeekOSDK } from '../ontology/osdk.js';
 import { ingestSurfaceToOntology } from '../ontology/ingest.js';
+import { ingestUniversalOntology } from '../ontology/universalIngest.js';
 import type { Confidence, PlanTier, Severity } from '../types.js';
 
 /**
@@ -153,9 +154,21 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     if (pool) {
       osdk = new BugSeekOSDK(pool);
       if (d.surfaceSnapshot) {
-        await ingestSurfaceToOntology(pool, scan.id, d.surfaceSnapshot).catch((err) => {
-          app.log.warn({ err }, 'Failed to ingest surface snapshot to ontology');
-        });
+        if (
+          d.surfaceSnapshot.baasTargets ||
+          d.surfaceSnapshot.htmlForms ||
+          d.surfaceSnapshot.clientSecrets ||
+          d.surfaceSnapshot.detectedLibraries
+        ) {
+          await ingestUniversalOntology(pool, scan.id, d.surfaceSnapshot).catch((err) => {
+            app.log.warn({ err }, 'Failed to ingest universal ontology snapshot');
+          });
+        }
+        if (d.surfaceSnapshot.observedApis) {
+          await ingestSurfaceToOntology(pool, scan.id, d.surfaceSnapshot).catch((err) => {
+            app.log.warn({ err }, 'Failed to ingest surface snapshot to ontology');
+          });
+        }
       }
     }
 

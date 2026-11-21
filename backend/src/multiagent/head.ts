@@ -4,6 +4,11 @@ import { extraTools } from './extraTools.js';
 import { getSpecialist, allSpecialists, ALWAYS_SPAWN, CONDITIONAL_SPAWN } from './specialists.js';
 import { buildFixInIdePrompt } from '../reports/remediation.js';
 import { runWorker } from './worker.js';
+import {
+  OSDK_TOOL_DECLARATIONS,
+  executeOsdkTool,
+  enforceProvenanceGate,
+} from '../ontology/tools.js';
 import type {
   MultiAgentEvent,
   MultiAgentLimits,
@@ -236,8 +241,11 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
   // Query typed security ontology for deterministic graph-proven findings
   if (opts.osdk && opts.scanId) {
     try {
-      const unprotected = await opts.osdk.getUnprotectedMutations(opts.scanId);
-      if (unprotected.length > 0) {
+      const unprotected = (await executeOsdkTool(opts.osdk, opts.scanId, {
+        name: 'getUnprotectedMutations',
+        args: {},
+      })) as import('../ontology/osdk.js').UnprotectedMutation[];
+      if (Array.isArray(unprotected) && unprotected.length > 0) {
         event('head_plan', `Ontology graph: ${unprotected.length} unprotected mutation endpoint(s) without CSRF protection`);
         for (const mut of unprotected) {
           deduped.push({
@@ -426,19 +434,15 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
 
   // Zero-Hallucination Gate: verify cryptographic provenance for all ontology-backed findings
   if (opts.osdk && opts.scanId) {
-    for (let i = deduped.length - 1; i >= 0; i--) {
-      const f = deduped[i];
-      if (f.provenanceIds && f.provenanceIds.length > 0) {
-        try {
-          const verified = await opts.osdk.verifyProvenance(opts.scanId, f.provenanceIds);
-          if (!verified) {
-            event('guardrail', `Zero-Hallucination Gate dropped unverified finding "${f.title}" (provenance mismatch)`);
-            deduped.splice(i, 1);
-          }
-        } catch {
-          // If provenance check cannot reach DB, keep finding rather than crashing
-        }
+    try {
+      const { verified, rejected } = await enforceProvenanceGate(opts.osdk, opts.scanId, deduped);
+      for (const rej of rejected) {
+        event('guardrail', `Zero-Hallucination Gate dropped unverified finding "${rej.title}" (${rej.reason})`);
       }
+      deduped.length = 0;
+      deduped.push(...verified);
+    } catch {
+      // If provenance check cannot reach DB, keep findings rather than crashing
     }
   }
 

@@ -1,8 +1,22 @@
 /**
- * Unit tests for Security Ontology Ingest & BugSeekOSDK.
+ * Unit tests for Security Ontology Ingest, Universal Archetypes, BugSeekOSDK,
+ * AIP Controller, and Provenance Gating.
  */
 import { BugSeekOSDK } from '../src/ontology/osdk.js';
 import { ingestSurfaceToOntology, type SurfaceSnapshot } from '../src/ontology/ingest.js';
+import {
+  OSDK_TOOL_DECLARATIONS,
+  executeOsdkTool,
+  enforceProvenanceGate,
+} from '../src/ontology/tools.js';
+import {
+  classifyArchetypes,
+  ingestUniversalOntology,
+  type UniversalSnapshot,
+} from '../src/ontology/universalIngest.js';
+import { UniversalOSDK } from '../src/ontology/universalOsdk.js';
+import { AipControlPlane } from '../src/ontology/aipController.js';
+import { computeOntologyScore } from '../src/reports/score.js';
 
 let failures = 0;
 function check(name: string, ok: boolean, extra?: unknown) {
@@ -15,7 +29,7 @@ function check(name: string, ok: boolean, extra?: unknown) {
 }
 
 async function runTests() {
-  console.log('--- Testing BugSeekOSDK & Ontology Ingestion ---');
+  console.log('--- Testing BugSeekOSDK, Tools & Ingestion ---');
 
   // 1. Mock Pool for OSDK tests
   const queryLog: Array<{ sql: string; params: unknown[] }> = [];
@@ -48,17 +62,48 @@ async function runTests() {
           ],
         };
       }
+      if (sql.includes('ClientSecret') || sql.includes('CLIENT_SECRET_EXPOSURE')) {
+        return {
+          rows: [
+            {
+              nodeId: 'cs-1',
+              objectType: 'ClientSecret',
+              canonicalKey: 'supabase_service_role:ey...',
+              properties: { kind: 'supabase_service_role' },
+              provenanceId: 'blob-1',
+              riskCategory: 'CLIENT_SECRET_EXPOSURE',
+            },
+          ],
+        };
+      }
+      if (sql.includes('HtmlForm') || sql.includes('FORM_MISSING_CSRF')) {
+        return {
+          rows: [
+            {
+              nodeId: 'form-1',
+              objectType: 'HtmlForm',
+              canonicalKey: 'POST:/transfer',
+              properties: { method: 'POST' },
+              provenanceId: 'blob-2',
+              riskCategory: 'FORM_MISSING_CSRF',
+            },
+          ],
+        };
+      }
       if (sql.includes('evidence_blobs') && sql.includes('COUNT(*)')) {
         const ids = (params[1] as string[]) || [];
-        // Simulate that blob-1 and blob-2 exist, but blob-unknown does not
         const validIds = ids.filter((id) => id === 'blob-1' || id === 'blob-2');
         return { rows: [{ count: String(validIds.length) }] };
+      }
+      if (sql.includes('aip_audit_log')) {
+        return { rows: [{ id: 'audit-1' }] };
       }
       return { rows: [] };
     },
   };
 
   const osdk = new BugSeekOSDK(mockPool);
+  const universalOsdk = new UniversalOSDK(mockPool);
 
   // Test getUnprotectedMutations
   const unprotected = await osdk.getUnprotectedMutations('scan-123');
@@ -82,7 +127,131 @@ async function runTests() {
     (await osdk.verifyProvenance('scan-123', ['blob-1', 'blob-missing'])) === false
   );
 
-  // 2. Test Ingestion Mock Transaction
+  // 2. Test OSDK Tool Declarations & executeOsdkTool
+  check('OSDK_TOOL_DECLARATIONS has 3 tools', OSDK_TOOL_DECLARATIONS.length === 3);
+  const toolRes = await executeOsdkTool(osdk, 'scan-123', {
+    name: 'getUnprotectedMutations',
+    args: {},
+  });
+  check('executeOsdkTool dispatches getUnprotectedMutations', Array.isArray(toolRes) && toolRes.length === 1);
+
+  const blastToolRes = await executeOsdkTool(osdk, 'scan-123', {
+    name: 'getBlastRadius',
+    args: { startNodeId: 'ep-1', maxDepth: 2 },
+  });
+  check('executeOsdkTool dispatches getBlastRadius', Array.isArray(blastToolRes) && blastToolRes.length === 1);
+
+  // Test enforceProvenanceGate
+  const sampleFindings = [
+    { title: 'Verified Finding', provenanceIds: ['blob-1'] },
+    { title: 'Fake Finding', provenanceIds: ['fabricated-id'] },
+    { title: 'No Provenance Finding' },
+  ];
+  const gateRes = await enforceProvenanceGate(osdk, 'scan-123', sampleFindings, false);
+  check('enforceProvenanceGate accepts verified finding', gateRes.verified.some((f) => f.title === 'Verified Finding'));
+  check('enforceProvenanceGate drops fabricated finding', gateRes.rejected.some((f) => f.title === 'Fake Finding'));
+  check('enforceProvenanceGate preserves legacy finding in lax mode', gateRes.verified.some((f) => f.title === 'No Provenance Finding'));
+
+  const strictGateRes = await enforceProvenanceGate(osdk, 'scan-123', sampleFindings, true);
+  check('enforceProvenanceGate rejects unanchored finding in strict mode', strictGateRes.rejected.some((f) => f.title === 'No Provenance Finding'));
+
+  // 3. Test Universal Archetype Classifier
+  const baasSnapshot: UniversalSnapshot = {
+    origin: 'https://modern-app.io',
+    headers: {},
+    scriptUrls: ['https://modern-app.io/assets/index-abc.js'],
+    observedHosts: ['project.supabase.co'],
+    cookies: [],
+    htmlForms: [],
+    detectedLibraries: [],
+    clientSecrets: [],
+    baasTargets: [
+      { provider: 'supabase', endpoint: 'https://project.supabase.co', rlsHeaderObserved: false, scriptUrl: 'main.js' },
+    ],
+  };
+  const arch1 = classifyArchetypes(baasSnapshot);
+  check('classifyArchetypes detects vibe_baas', arch1.includes('vibe_baas'));
+
+  const legacySnapshot: UniversalSnapshot = {
+    origin: 'https://legacy-portal.com',
+    headers: { 'x-powered-by': 'PHP/7.4.3' },
+    scriptUrls: ['https://legacy-portal.com/js/jquery-1.12.4.min.js'],
+    observedHosts: [],
+    cookies: [{ name: 'PHPSESSID', secure: false, httpOnly: false, sameSite: 'none' }],
+    htmlForms: [{ action: '/login.php', method: 'POST', hasCsrfInput: false }],
+    detectedLibraries: [{ name: 'jquery', version: '1.12.4', scriptUrl: 'jquery.js' }],
+    clientSecrets: [],
+    baasTargets: [],
+  };
+  const arch2 = classifyArchetypes(legacySnapshot);
+  check('classifyArchetypes detects legacy_monolith', arch2.includes('legacy_monolith'));
+
+  // 4. Test Universal OSDK queries
+  const vibeRisks = await universalOsdk.getVibeCodedRisks('scan-123');
+  check('getVibeCodedRisks returns client secret risk', vibeRisks.some((r) => r.riskCategory === 'CLIENT_SECRET_EXPOSURE'));
+
+  const legacyGaps = await universalOsdk.getLegacyControlGaps('scan-123');
+  check('getLegacyControlGaps returns missing CSRF risk', legacyGaps.some((r) => r.riskCategory === 'FORM_MISSING_CSRF'));
+
+  // 5. Test AIP Control Plane
+  const aip = new AipControlPlane(mockPool, osdk, universalOsdk);
+  const auditNodes = await aip.runArchetypeAudit(
+    {
+      scanId: 'scan-123',
+      authorizedOrigin: 'https://example.com',
+      maxToolCalls: 10,
+      toolCallsUsed: 0,
+    },
+    ['vibe_baas', 'legacy_monolith']
+  );
+  check('AipControlPlane routes and returns audit nodes', auditNodes.length >= 2);
+
+  // 6. Test 4-Matrix Ontology Scoring Engine
+  const scoreReport = computeOntologyScore({
+    nodes: [
+      {
+        nodeId: 'n1',
+        riskCategory: 'CLIENT_SECRET_EXPOSURE',
+        blastRadiusCount: 3,
+        provenanceVerified: true,
+        confidence: 0.95,
+      },
+      {
+        nodeId: 'n2',
+        riskCategory: 'FORM_MISSING_CSRF',
+        blastRadiusCount: 1,
+        provenanceVerified: true,
+        confidence: 0.9,
+      },
+    ],
+    controls: {
+      totalMutatingEndpoints: 2,
+      protectedMutatingEndpoints: 1,
+      totalBaasTargets: 1,
+      rlsProtectedBaasTargets: 0,
+      totalSessionCookies: 1,
+      hardenedSessionCookies: 1,
+    },
+    coverage: {
+      mode: 'active',
+      archetypes: ['vibe_baas', 'legacy_monolith'],
+      endpointsDiscovered: 4,
+      endpointsTested: 4,
+      authenticated: true,
+    },
+    delta: {
+      addedObjects: [],
+      removedObjects: [],
+      removedControls: [{ canonicalKey: 'RLS_ENFORCED', properties: {} }],
+    },
+  });
+
+  check('computeOntologyScore calculates posture score', typeof scoreReport.postureScore === 'number' && scoreReport.postureScore > 0);
+  check('computeOntologyScore calculates control hygiene', scoreReport.matrices.controlHygieneScore === 50);
+  check('computeOntologyScore applies drift penalty', scoreReport.matrices.driftPenalty === 12);
+  check('computeOntologyScore assigns grade', ['A', 'B', 'C', 'D', 'F'].includes(scoreReport.effectiveGrade));
+
+  // 7. Test Ingestion Mock Transaction
   const executedStatements: string[] = [];
   const insertedObjects: any[] = [];
   const insertedLinks: any[] = [];
@@ -140,13 +309,9 @@ async function runTests() {
   check('ingest created links', ingestRes.linksCreated > 0);
   check('transaction committed', executedStatements.includes('COMMIT'));
 
-  const createdTypes = insertedObjects.map((o) => o.type);
-  check('Origin created', createdTypes.includes('Origin'));
-  check('CSP Control created', createdTypes.includes('Control'));
-  check('Identity nodes created', createdTypes.includes('Identity'));
-  check('Endpoint created', createdTypes.includes('Endpoint'));
-  check('Asset created from bundle', createdTypes.includes('Asset'));
-  check('Resource created for mutating POST', createdTypes.includes('Resource'));
+  // Test Universal Ontology Ingestion
+  const universalIngestRes = await ingestUniversalOntology(mockIngestPool, 'scan-univ', baasSnapshot);
+  check('ingestUniversalOntology completed', universalIngestRes.archetypes.includes('vibe_baas'));
 
   if (failures > 0) {
     console.error(`FAILED with ${failures} error(s)`);

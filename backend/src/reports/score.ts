@@ -1,4 +1,6 @@
 import type { Confidence } from '../types.js';
+import type { StackArchetype } from '../ontology/universalIngest.js';
+import type { GraphDelta } from '../ontology/osdk.js';
 
 export type Severity = 'info' | 'low' | 'medium' | 'high' | 'critical';
 
@@ -156,5 +158,203 @@ export function securityScore(
     grade: report.effectiveGrade,
     deductions: report.riskIndex,
     ...report,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Universal Ontology 4-Matrix Posture Model
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type OntologyRiskCategory =
+  | 'CLIENT_SECRET_EXPOSURE'
+  | 'DIRECT_BAAS_WITHOUT_RLS'
+  | 'UNPROTECTED_STATE_MUTATION'
+  | 'FORM_MISSING_CSRF'
+  | 'INSECURE_SESSION_COOKIE'
+  | 'OUTDATED_LIBRARY_CVE'
+  | 'MISSING_SECURITY_HEADER';
+
+export interface ScoredOntologyNode {
+  nodeId: string;
+  riskCategory: OntologyRiskCategory;
+  blastRadiusCount: number;    // From osdk.getBlastRadius().length
+  provenanceVerified: boolean; // From osdk.verifyProvenance()
+  confidence?: number;         // 0..1 (default 0.9 for deterministic graph hits)
+  trapProbability?: number;    // 0..1 (default 0)
+}
+
+export interface ControlMatrixInput {
+  totalMutatingEndpoints: number;
+  protectedMutatingEndpoints: number;
+  totalBaasTargets: number;
+  rlsProtectedBaasTargets: number;
+  totalSessionCookies: number;
+  hardenedSessionCookies: number;
+}
+
+export interface CoverageMatrixInput {
+  mode: 'passive' | 'active' | 'swarm';
+  archetypes: StackArchetype[];
+  endpointsDiscovered: number;
+  endpointsTested: number;
+  authenticated: boolean;
+}
+
+export interface OntologyScoreReport {
+  postureScore: number; // 0..100
+  effectiveGrade: 'A' | 'B' | 'C' | 'D' | 'F' | 'INCOMPLETE';
+  matrices: {
+    ontologyRiskIndex: number;
+    controlHygieneScore: number; // 0..100
+    driftPenalty: number;
+    coverageRatio: number;       // 0..1
+  };
+  breakdownByCategory: Record<string, { count: number; weightedRisk: number }>;
+  archetypes: StackArchetype[];
+  warnings: string[];
+}
+
+const CATEGORY_WEIGHTS: Record<OntologyRiskCategory, number> = {
+  CLIENT_SECRET_EXPOSURE: 50,
+  DIRECT_BAAS_WITHOUT_RLS: 40,
+  UNPROTECTED_STATE_MUTATION: 22,
+  FORM_MISSING_CSRF: 18,
+  OUTDATED_LIBRARY_CVE: 15,
+  INSECURE_SESSION_COOKIE: 10,
+  MISSING_SECURITY_HEADER: 5,
+};
+
+const BLAST_ALPHA = 0.25;
+const DRIFT_CONTROL_PENALTY = 12;
+const ONTOLOGY_DECAY_LAMBDA = 0.015;
+
+function computeControlHygiene(ctrl: ControlMatrixInput): number {
+  const ratios: number[] = [];
+
+  if (ctrl.totalMutatingEndpoints > 0) {
+    ratios.push(ctrl.protectedMutatingEndpoints / ctrl.totalMutatingEndpoints);
+  }
+  if (ctrl.totalBaasTargets > 0) {
+    ratios.push(ctrl.rlsProtectedBaasTargets / ctrl.totalBaasTargets);
+  }
+  if (ctrl.totalSessionCookies > 0) {
+    ratios.push(ctrl.hardenedSessionCookies / ctrl.totalSessionCookies);
+  }
+
+  if (ratios.length === 0) return 100;
+  const mean = ratios.reduce((acc, v) => acc + v, 0) / ratios.length;
+  return Math.round(mean * 100);
+}
+
+export function computeOntologyScore(params: {
+  nodes: ScoredOntologyNode[];
+  controls: ControlMatrixInput;
+  coverage: CoverageMatrixInput;
+  delta?: GraphDelta | null;
+}): OntologyScoreReport {
+  const { nodes, controls, coverage, delta } = params;
+  const breakdown: Record<string, { count: number; weightedRisk: number }> = {};
+  const warnings: string[] = [];
+
+  let ontologyRiskIndex = 0;
+  let unverifiedDropped = 0;
+
+  // 1. Ontology Risk Matrix (Blast-Radius & Provenance Weighted)
+  for (const node of nodes) {
+    if (!node.provenanceVerified) {
+      unverifiedDropped++;
+      continue;
+    }
+
+    const baseWeight = CATEGORY_WEIGHTS[node.riskCategory] ?? 10;
+    const blastMultiplier = 1 + BLAST_ALPHA * Math.log(1 + Math.max(0, node.blastRadiusCount));
+    const confidence = Math.min(1, Math.max(0, node.confidence ?? 0.9));
+    const trapDiscount = 1 - Math.min(1, Math.max(0, node.trapProbability ?? 0));
+
+    const weighted = baseWeight * blastMultiplier * confidence * trapDiscount;
+    ontologyRiskIndex += weighted;
+
+    if (!breakdown[node.riskCategory]) {
+      breakdown[node.riskCategory] = { count: 0, weightedRisk: 0 };
+    }
+    breakdown[node.riskCategory].count += 1;
+    breakdown[node.riskCategory].weightedRisk = Number(
+      (breakdown[node.riskCategory].weightedRisk + weighted).toFixed(2)
+    );
+  }
+
+  if (unverifiedDropped > 0) {
+    warnings.push(
+      `Dropped ${unverifiedDropped} finding(s) that failed cryptographic provenance verification.`
+    );
+  }
+
+  // 2. Temporal Drift Matrix
+  const removedControlsCount = delta?.removedControls.length ?? 0;
+  const driftPenalty = removedControlsCount * DRIFT_CONTROL_PENALTY;
+  if (removedControlsCount > 0) {
+    warnings.push(
+      `Security regression detected: ${removedControlsCount} control(s) removed since baseline scan.`
+    );
+  }
+
+  // 3. Control Hygiene Matrix
+  const controlHygieneScore = computeControlHygiene(controls);
+
+  // 4. Composite Posture Score
+  const totalRisk = ontologyRiskIndex + driftPenalty;
+  const postureScore = Math.max(
+    0,
+    Math.min(100, Math.round(100 * Math.exp(-ONTOLOGY_DECAY_LAMBDA * totalRisk)))
+  );
+
+  // 5. Coverage Gate
+  const coverageRatio =
+    coverage.mode === 'passive'
+      ? 0
+      : coverage.endpointsDiscovered === 0
+        ? coverage.endpointsTested > 0
+          ? 0.5
+          : 0
+        : Math.min(1, coverage.endpointsTested / coverage.endpointsDiscovered);
+
+  if (coverage.mode === 'passive') {
+    warnings.push('Passive scan only: active state-graph and API mutation checks did not run.');
+  } else if (coverageRatio < 0.25) {
+    warnings.push(
+      `Low surface coverage (${coverage.endpointsTested}/${coverage.endpointsDiscovered} endpoints tested).`
+    );
+  }
+  if (!coverage.authenticated) {
+    warnings.push('Unauthenticated scan: role-based access control and post-login surfaces were not evaluated.');
+  }
+
+  let effectiveGrade: OntologyScoreReport['effectiveGrade'];
+  if (coverage.mode === 'passive' || coverageRatio < 0.25) {
+    effectiveGrade = postureScore < 60 ? 'D' : 'INCOMPLETE';
+  } else if (postureScore >= 90 && controlHygieneScore >= 85) {
+    effectiveGrade = 'A';
+  } else if (postureScore >= 80) {
+    effectiveGrade = 'B';
+  } else if (postureScore >= 65) {
+    effectiveGrade = 'C';
+  } else if (postureScore >= 45) {
+    effectiveGrade = 'D';
+  } else {
+    effectiveGrade = 'F';
+  }
+
+  return {
+    postureScore,
+    effectiveGrade,
+    matrices: {
+      ontologyRiskIndex: Number(ontologyRiskIndex.toFixed(2)),
+      controlHygieneScore,
+      driftPenalty,
+      coverageRatio: Number(coverageRatio.toFixed(3)),
+    },
+    breakdownByCategory: breakdown,
+    archetypes: coverage.archetypes,
+    warnings,
   };
 }
