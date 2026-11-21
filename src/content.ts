@@ -4,6 +4,7 @@
  * when the user clicks "Scan" in the popup.
  */
 import type { DomScanData, ScanMessage, StorageEntry } from './lib/types';
+import { scanPageBundles } from './scanners/jsBundleScanner';
 
 const MAX_INLINE_SCRIPTS = 40;
 const MAX_INLINE_SCRIPT_CHARS = 200_000;
@@ -247,6 +248,27 @@ chrome.runtime.onMessage.addListener(
       } catch (err) {
         sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
       }
+      return true;
+    }
+    if (msg.type === 'SCAN_BUNDLES') {
+      const scripts = Array.from(document.scripts);
+      const inlineScripts = scripts
+        .filter((s) => !s.src)
+        .slice(0, MAX_INLINE_SCRIPTS)
+        .map((s) => (s.textContent || '').slice(0, MAX_INLINE_SCRIPT_CHARS))
+        .filter((t) => t.trim().length > 0);
+      const externalScripts = scripts
+        .filter((s) => !!s.src)
+        .map((s) => s.src);
+
+      void scanPageBundles(location.origin, externalScripts, inlineScripts).then(
+        (data) => sendResponse({ ok: true, data }),
+        (err) =>
+          sendResponse({
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+      );
       return true;
     }
     if (msg.type === 'XSS_PROBE') {

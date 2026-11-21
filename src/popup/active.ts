@@ -989,6 +989,8 @@ function gradeColor(grade: string): string {
       return 'var(--high)';
     case 'F':
       return 'var(--critical)';
+    case 'INCOMPLETE':
+      return 'var(--medium)';
     default:
       return 'var(--accent)';
   }
@@ -997,10 +999,11 @@ function gradeColor(grade: string): string {
 /** Big count-up number + letter grade inside an SVG progress ring. */
 function renderSwarmScore(
   box: HTMLElement,
-  score: { value: number; grade: string },
+  score: { value: number; grade: string; effectiveGrade?: string; coverageLabel?: string; warnings?: string[] },
   instant: boolean,
 ): void {
-  const color = gradeColor(score.grade);
+  const displayGrade = score.effectiveGrade || score.grade;
+  const color = gradeColor(displayGrade);
   const ns = 'http://www.w3.org/2000/svg';
 
   const wrap = document.createElement('div');
@@ -1026,7 +1029,7 @@ function renderSwarmScore(
   const gradeEl = document.createElement('div');
   gradeEl.className = 'score-grade';
   gradeEl.style.color = color;
-  gradeEl.textContent = score.grade;
+  gradeEl.textContent = displayGrade;
   wrap.appendChild(svg);
   wrap.appendChild(gradeEl);
   box.appendChild(wrap);
@@ -1040,10 +1043,18 @@ function renderSwarmScore(
   label.textContent = 'Security score';
   const sub = document.createElement('div');
   sub.className = 'score-sub';
-  sub.textContent = 'out of 100 · higher is safer';
+  sub.textContent = score.coverageLabel || 'out of 100 · higher is safer';
   side.appendChild(num);
   side.appendChild(label);
   side.appendChild(sub);
+  if (score.warnings && score.warnings.length > 0) {
+    const warnEl = document.createElement('div');
+    warnEl.className = 'score-coverage-warn';
+    warnEl.style.fontSize = '10px';
+    warnEl.style.color = 'var(--muted)';
+    warnEl.textContent = score.warnings[0];
+    side.appendChild(warnEl);
+  }
   box.appendChild(side);
 
   const target = Math.max(0, Math.min(100, score.value));

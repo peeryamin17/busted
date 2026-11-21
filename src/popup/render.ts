@@ -17,6 +17,32 @@ export function addMeta(dl: HTMLElement, term: string, value: string): void {
   dl.appendChild(dd);
 }
 
+export interface DisplaySecurityScore {
+  value: number;
+  grade: string;
+  effectiveGrade?: string;
+  coverageLabel?: string;
+  coverageRatio?: number;
+  warnings?: string[];
+}
+
+export function renderScoreSummary(score: DisplaySecurityScore): HTMLElement {
+  const container = document.createElement('div');
+  container.className = 'score-summary-pill';
+  const grade = score.effectiveGrade || score.grade;
+  const gradeSpan = document.createElement('span');
+  gradeSpan.className = `score-grade grade-${grade.toLowerCase()}`;
+  gradeSpan.textContent = grade;
+  container.appendChild(gradeSpan);
+
+  const labelSpan = document.createElement('span');
+  labelSpan.className = 'score-coverage-label';
+  labelSpan.textContent = score.coverageLabel || `${score.value}/100`;
+  container.appendChild(labelSpan);
+
+  return container;
+}
+
 /** One expandable finding card. */
 export function findingCard(f: Finding, index: number): HTMLElement {
   const sev: Severity = f.severity;

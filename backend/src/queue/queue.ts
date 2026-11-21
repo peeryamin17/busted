@@ -117,3 +117,5 @@ export async function createQueue(redisUrl?: string): Promise<JobQueue> {
   console.log('[queue] no REDIS_URL — using in-process memory queue (not durable)');
   return new MemoryQueue();
 }
+
+export { PgSwarmQueue, type SwarmJobRow } from './pgQueue.js';

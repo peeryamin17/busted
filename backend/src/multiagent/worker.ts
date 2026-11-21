@@ -6,6 +6,7 @@ import type {
   WorkerFinding,
   WorkerReport,
 } from './types.js';
+import { assessHoneypotSignals, type BaselineProfile, type ProbeObservation } from './honeypot.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -181,6 +182,29 @@ export async function runWorker(
     }
     report.testsRun += 1;
 
+    // Assess deterministic honeypot / canary / tarpit signals
+    const defaultBaseline: BaselineProfile = {
+      random404Status: 404,
+      random404Length: 0,
+      meanLatencyMs: 350,
+      stdLatencyMs: 150,
+    };
+    const probeObs: ProbeObservation = {
+      url: toolResult.finalUrl ?? String(test.args?.['url'] ?? ctx.targetUrl),
+      status: toolResult.status ?? 200,
+      bodyLength: (toolResult.bodySnippet ?? '').length,
+      latencyMs: toolResult.timingMs ?? 0,
+      headers: (toolResult.data && typeof toolResult.data === 'object' && 'headers' in (toolResult.data as Record<string, unknown>))
+        ? ((toolResult.data as { headers: Record<string, string> }).headers ?? {})
+        : {},
+      bodySnippet: toolResult.bodySnippet ?? '',
+    };
+    const hpAssessment = assessHoneypotSignals(probeObs, defaultBaseline);
+    const combinedSignals = [
+      ...(toolResult.honeypotSignals ?? []),
+      ...hpAssessment.signals,
+    ];
+
     // OBSERVE (redacted, truncated — never raw bodies to the model)
     const observation = {
       test: test.name,
@@ -192,7 +216,7 @@ export async function runWorker(
       data: toolResult.data,
       error: toolResult.error,
       bodyExcerpt: (toolResult.bodySnippet ?? '').slice(0, 600),
-      honeypotSignals: toolResult.honeypotSignals ?? [],
+      honeypotSignals: combinedSignals,
     };
 
     // TRIAGE (routine tier — cheap filter)
@@ -287,9 +311,14 @@ export async function runWorker(
           reproSteps: verdict.reproSteps ?? [],
           remediation: verdict.remediation ?? '',
           references: verdict.references ?? [],
-          trapProbability: verdict.trapProbability ?? 0,
+          trapProbability: Math.min(1, Math.max(verdict.trapProbability ?? 0, hpAssessment.trapProbability)),
           chainWith: verdict.chainWith ?? [],
         });
+        if (hpAssessment.isLikelyTrap) {
+          report.notes.push(
+            `High trap probability (${hpAssessment.trapProbability}) on ${test.name}: ${hpAssessment.signals.join('; ')}`
+          );
+        }
       } else if (verdict.verdict === 'honeypot') {
         report.notes.push(`possible trap dismissed: ${verdict.title ?? test.name} (${verdict.reasoning ?? ''})`.slice(0, 300));
       }

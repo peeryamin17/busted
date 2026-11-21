@@ -202,7 +202,12 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
         scanId: scan.id,
         targetUrl: outcome.targetUrl,
         headSummary: outcome.headSummary,
-        score: securityScore(findings),
+        score: securityScore(findings, {
+          mode: 'swarm',
+          endpointsDiscovered: Math.max(1, outcome.testsRun),
+          endpointsActivelyTested: outcome.testsRun,
+          authenticated: false,
+        }),
         findings,
         workerReports: outcome.workerReports.map((r) => ({
           specialistId: r.specialistId,

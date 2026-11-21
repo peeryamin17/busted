@@ -21,6 +21,7 @@ import { auditCookies } from './scanners/cookieAuditor';
 import { checkHeaders } from './scanners/headerChecker';
 import { analyzeDom } from './scanners/domAnalyzer';
 import { fingerprintTech } from './lib/fingerprint';
+import { scanPageBundles } from './scanners/jsBundleScanner';
 import { STORAGE_KEYS } from './lib/config';
 import { runActiveScan } from './active/activeRunner';
 import type { RateLimiter } from './lib/rateLimiter';
@@ -128,6 +129,27 @@ async function runScan(tabId: number): Promise<void> {
     sendProgress('Analyzing page structure…');
     const domFindings = analyzeDom(dom);
 
+    sendProgress('Scanning JS bundles for API endpoints & SPA routes…');
+    let bundleFindings: Finding[] = [];
+    try {
+      const bundleScan = await scanPageBundles(new URL(url).origin, dom.externalScripts, dom.inlineScripts);
+      if (bundleScan.endpoints.length > 0 || bundleScan.spaRoutes.length > 0) {
+        bundleFindings.push({
+          id: `jsbundle-${Date.now()}`,
+          category: 'api',
+          title: `Discovered ${bundleScan.endpoints.length} API endpoint${bundleScan.endpoints.length === 1 ? '' : 's'} and ${bundleScan.spaRoutes.length} SPA route${bundleScan.spaRoutes.length === 1 ? '' : 's'} in JS bundles`,
+          description: `Client-side script inspection discovered ${bundleScan.endpoints.length} hidden API endpoints and ${bundleScan.spaRoutes.length} SPA routes (${bundleScan.scriptsScanned} scripts / ${Math.round(bundleScan.bytesScanned / 1024)} KB scanned).`,
+          severity: 'info',
+          confidence: 'high',
+          location: url,
+          evidence: `Sample endpoints: ${bundleScan.endpoints.slice(0, 5).map((e) => e.path).join(', ')}${bundleScan.spaRoutes.length > 0 ? ` | Routes: ${bundleScan.spaRoutes.slice(0, 5).join(', ')}` : ''}`,
+          remediation: 'Verify endpoint access controls and ensure administrative or sensitive routes are protected by server-side authorization checks.',
+        });
+      }
+    } catch {
+      /* non-fatal fallback */
+    }
+
     sendProgress('Mapping cookies, storage, payments & integrations…');
     const deepFindings = await scanDeepSurface(dom);
 
@@ -137,6 +159,7 @@ async function runScan(tabId: number): Promise<void> {
       ...cookieFindings,
       ...headerFindings,
       ...domFindings,
+      ...bundleFindings,
       ...deepFindings,
     ].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 

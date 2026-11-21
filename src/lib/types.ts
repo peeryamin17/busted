@@ -146,6 +146,20 @@ export interface DomScanData {
     local: StorageEntry[];
     session: StorageEntry[];
   };
+  /** Optional client-side JS bundle & SPA route discovery result. */
+  bundleScan?: {
+    scriptsScanned: number;
+    bytesScanned: number;
+    endpoints: Array<{
+      path: string;
+      source: 'js_bundle' | 'inline_script';
+      scriptUrl: string;
+      params: string[];
+      kind: 'api' | 'spa_route' | 'graphql';
+    }>;
+    spaRoutes: string[];
+    warnings: string[];
+  };
 }
 
 /**
@@ -243,6 +257,7 @@ export type ScanMessage =
     }
   | { type: 'ACTIVE_DONE'; result: ScanResult }
   | { type: 'ACTIVE_ERROR'; error: string }
+  | { type: 'SCAN_BUNDLES' }
   // Background -> content script: confirm reflected XSS via DOM observation.
   | { type: 'XSS_PROBE'; url: string; marker: string };
 
