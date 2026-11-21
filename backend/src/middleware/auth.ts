@@ -1,4 +1,5 @@
 import type { FastifyRequest } from 'fastify';
+import { createHash } from 'node:crypto';
 import type { Database } from '../db/db.js';
 import { hashApiKey, verifySession } from '../auth/auth.js';
 import { SESSION_COOKIE, SESSION_IDLE_MS, hashSessionToken, isAdminEmail, parseCookies } from '../auth/session.js';
@@ -29,7 +30,27 @@ declare module 'fastify' {
 export function buildAuthenticate(db: Database) {
   return async function authenticate(request: FastifyRequest): Promise<void> {
     const authHeader = request.headers.authorization;
-    const apiKey = request.headers['x-api-key'];
+    let apiKey = request.headers['x-api-key'];
+    if (!apiKey && authHeader?.startsWith('Bearer bs_')) {
+      apiKey = authHeader.slice(7);
+    }
+    const geminiKey = request.headers['x-gemini-api-key'];
+
+    // Direct Gemini BYOK from extension popup
+    if (typeof geminiKey === 'string' && geminiKey.trim().length >= 16) {
+      const trimmed = geminiKey.trim();
+      const idHash = createHash('sha256').update(trimmed).digest('hex').slice(0, 16);
+      const byokEmail = `byok-${idHash}@bugseek.local`;
+      let user = await db.getUserByEmail(byokEmail);
+      if (!user) {
+        user = await db.createUser(byokEmail, '');
+        if (typeof db.setUserPlan === 'function') {
+          await db.setUserPlan(user.id, 'enterprise').catch(() => undefined);
+        }
+      }
+      request.user = { id: user.id, email: user.email, plan: 'enterprise', viaApiKey: true };
+      return;
+    }
 
     if (typeof apiKey === 'string' && apiKey.startsWith('bs_')) {
       const rec = await db.getApiKeyByHash(hashApiKey(apiKey));

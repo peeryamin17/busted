@@ -23,6 +23,8 @@ export interface BackendStatus {
 
 /** Backend API key (bs_…), stored by the user in extension settings. Sent as x-api-key. */
 const API_KEY_STORAGE_KEY = 'bugseek:apiKey';
+/** User's own Gemini API key (AIza…), stored locally in the extension for direct BYOK scans. */
+const GEMINI_API_KEY_STORAGE_KEY = 'bugseek:geminiApiKey';
 
 export async function getBackendApiKey(): Promise<string | null> {
   try {
@@ -43,6 +45,25 @@ export async function setBackendApiKey(key: string | null): Promise<void> {
   }
 }
 
+export async function getGeminiApiKey(): Promise<string | null> {
+  try {
+    const stored = await chrome.storage.local.get(GEMINI_API_KEY_STORAGE_KEY);
+    const key = stored[GEMINI_API_KEY_STORAGE_KEY];
+    return typeof key === 'string' && key.trim().length > 0 ? key.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setGeminiApiKey(key: string | null): Promise<void> {
+  try {
+    if (key) await chrome.storage.local.set({ [GEMINI_API_KEY_STORAGE_KEY]: key.trim() });
+    else await chrome.storage.local.remove(GEMINI_API_KEY_STORAGE_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 async function fetchJson<T>(
   path: string,
   init: RequestInit,
@@ -52,12 +73,14 @@ async function fetchJson<T>(
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const apiKey = await getBackendApiKey();
+    const geminiKey = await getGeminiApiKey();
     const res = await fetch(`${BACKEND_BASE_URL}${path}`, {
       ...init,
       signal: ctrl.signal,
       headers: {
         'content-type': 'application/json',
         ...(apiKey ? { 'x-api-key': apiKey } : {}),
+        ...(geminiKey ? { 'x-gemini-api-key': geminiKey } : {}),
         ...(init.headers ?? {}),
       },
     });
@@ -110,7 +133,17 @@ export interface BackendAccount {
  * or it predates the endpoint — callers fail closed (locked) on null.
  */
 export async function getBackendAccount(): Promise<BackendAccount | null> {
-  if (!(await getBackendApiKey())) return null;
+  const apiKey = await getBackendApiKey();
+  const geminiKey = await getGeminiApiKey();
+  if (!apiKey && !geminiKey) return null;
+  if (!apiKey && geminiKey) {
+    const hint = geminiKey.length > 8 ? `${geminiKey.slice(0, 4)}••••${geminiKey.slice(-4)}` : '••••••••';
+    return {
+      email: `Gemini AI (${hint})`,
+      plan: 'enterprise',
+      operator: true,
+    };
+  }
   return fetchJsonOrThrow<BackendAccount>('/api/v1/account', { method: 'GET' }, 8000);
 }
 
@@ -285,12 +318,14 @@ async function fetchJsonOrThrow<T>(
   let res: Response;
   try {
     const apiKey = await getBackendApiKey();
+    const geminiKey = await getGeminiApiKey();
     res = await fetch(`${BACKEND_BASE_URL}${path}`, {
       ...init,
       signal: ctrl.signal,
       headers: {
         'content-type': 'application/json',
         ...(apiKey ? { 'x-api-key': apiKey } : {}),
+        ...(geminiKey ? { 'x-gemini-api-key': geminiKey } : {}),
         ...(init.headers ?? {}),
       },
     });

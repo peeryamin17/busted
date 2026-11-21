@@ -72,7 +72,13 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     const plan: PlanTier = isOp ? 'enterprise' : user.plan;
     const quota = PLAN_QUOTAS[plan];
 
-    const userKey = await getUserDecryptedAiKey(db, user.id);
+    const headerGeminiKey =
+      typeof request.headers['x-gemini-api-key'] === 'string' &&
+      request.headers['x-gemini-api-key'].trim().length >= 16
+        ? request.headers['x-gemini-api-key'].trim()
+        : undefined;
+
+    const userKey = headerGeminiKey || (await getUserDecryptedAiKey(db, user.id));
     const hasByok = Boolean(userKey);
 
     // 1. Feature gating: swarm = active testing → Hunter+ or BYOK AI key.

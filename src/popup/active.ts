@@ -31,12 +31,14 @@ import {
   checkBackendStatus,
   getBackendAccount,
   getBackendApiKey,
+  getGeminiApiKey,
   getEnginesStatus,
   importFindingsReport,
   pairWithCode,
   runEngineScan,
   runSwarmScan,
   setBackendApiKey,
+  setGeminiApiKey,
 } from '../lib/apiClient';
 import { hasBackendConsent, saveBackendConsent } from '../lib/consent';
 import type {
@@ -529,8 +531,10 @@ async function startSwarmScan(): Promise<void> {
     return;
   }
   const apiKey = await getBackendApiKey();
-  if (!apiKey) {
-    showError('Save a backend API key first — the swarm runs on the backend (Hunter plan required).');
+  const geminiKey = await getGeminiApiKey();
+  if (!apiKey && !geminiKey) {
+    showError('Paste your Gemini API key (AIza...) in the field above to unlock the AI Swarm.');
+    document.getElementById('backend-api-key')?.focus();
     return;
   }
 
@@ -745,8 +749,10 @@ async function startEnginesRun(): Promise<void> {
     return;
   }
   const apiKey = await getBackendApiKey();
-  if (!apiKey) {
-    showError('Save a backend API key first — the engines run on the backend (Hunter plan required).');
+  const geminiKey = await getGeminiApiKey();
+  if (!apiKey && !geminiKey) {
+    showError('Paste your Gemini API key (AIza...) in the field above to unlock the AI Swarm.');
+    document.getElementById('backend-api-key')?.focus();
     return;
   }
 
@@ -1164,15 +1170,15 @@ async function refreshBackendBadge(): Promise<void> {
   }
 }
 
-/** Backend API-key row: stored locally, sent as x-api-key on backend calls.
-    Accepts a bs_ key directly, or a one-time link code from the website,
-    which is exchanged for a key (the code itself is never stored). */
+/** Backend API-key row: stored locally, sent as x-api-key or x-gemini-api-key on backend calls.
+    Accepts a user's Gemini API key (AIza...), a bs_ key directly, or a one-time link code. */
 async function initBackendKeyRow(): Promise<void> {
   const input = document.getElementById('backend-api-key') as HTMLInputElement | null;
   const save = document.getElementById('backend-api-key-save') as HTMLButtonElement | null;
   if (!input || !save) return;
-  input.value = (await getBackendApiKey()) ? '••••••••' : '';
-  input.placeholder = 'Link code from bugseek-ai.vercel.app (or a bs_ key)';
+  const hasKey = (await getBackendApiKey()) || (await getGeminiApiKey());
+  input.value = hasKey ? '••••••••' : '';
+  input.placeholder = 'Paste Gemini key (AIza...) or link code';
   const doSave = async () => {
     const v = input.value.trim();
     if (v === '••••••••') return; // unchanged placeholder
@@ -1180,11 +1186,51 @@ async function initBackendKeyRow(): Promise<void> {
     if (!v) {
       // Cleared: unlink this browser.
       await setBackendApiKey(null);
+      await setGeminiApiKey(null);
       linkedAccount = null;
       operatorAccount = null;
       accountError = null;
       renderLinkedAccount();
       await refreshAuthzState();
+      setStatus('Key removed.');
+      return;
+    }
+    // Direct Gemini API Key (AIza...)
+    if (v.startsWith('AIza') || (v.length > 32 && !v.startsWith('bs_'))) {
+      save.disabled = true;
+      input.value = 'Verifying Gemini key…';
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(v)}`,
+          { method: 'GET', signal: AbortSignal.timeout(8000) }
+        ).catch(() => null);
+        // If Google explicitly rejected the key with 400/403, warn the user
+        if (res && !res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+          throw new Error(body?.error?.message || `Google rejected this key (HTTP ${res.status}).`);
+        }
+        await setGeminiApiKey(v);
+        input.value = '••••••••';
+        const hint = `${v.slice(0, 4)}••••${v.slice(-4)}`;
+        linkedAccount = { email: `Gemini AI (${hint})`, plan: 'enterprise', operator: true };
+        operatorAccount = linkedAccount;
+        accountError = null;
+        renderLinkedAccount();
+        void refreshBackendBadge();
+        void refreshEnginesStatus();
+        await initOperatorUnlock();
+        await refreshAuthzState();
+        setStatus('Gemini API key verified & saved! AI Swarm unlocked.');
+        hideError();
+      } catch (err) {
+        input.value = v;
+        const msg = err instanceof Error ? err.message : 'Invalid Gemini API key';
+        input.setCustomValidity(msg);
+        input.reportValidity();
+        showError(msg);
+      } finally {
+        save.disabled = false;
+      }
       return;
     }
     if (v.startsWith('bs_')) {

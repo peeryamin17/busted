@@ -136,6 +136,18 @@ async function main() {
     body: swarmWithByok.body,
   });
 
+  // Direct x-gemini-api-key header authentication without cookie or account
+  const directHeaderSwarm = await app.inject({
+    method: 'POST',
+    url: '/api/swarm/scans',
+    headers: { 'x-gemini-api-key': 'AIzaTestValidKey1234567890' },
+    payload: {
+      targetUrl: 'https://demo.owasp-juice.shop',
+      authorization: authz,
+    },
+  });
+  check('direct x-gemini-api-key header → 200', directHeaderSwarm.statusCode === 200);
+
   // DELETE key
   const delRes = await app.inject({
     method: 'DELETE',
