@@ -1,85 +1,184 @@
-# BugSeek AI
+# BugSeek AI 🛡️
 
-AI-powered security reconnaissance for bug bounty hunters. A Chrome extension (Manifest V3) that passively maps a target's attack surface, plus an optional backend that runs an autonomous AI agent swarm for deeper active testing.
+> **Autonomous AI-Powered Security Reconnaissance & Multi-Agent Swarm Platform**  
+> Client-side Manifest V3 Chrome Extension paired with an enterprise-grade Security Ontology, Inter-Procedural SAST Taint Engine, and Fastify / PostgreSQL multi-agent backend.
 
-## What it does
+---
 
-**Passive recon** — runs entirely in the extension, no backend needed:
+## ⚡ What is BugSeek AI?
 
-- DOM analysis: forms, inputs, hidden fields, iframes, HTML comments, inline event handlers, DOM XSS sinks
-- Secret scanning: hardcoded AWS keys, Stripe keys, API tokens, private keys, JWTs and more in page JavaScript
-- Cookie audit: missing `Secure` / `HttpOnly` / `SameSite` flags, overly broad domain scoping
-- Security headers: CSP, HSTS, X-Frame-Options and friends checked against OWASP best practices
-- Tech fingerprinting: frameworks, CMS and server software from headers, meta tags and script URLs
-- One-click Markdown report with severity-grouped findings and remediation advice
+BugSeek AI bridges the gap between passive browser security inspection and deep, autonomous active testing. Built specifically for bug bounty hunters, application security engineers, and red teams:
 
-**Active testing** — locked until you confirm authorization (bug bounty program, pentest contract, or ownership) and define the scope:
+1. **Client-Side Reconnaissance (Zero Backend Required)**:
+   - **SPA Route & Bundle Extractor**: Parses same-origin JavaScript chunks in memory, carving out hidden API paths (`/api/...`, `/rest/...`), Angular/React/Vue client-side routes, and parameterized endpoints without executing hostile code.
+   - **Inter-Procedural SAST Taint Engine**: Parses JavaScript ASTs via Acorn, tracks untrusted input sources (`location.search`, `hash`, `document.referrer`) to dangerous DOM sinks (`innerHTML`, `eval`, `document.write`), models function transfer summaries across scope boundaries, and enforces alpha-beta sanitizer pruning (`encodeURIComponent`, `DOMPurify.sanitize`).
+   - **Passive Audits**: Automated checks for security headers (CSP, HSTS, X-Frame-Options), cookie security (`HttpOnly`, `Secure`, `SameSite`), hardcoded credentials/API keys (AWS, Stripe, Supabase, OpenAI, private keys), tech stack fingerprinting, and DOM XSS injection sinks.
+   - **Zero-Friction BYOK**: Paste your Google Gemini API key (`AIza...`) directly into the popup settings for instant local unlock without backend dependency.
 
-- CORS misconfigurations, GraphQL introspection, reflected XSS, IDOR, auth posture, API endpoint discovery
-- Every request goes through scope checks and a rate limiter — nothing fires outside what you authorized
-- CVSS v3.1 scoring on every finding, honeypot/trap detection, and attack-chain narratives that link findings into bigger stories
-- Deep Inspect mode: opt-in capture of response bodies via the Chrome DevTools protocol, for hunting secrets and debug output leaked in API responses
+2. **Autonomous Multi-Agent AI Swarm (Backend)**:
+   - **Head Agent Coordinator**: Synthesizes passive recon, maps discovered attack surfaces, plans worker assignments, adjudicates findings, and compiles attack chains.
+   - **9 Specialist Worker Agents**:
+     - 🔍 `Recon Specialist`: DNS, WHOIS, technologies, attack surface mapping.
+     - 🔑 `Secrets Hunter`: Deep credential carving, client-side secret triage.
+     - 🛡️ `Headers Auditor`: CSP bypasses, framing risks, missing defenses.
+     - 🌐 `CORS Analyst`: Null-origin trust, wildcard reflection with credentials.
+     - ⚡ `XSS Specialist`: Benign canary injection and reflection context verification.
+     - 🎯 `IDOR Hunter`: Parameterized route fuzzing and object authorization checks.
+     - 🔐 `Auth & Session Auditor`: Token validation, session fixation, cookie scope.
+     - 🕸️ `GraphQL Explorer`: Introspection analysis, field enumeration, batching attacks.
+     - 🗺️ `Source Map Miner`: Automated discovery and parsing of unbundled source maps.
 
-**AI agent swarm** (backend) — a head agent deploys specialist worker agents (recon, secrets, headers, CORS, XSS, IDOR, auth, GraphQL, source-map miner) that probe the target autonomously and report back. The head agent dedupes their findings, chains them, and writes the summary. High and critical findings also get AI-generated suggested code fixes in the report.
+3. **Enterprise Security Ontology & OSDK**:
+   - **Cryptographic Provenance Gate**: All agent-reported vulnerabilities are cryptographically anchored to immutable `evidence_blobs` via SHA-256 content addressing. Zero hallucinated findings allowed.
+   - **Universal Archetype Classifier**: Automatically identifies `vibe_baas` (Firebase, Supabase, Appwrite), `modern_spa` (Next.js, Vite, React, Vue), `legacy_monolith` (CSRF-less HTML forms, session cookies), and `cms_platform` (WordPress, Drupal).
+   - **BugSeek OSDK**: Deterministic graph queries traversing typed nodes (`Origin`, `Asset`, `Endpoint`, `Control`, `Sink`, `Resource`) and directional edges (`MUTATES`, `PROTECTS`, `CAN_INVOKE`, `FLOWS_TO`).
+   - **4-Matrix Posture Model**: Evaluates $S = \text{clamp}(100 - R_{\text{ont}} + H_{\text{ctrl}} - \Delta_{\text{drift}}, 0, 100) \times C$, combining confidence-weighted risk, control hygiene, temporal regression drift, and coverage gating.
 
-**Open-source engines** (backend) — BugSeek also drives the tools hunters already trust: run WhatWeb (fingerprinting), Nikto (server checks) and Nuclei (template scans) from the extension against targets you've authorised, or import existing OWASP ZAP, Nuclei, Nikto and SQLMap reports and have them normalised, deduplicated, CVSS-scored and merged into your BugSeek results — always labelled with the tool that found them.
+4. **Async 202 Accepted + Polling Architecture**:
+   - Swarm jobs start in `<200ms` via HTTP `202 Accepted`, eliminating HTTP gateway timeouts on cloud platforms (e.g. Render free tier cold-starts).
+   - The extension polls live progress (`/api/swarm/scans/:id`) and receives real-time agent status updates until completion.
+
+---
+
+## 🏗️ Architecture Overview
+
+```
+                               ┌────────────────────────────────────────────────────────┐
+                               │                 Chrome Extension (MV3)                 │
+                               │                                                        │
+                               │  ┌───────────────────────┐  ┌───────────────────────┐  │
+                               │  │   jsBundleScanner     │  │   DeepTaintEngine     │  │
+                               │  │ (SPA API Routes/Params│  │ (Acorn AST Taint Sinks│  │
+                               │  └──────────┬────────────┘  └───────────┬───────────┘  │
+                               │             │                           │              │
+                               │  ┌──────────▼───────────────────────────▼───────────┐  │
+                               │  │                 SurfaceSnapshot                  │  │
+                               │  │      (Observed APIs, Forms, Cookies, AST)        │  │
+                               │  └──────────────────────┬───────────────────────────┘  │
+                               └─────────────────────────┼──────────────────────────────┘
+                                                         │ HTTP 202 (Enqueued) + Polling
+                                                         ▼
+┌───────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                BugSeek Fastify / TypeScript Backend                           │
+│                                                                                               │
+│  ┌─────────────────────────────┐                  ┌────────────────────────────────────────┐  │
+│  │    Universal Ingestion      │                  │         AIP Control Plane              │  │
+│  │ (Archetypes & Evidence)     │                  │  (Tool Budgets & Execution Audit Logs) │  │
+│  └──────────────┬──────────────┘                  └───────────────────┬────────────────────┘  │
+│                 │                                                     │                       │
+│  ┌──────────────▼─────────────────────────────────────────────────────▼────────────────────┐  │
+│  │                       Security Ontology Graph (PostgreSQL)                              │  │
+│  │           evidence_blobs  ◄───►  ontology_objects  ◄───►  ontology_links                │  │
+│  └──────────────────────────────────────────────┬──────────────────────────────────────────┘  │
+│                                                 │                                             │
+│  ┌──────────────────────────────────────────────▼──────────────────────────────────────────┐  │
+│  │                           BugSeekOSDK & Tool Dispatcher                                 │  │
+│  │         getUnprotectedMutations  │  getBlastRadius  │  enforceProvenanceGate            │  │
+│  └──────────────────────────────────────────────┬──────────────────────────────────────────┘  │
+│                                                 │                                             │
+│  ┌──────────────────────────────────────────────▼──────────────────────────────────────────┐  │
+│  │                        Autonomous 9-Specialist AI Swarm                                 │  │
+│  │     Head Agent ──► [Recon, Secrets, Headers, CORS, XSS, IDOR, Auth, GraphQL, Maps]      │  │
+│  └────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🚀 Quick Start
+
+### 1. Build & Load the Chrome Extension
 
 ```bash
-cd backend && npx tsx src/multiagent/cli.ts --target https://example.com
-```
+# Clone the repository
+git clone https://github.com/peeryamin17/busted.git
+cd busted
 
-## Project layout
-
-```
-bugseek/
-├── manifest.json
-├── src/
-│   ├── background.ts      # service worker: header capture + scan orchestration
-│   ├── content.ts         # content script: passive DOM collection
-│   ├── scanners/          # passive scanners (DOM, secrets, cookies, headers)
-│   ├── active/            # active testing (HTTP client, probes, CVSS, chains)
-│   ├── lib/               # shared: types, rate limiter, authorization, reporting
-│   └── popup/             # extension UI
-├── backend/
-│   └── src/
-│       ├── agent/         # single-agent recon loop
-│       ├── multiagent/    # head agent + specialist worker swarm
-│       ├── routes/        # API (scans, swarm, reports, auth)
-│       └── guardrails/    # scope checks, SSRF guards, redaction, rate limits
-├── docs/                  # business plan, pitch deck, schemas, terms
-├── landing/               # landing page
-└── brand/                 # identity, icons
-```
-
-## Build the extension
-
-```bash
+# Install dependencies
 npm install
-npm run build   # output goes to dist/
+
+# Build extension (Vite + CRXJS -> dist/)
+npm run build
 ```
 
-Then in Chrome: `chrome://extensions` → enable Developer mode → Load unpacked → select `dist/`. Reload any tabs that were already open, open the popup on a target you're authorized to test, and hit **Scan this page**.
+**Load unpacked in Chrome**:
+1. Open `chrome://extensions/`
+2. Toggle on **Developer mode** (top right)
+3. Click **Load unpacked** (top left)
+4. Select the `dist/` directory (or `/Users/peeryamin/Downloads/bugseek-extension/`)
+5. Open any target tab and click the **BugSeek AI** icon in the toolbar.
 
-## Run the backend
+---
+
+### 2. Configure Your AI Key (BYOK)
+
+BugSeek AI offers two convenient ways to use your own Gemini API key:
+- **Direct in the Extension**: Open the extension popup, expand the settings row, paste your Gemini API key (`AIza...`), and click **Save**. This unlocks the AI Swarm instantly on your own Gemini quota with zero backend dependency.
+- **On the Web Platform**: Log into [bugseek-ai.vercel.app](https://bugseek-ai.vercel.app), paste your key in Settings, and connect your extension with a single-click 32-character pairing code. The key is encrypted via **AES-256-GCM** in PostgreSQL and never exposed to the browser.
+
+---
+
+### 3. Run the Backend (Fastify + PostgreSQL)
+
+The extension is fully functional standalone. To run the backend locally for zero-latency testing:
 
 ```bash
 cd backend
+
+# Install dependencies
 npm install
-cp .env.example .env   # add your GEMINI_API_KEY
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your GEMINI_API_KEY and DATABASE_URL
+
+# Apply PostgreSQL ontology schema
+node scripts/migrate.js
+
+# Start backend in watch mode
 npm run dev
 ```
 
-The extension works fully standalone — the backend just adds AI deepening and the agent swarm. Save your backend API key in the extension popup (Active tab) to connect them.
-
-## Try it on something safe
-
-Only ever scan targets you own or are authorized to test. [OWASP Juice Shop](https://juice-shop.github.io/) is the classic practice target:
-
+Health check:
 ```bash
-docker run -d -p 3000:3000 bkimminich/juice-shop
-# then scan http://localhost:3000
+curl http://localhost:3000/health
+# Response: {"status":"ok","version":"0.2.0","llm":"gemini"}
 ```
 
-## Pricing
+---
 
-Scout (free, 50 credits/month), Hunter ($29/mo, 300 credits), Pro ($99/mo, 1500 credits). Passive scans cost 1 credit, agent scans cost 25. See `docs/business-plan.md` for the full model.
+## 🧪 Running Test Suites
+
+BugSeek maintains comprehensive end-to-end and unit test coverage across all subsystems:
+
+```bash
+# Backend unit & integration test suites:
+cd backend
+npx tsx test/ontology.test.ts  # Universal Ontology, OSDK, Ingestion & AIP Score
+npx tsx test/swarm.test.ts     # Multi-Agent Swarm, 202 Accepted & Polling
+npx tsx test/aiKey.test.ts     # AES-256-GCM Key Encryption & BYOK Gating
+npx tsx test/pairing.test.ts   # One-Time 32-char Pairing Code Exchange
+npx tsx test/v1compat.test.ts  # Backward Compatibility & Health Probes
+npx tsx test/webcheck.test.ts  # Active Probes, SSRF Guardrails & Rate Limiting
+
+# Extension typecheck & build:
+cd ..
+npm run typecheck
+npm run build
+```
+
+---
+
+## ⚖️ Legal & Ethical Guardrails
+
+BugSeek AI strictly enforces legal and safety constraints at both the client and server levels:
+
+- **Explicit Authorization Verification**: Active testing and swarm scans require explicit confirmation of target ownership, pentest engagement, or public bug bounty authorization before probes are dispatched.
+- **SSRF & Scope Enforcement**: Every single HTTP request passes through strict target URL boundary matching and RFC 1918 / loopback IP address resolution guards.
+- **Zero Raw Secrets Stored**: All sensitive evidence (passwords, JWTs, API tokens, PII) is redacted at collection and before database persistence using cryptographic masks.
+- **Rate-Limiting Safeguards**: Configurable token-bucket rate limiters prevent denial-of-service against tested applications.
+
+---
+
+## 📜 License
+
+UNLICENSED — Proprietary software. Built for authorized security researchers, bug bounty hunters, and internal AppSec teams.
