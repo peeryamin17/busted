@@ -30,6 +30,7 @@ function makeDb(plan: 'free' | 'hunter' | 'pro' = 'pro', seedUsage: UsageEvent[]
     scans, findings, usage,
     async getApiKeyByHash() { return { userId: 'u1', revokedAt: null }; },
     async getUserById() { return { id: 'u1', email: 't@e.com', plan }; },
+    async getAiKey() { return null; },
     async touchApiKey() { /* stub */ },
     async createAuthorization(input: any) { return { id: 'authz-1', ...input }; },
     async createScan(input: any) {

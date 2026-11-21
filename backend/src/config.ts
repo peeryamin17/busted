@@ -52,6 +52,7 @@ export interface AppConfig {
   apiRateLimitPerMin: number;
   corsOrigins: string[];
   adminEmail?: string;
+  keyEncryptionSecret?: string;
 }
 
 function loadConfig(): AppConfig {
@@ -144,6 +145,7 @@ function loadConfig(): AppConfig {
     apiRateLimitPerMin: num('API_RATE_LIMIT_PER_MIN', 120),
     corsOrigins,
     adminEmail: str('ADMIN_EMAIL', '').trim().toLowerCase() || undefined,
+    keyEncryptionSecret: process.env['KEY_ENCRYPTION_SECRET'] || undefined,
   };
 }
 

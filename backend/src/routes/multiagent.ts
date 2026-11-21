@@ -10,6 +10,8 @@ import { estimateCvss } from '../reports/cvss.js';
 import { securityScore } from '../reports/score.js';
 import { suggestFixes } from '../reports/remediation.js';
 import { createLLMProvider } from '../llm/index.js';
+import { config } from '../config.js';
+import { getUserDecryptedAiKey } from './aiKey.js';
 import type { RouteDeps } from './health.js';
 import { runMultiAgentScan } from '../multiagent/orchestrator.js';
 import type { Confidence, PlanTier, Severity } from '../types.js';
@@ -70,9 +72,14 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     const plan: PlanTier = isOp ? 'enterprise' : user.plan;
     const quota = PLAN_QUOTAS[plan];
 
-    // 1. Feature gating: swarm = active testing → Hunter+.
-    if (!isOp && !quota.activeTesting) {
-      return reply.status(403).send({ error: 'Active testing requires the Hunter plan or higher' });
+    const userKey = await getUserDecryptedAiKey(db, user.id);
+    const hasByok = Boolean(userKey);
+
+    // 1. Feature gating: swarm = active testing → Hunter+ or BYOK AI key.
+    if (!isOp && !hasByok && !quota.activeTesting) {
+      return reply.status(403).send({
+        error: 'Active testing requires the Hunter plan or higher, or a connected Gemini API key (BYOK)',
+      });
     }
 
     // 2. Target validation (SSRF guard: public hosts only unless explicitly allowed).
@@ -93,20 +100,22 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       return reply.status(status).send({ error: (err as Error).message });
     }
 
-    // 4. Credit quota: a swarm scan is an active scan → 25 credits.
-    const creditCost = SCAN_CREDIT_COST.active;
-    try {
-      const used = await db.sumUsageSince(user.id, 'scan', monthStartIso());
-      if (!isOp && used + creditCost > quota.creditsPerMonth) {
-        return reply.status(429).send({
-          error: `Monthly credit quota exceeded (${used}/${quota.creditsPerMonth} credits used on the ${plan} plan; this scan costs ${creditCost})`,
-        });
+    // 4. Credit quota: a swarm scan is an active scan → 25 credits (waived when user brings their own key).
+    const creditCost = hasByok ? 0 : SCAN_CREDIT_COST.active;
+    if (creditCost > 0) {
+      try {
+        const used = await db.sumUsageSince(user.id, 'scan', monthStartIso());
+        if (!isOp && used + creditCost > quota.creditsPerMonth) {
+          return reply.status(429).send({
+            error: `Monthly credit quota exceeded (${used}/${quota.creditsPerMonth} credits used on the ${plan} plan; this scan costs ${creditCost})`,
+          });
+        }
+      } catch (err) {
+        return reply.status(500).send({ error: (err as Error).message });
       }
-    } catch (err) {
-      return reply.status(500).send({ error: (err as Error).message });
     }
 
-    // 5. Create the scan record + charge credits.
+    // 5. Create the scan record + charge credits if applicable.
     const scope = {
       mode: d.scope?.mode ?? 'subdomain',
       includeSubdomains: d.scope?.includeSubdomains ?? false,
@@ -122,7 +131,11 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       authorizationId,
       techStack: [],
     });
-    await db.recordUsage(user.id, 'scan', creditCost, scan.id);
+    if (creditCost > 0) {
+      await db.recordUsage(user.id, 'scan', creditCost, scan.id);
+    }
+
+    const provider = createLLMProvider(userKey || config.geminiApiKey);
 
     try {
       const outcome = await runMultiAgentScan({
@@ -142,9 +155,10 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
           allowPrivateTargets: d.allowPrivateTargets,
         },
         specialists: d.specialists,
+        provider,
       });
       // AI remediation suggestions for high/critical findings (Phase 3, best-effort).
-      const fixes = await suggestFixes(outcome.findings, createLLMProvider());
+      const fixes = await suggestFixes(outcome.findings, provider);
       // Server-side re-redaction + CVSS before persisting (same contract as scan findings).
       const findings = outcome.findings.map((f, idx) => {
         const cvss = estimateCvss(f.severity as Severity, f.category);

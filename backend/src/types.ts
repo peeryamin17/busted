@@ -158,6 +158,14 @@ export interface UserRecord {
   avatarUrl?: string;
   /** Most recent login; ISO string. */
   lastLoginAt?: string;
+  /** Encrypted BYOK AI key (AES-256-GCM). */
+  encryptedAiKey?: string;
+  /** AI provider (e.g. 'gemini'). */
+  aiProvider?: string;
+  /** Safe masked hint for UI display. */
+  aiKeyHint?: string;
+  /** Timestamp when AI key was last updated. */
+  aiKeyUpdatedAt?: string;
 }
 
 /** Server-side website session. Only the token's SHA-256 hash is stored. */

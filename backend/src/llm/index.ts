@@ -12,10 +12,11 @@ import { MockProvider } from './mock.js';
  * dev` keeps working with zero infrastructure and zero cost. Set the key to
  * use live models.
  */
-export function createLLMProvider(): LLMProvider {
+export function createLLMProvider(apiKey?: string): LLMProvider {
   switch (config.llmProvider) {
-    case 'gemini':
-      if (!config.geminiApiKey) {
+    case 'gemini': {
+      const key = apiKey || config.geminiApiKey;
+      if (!key) {
         // SECURITY: never serve deterministic fake findings as real ones in
         // production. In dev/test the mock keeps zero-cost local runs working.
         if (process.env['NODE_ENV'] === 'production') {
@@ -28,7 +29,8 @@ export function createLLMProvider(): LLMProvider {
         );
         return new MockProvider();
       }
-      return new GeminiProvider();
+      return new GeminiProvider(key);
+    }
     case 'claude':
       return new ClaudeProvider();
     case 'mock':

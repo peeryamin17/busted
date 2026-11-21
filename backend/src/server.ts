@@ -9,6 +9,7 @@ import { ScanOrchestrator } from './orchestrator/orchestrator.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { googleAuthRoutes } from './routes/googleAuth.js';
+import { aiKeyRoutes, registerDefaultDatabase } from './routes/aiKey.js';
 import { scanRoutes, type ScanRouteDeps } from './routes/scans.js';
 import { reportRoutes } from './routes/reports.js';
 import { oastRoutes } from './routes/oast.js';
@@ -44,6 +45,8 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
     reply.status(status).send({ error: err.message ?? 'Internal server error' });
   });
 
+  registerDefaultDatabase(deps.db);
+
   const routeDeps: ScanRouteDeps = {
     db: deps.db,
     queue: deps.queue,
@@ -55,6 +58,7 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
     await healthRoutes(instance, routeDeps);
     await authRoutes(instance, routeDeps);
     await googleAuthRoutes(instance, routeDeps);
+    await aiKeyRoutes(instance, routeDeps);
     await scanRoutes(instance, routeDeps);
     await swarmRoutes(instance, routeDeps);
     await v1CompatRoutes(instance, routeDeps);

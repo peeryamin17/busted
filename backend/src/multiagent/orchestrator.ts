@@ -1,4 +1,5 @@
 import { createLLMProvider } from '../llm/index.js';
+import type { LLMProvider } from '../llm/provider.js';
 import { runHeadAgent } from './head.js';
 import type {
   MultiAgentEvent,
@@ -33,6 +34,7 @@ export interface MultiAgentScanRequest {
   };
   limits?: Partial<MultiAgentLimits>;
   specialists?: SpecialistId[];
+  provider?: LLMProvider;
   onEvent?: (e: MultiAgentEvent) => void;
   shouldContinue?: () => 'run' | 'paused' | 'cancelled';
 }
@@ -42,7 +44,7 @@ export async function runMultiAgentScan(req: MultiAgentScanRequest): Promise<Mul
   if (target.protocol !== 'http:' && target.protocol !== 'https:') {
     throw new Error('Target URL must use http(s)');
   }
-  const provider = createLLMProvider();
+  const provider = req.provider ?? createLLMProvider();
   const opts: MultiAgentOptions = {
     targetUrl: target.toString(),
     scope: {

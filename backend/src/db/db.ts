@@ -78,6 +78,14 @@ export interface Database {
   getUserByEmail(email: string): Promise<UserRecord | null>;
   getUserById(id: string): Promise<UserRecord | null>;
   setUserPlan(userId: string, plan: PlanTier): Promise<void>;
+  setAiKey(userId: string, encryptedKey: string, provider: string, hint: string): Promise<void>;
+  getAiKey(userId: string): Promise<{
+    encryptedAiKey?: string;
+    aiProvider?: string;
+    aiKeyHint?: string;
+    aiKeyUpdatedAt?: string;
+  } | null>;
+  deleteAiKey(userId: string): Promise<void>;
 
   /** Create a website session; only the token's SHA-256 hash is passed in/stored. */
   createSession(userId: string, tokenHash: string, expiresAtIso: string): Promise<SessionRecord>;
@@ -319,6 +327,39 @@ export class MemoryDatabase implements Database {
   async setUserPlan(userId: string, plan: PlanTier): Promise<void> {
     const u = this.users.get(userId);
     if (u) u.plan = plan;
+  }
+
+  async setAiKey(userId: string, encryptedKey: string, provider: string, hint: string): Promise<void> {
+    const u = this.users.get(userId);
+    if (!u) return;
+    u.encryptedAiKey = encryptedKey;
+    u.aiProvider = provider;
+    u.aiKeyHint = hint;
+    u.aiKeyUpdatedAt = nowIso();
+  }
+
+  async getAiKey(userId: string): Promise<{
+    encryptedAiKey?: string;
+    aiProvider?: string;
+    aiKeyHint?: string;
+    aiKeyUpdatedAt?: string;
+  } | null> {
+    const u = this.users.get(userId);
+    if (!u) return null;
+    return {
+      encryptedAiKey: u.encryptedAiKey,
+      aiProvider: u.aiProvider ?? 'gemini',
+      aiKeyHint: u.aiKeyHint,
+      aiKeyUpdatedAt: u.aiKeyUpdatedAt,
+    };
+  }
+
+  async deleteAiKey(userId: string): Promise<void> {
+    const u = this.users.get(userId);
+    if (!u) return;
+    delete u.encryptedAiKey;
+    delete u.aiKeyHint;
+    delete u.aiKeyUpdatedAt;
   }
 
   async createApiKey(
@@ -641,6 +682,10 @@ export class PostgresDatabase implements Database {
       name: (row['name'] as string) ?? undefined,
       avatarUrl: (row['avatar_url'] as string) ?? undefined,
       lastLoginAt: row['last_login_at'] ? (row['last_login_at'] as Date).toISOString() : undefined,
+      encryptedAiKey: (row['encrypted_ai_key'] as string) ?? undefined,
+      aiProvider: (row['ai_provider'] as string) ?? undefined,
+      aiKeyHint: (row['ai_key_hint'] as string) ?? undefined,
+      aiKeyUpdatedAt: row['ai_key_updated_at'] ? (row['ai_key_updated_at'] as Date).toISOString() : undefined,
     };
   }
 
@@ -826,6 +871,50 @@ export class PostgresDatabase implements Database {
 
   async setUserPlan(userId: string, plan: PlanTier): Promise<void> {
     await this.pool.query(`UPDATE users SET plan = $2 WHERE id = $1`, [userId, plan]);
+  }
+
+  async setAiKey(userId: string, encryptedKey: string, provider: string, hint: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE users
+       SET encrypted_ai_key = $1,
+           ai_provider = $2,
+           ai_key_hint = $3,
+           ai_key_updated_at = NOW()
+       WHERE id = $4`,
+      [encryptedKey, provider, hint, userId]
+    );
+  }
+
+  async getAiKey(userId: string): Promise<{
+    encryptedAiKey?: string;
+    aiProvider?: string;
+    aiKeyHint?: string;
+    aiKeyUpdatedAt?: string;
+  } | null> {
+    const { rows } = await this.pool.query(
+      `SELECT encrypted_ai_key, ai_provider, ai_key_hint, ai_key_updated_at
+       FROM users WHERE id = $1`,
+      [userId]
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      encryptedAiKey: (row['encrypted_ai_key'] as string) ?? undefined,
+      aiProvider: (row['ai_provider'] as string) ?? 'gemini',
+      aiKeyHint: (row['ai_key_hint'] as string) ?? undefined,
+      aiKeyUpdatedAt: row['ai_key_updated_at'] ? (row['ai_key_updated_at'] as Date).toISOString() : undefined,
+    };
+  }
+
+  async deleteAiKey(userId: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE users
+       SET encrypted_ai_key = NULL,
+           ai_key_hint = NULL,
+           ai_key_updated_at = NULL
+       WHERE id = $1`,
+      [userId]
+    );
   }
 
   async createApiKey(
