@@ -38,13 +38,18 @@ export function buildAuthenticate(db: Database) {
       }
       const user = await db.getUserById(rec.userId);
       if (!user) throw Object.assign(new Error('Invalid API key'), { statusCode: 401 });
-      if (!PLAN_QUOTAS[user.plan].apiAccess) {
+      const isOp = isAdminEmail(user.email);
+      const plan: PlanTier = isOp ? 'enterprise' : user.plan;
+      if (isOp && user.plan !== 'enterprise' && typeof db.setUserPlan === 'function') {
+        await db.setUserPlan(user.id, 'enterprise').catch(() => undefined);
+      }
+      if (!isOp && !PLAN_QUOTAS[user.plan].apiAccess) {
         throw Object.assign(new Error('API access requires the Pro plan or higher'), {
           statusCode: 403,
         });
       }
       await db.touchApiKey(rec.id).catch(() => undefined);
-      request.user = { id: user.id, email: user.email, plan: user.plan, viaApiKey: true };
+      request.user = { id: user.id, email: user.email, plan, viaApiKey: true };
       return;
     }
 
@@ -57,11 +62,16 @@ export function buildAuthenticate(db: Database) {
       if (!session || !user) {
         throw Object.assign(new Error('Invalid or expired session'), { statusCode: 401 });
       }
+      const isOp = isAdminEmail(user.email);
+      const plan: PlanTier = isOp ? 'enterprise' : user.plan;
+      if (isOp && user.plan !== 'enterprise' && typeof db.setUserPlan === 'function') {
+        await db.setUserPlan(user.id, 'enterprise').catch(() => undefined);
+      }
       // Five quiet minutes and the session signs itself out; every
       // authenticated request resets the clock. The operator's
       // account (ADMIN_EMAIL) is exempt — it keeps the 30-day
       // absolute expiry only.
-      if (!isAdminEmail(user.email)) {
+      if (!isOp) {
         if (Date.now() - Date.parse(session.lastSeenAt) > SESSION_IDLE_MS) {
           await db.deleteSession(tokenHash).catch(() => undefined);
           throw Object.assign(new Error('Five quiet minutes — you were signed out. Sign in again.'), {
@@ -70,7 +80,7 @@ export function buildAuthenticate(db: Database) {
         }
         await db.touchSession(tokenHash).catch(() => undefined);
       }
-      request.user = { id: user.id, email: user.email, plan: user.plan, viaApiKey: false };
+      request.user = { id: user.id, email: user.email, plan, viaApiKey: false };
       return;
     }
 
@@ -79,7 +89,12 @@ export function buildAuthenticate(db: Database) {
       if (claims) {
         const user = await db.getUserById(claims.sub);
         if (!user) throw Object.assign(new Error('User not found'), { statusCode: 401 });
-        request.user = { id: user.id, email: user.email, plan: user.plan, viaApiKey: false };
+        const isOp = isAdminEmail(user.email);
+        const plan: PlanTier = isOp ? 'enterprise' : user.plan;
+        if (isOp && user.plan !== 'enterprise' && typeof db.setUserPlan === 'function') {
+          await db.setUserPlan(user.id, 'enterprise').catch(() => undefined);
+        }
+        request.user = { id: user.id, email: user.email, plan, viaApiKey: false };
         return;
       }
       throw Object.assign(new Error('Invalid or expired token'), { statusCode: 401 });

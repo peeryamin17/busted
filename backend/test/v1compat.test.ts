@@ -11,6 +11,7 @@ const db: any = {
   async getUserById() {
     return { id: 'u1', email: 't@e.com', plan: 'pro' };
   },
+  async setUserPlan() { /* stub */ },
   async touchApiKey() { /* stub */ },
   async createScan(input: any) {
     return { id: 'scan-1', ...input, status: 'completed', progress: {}, createdAt: new Date().toISOString() };
@@ -89,7 +90,7 @@ async function main() {
   const op = await app.inject({ method: 'GET', url: '/api/v1/account', headers: { 'x-api-key': 'bs_test' } });
   const opBody = JSON.parse(op.body);
   console.log('account as operator:', op.statusCode, op.body.slice(0, 120));
-  if (op.statusCode !== 200 || opBody.operator !== true) {
+  if (op.statusCode !== 200 || opBody.operator !== true || opBody.plan !== 'enterprise') {
     throw new Error('account endpoint mismatch (operator)');
   }
   const noKey = await app.inject({ method: 'GET', url: '/api/v1/account' });

@@ -231,16 +231,32 @@ async function refreshAuthzState(): Promise<void> {
  * authorization form. Fails closed — no key, an unreachable backend, or
  * a non-operator account all leave the form exactly as it was.
  */
+let accountError: string | null = null;
+
 async function initOperatorUnlock(): Promise<void> {
-  const acct = await getBackendAccount();
-  linkedAccount = acct;
-  operatorAccount = acct?.operator ? acct : null;
+  try {
+    const acct = await getBackendAccount();
+    linkedAccount = acct;
+    operatorAccount = acct?.operator ? acct : null;
+    accountError = null;
+  } catch (err) {
+    linkedAccount = null;
+    operatorAccount = null;
+    accountError = err instanceof Error ? err.message : String(err);
+  }
   renderLinkedAccount();
 }
 
 /** Say whose account the extension acts for, right under the key row. */
 function renderLinkedAccount(): void {
   if (!el.backendAccount) return;
+  if (accountError) {
+    el.backendAccount.textContent = accountError;
+    el.backendAccount.className = 'backend-account backend-account-error';
+    el.backendAccount.hidden = false;
+    return;
+  }
+  el.backendAccount.className = 'backend-account';
   if (!linkedAccount) {
     el.backendAccount.hidden = true;
     el.backendAccount.textContent = '';
@@ -1166,6 +1182,7 @@ async function initBackendKeyRow(): Promise<void> {
       await setBackendApiKey(null);
       linkedAccount = null;
       operatorAccount = null;
+      accountError = null;
       renderLinkedAccount();
       await refreshAuthzState();
       return;
@@ -1188,6 +1205,7 @@ async function initBackendKeyRow(): Promise<void> {
       const account = await pairWithCode(v);
       linkedAccount = account;
       operatorAccount = account.operator ? account : null;
+      accountError = null;
       renderLinkedAccount();
       input.value = '••••••••';
       void refreshBackendBadge();
@@ -1196,10 +1214,12 @@ async function initBackendKeyRow(): Promise<void> {
       setStatus(`Linked to ${account.email}.`);
     } catch (err) {
       input.value = '';
-      input.setCustomValidity(
-        err instanceof Error ? err.message : 'That link code did not work.',
-      );
+      const msg = err instanceof Error ? err.message : 'That link code did not work.';
+      input.setCustomValidity(msg);
       input.reportValidity();
+      accountError = msg;
+      renderLinkedAccount();
+      showError(msg);
     } finally {
       save.disabled = false;
     }

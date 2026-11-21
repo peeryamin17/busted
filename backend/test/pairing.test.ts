@@ -3,9 +3,12 @@
    regular API key, and that key identifies the account. Runs against
    the in-memory DB with the real routes. */
 import Fastify from 'fastify';
+import { createServer } from 'node:http';
 import { MemoryDatabase } from '../src/db/db.js';
 import { authRoutes } from '../src/routes/auth.js';
 import { v1CompatRoutes } from '../src/routes/v1compat.js';
+import { swarmRoutes } from '../src/routes/multiagent.js';
+import { MockProvider } from '../src/llm/mock.js';
 import { generateSessionToken, hashSessionToken } from '../src/auth/session.js';
 
 let failures = 0;
@@ -31,9 +34,10 @@ async function main() {
   const cookie = `bs_session=${token}`;
 
   const app = Fastify();
-  const deps = { db, queue: {} as never, provider: { name: 'mock' } as never };
+  const deps = { db, queue: {} as never, provider: new MockProvider() as never };
   await authRoutes(app as never, deps);
   await v1CompatRoutes(app as never, deps);
+  await swarmRoutes(app as never, deps);
 
   const anon = await app.inject({ method: 'POST', url: '/api/auth/pairing-codes' });
   check('mint without session → 401', anon.statusCode === 401, anon.statusCode);
@@ -55,7 +59,7 @@ async function main() {
   });
   check('wrong code → 400', wrong.statusCode === 400, wrong.statusCode);
 
-  // Typed the way a human copies it: lowercase, grouped with dashes.
+
   const typed = code.toLowerCase().replace(/(.{4})/g, '$1-').slice(0, -1);
   const pair = await app.inject({ method: 'POST', url: '/api/v1/pair', payload: { code: typed } });
   check('exchange → 201', pair.statusCode === 201, pair.statusCode);
@@ -97,6 +101,88 @@ async function main() {
   check('superseded code → 400', stale.statusCode === 400, stale.statusCode);
   const fresh = await app.inject({ method: 'POST', url: '/api/v1/pair', payload: { code: code3 } });
   check('freshest code → 201', fresh.statusCode === 201, fresh.statusCode);
+
+  // ── Regression test: fresh ADMIN_EMAIL auto-upgrade to enterprise + passes /api/v1/account and /api/swarm/scans ──
+  process.env['ADMIN_EMAIL'] = 'fresh-operator@example.com';
+  // Create user with mixed case without manually calling setUserPlan
+  const freshAdminUser = await db.createUser('FRESH-OPERATOR@EXAMPLE.COM', 'admin-pass-hash');
+  const freshToken = generateSessionToken();
+  await db.createSession(
+    freshAdminUser.id,
+    hashSessionToken(freshToken),
+    new Date(Date.now() + 3600_000).toISOString(),
+  );
+  const freshCookie = `bs_session=${freshToken}`;
+
+  const adminMint = await app.inject({
+    method: 'POST',
+    url: '/api/auth/pairing-codes',
+    headers: { cookie: freshCookie },
+  });
+  check('fresh admin mint → 201', adminMint.statusCode === 201, adminMint.statusCode);
+  const adminPairCode = JSON.parse(adminMint.body).code;
+
+  const adminPair = await app.inject({
+    method: 'POST',
+    url: '/api/v1/pair',
+    payload: { code: adminPairCode },
+  });
+  check('fresh admin pair → 201', adminPair.statusCode === 201, adminPair.statusCode);
+  const adminApiKey = JSON.parse(adminPair.body).apiKey;
+
+  // 1. Passes /api/v1/account with enterprise plan & operator=true
+  const adminAcct = await app.inject({
+    method: 'GET',
+    url: '/api/v1/account',
+    headers: { 'x-api-key': adminApiKey },
+  });
+  const adminAcctBody = JSON.parse(adminAcct.body);
+  check(
+    'fresh admin passes /api/v1/account with enterprise plan',
+    adminAcct.statusCode === 200 &&
+    adminAcctBody.email === 'fresh-operator@example.com' &&
+    adminAcctBody.plan === 'enterprise' &&
+    adminAcctBody.operator === true,
+    adminAcct.body,
+  );
+
+  // 2. Passes /api/swarm/scans without 403 (active testing gated for non-hunter/pro) or quota errors
+  const testTarget = createServer((_req, res) => {
+    res.setHeader('content-type', 'text/html');
+    res.end('<html><body><h1>Admin Test</h1><a href="/api/users">API</a></body></html>');
+  });
+  await new Promise<void>((r) => testTarget.listen(0, '127.0.0.1', r));
+  const testPort = (testTarget.address() as any).port;
+  const testUrl = `http://127.0.0.1:${testPort}/`;
+
+  const adminSwarm = await app.inject({
+    method: 'POST',
+    url: '/api/swarm/scans',
+    headers: { 'x-api-key': adminApiKey },
+    payload: {
+      targetUrl: testUrl,
+      authorization: {
+        type: 'ownership',
+        statement: 'Authorized testing by operator',
+        confirmed: true,
+      },
+      allowPrivateTargets: true,
+      specialists: ['recon'],
+      maxTokens: 5000,
+      timeoutMinutes: 1,
+    },
+  });
+  check(
+    'fresh admin passes /api/swarm/scans (200, active testing unlocked)',
+    adminSwarm.statusCode === 200,
+    `${adminSwarm.statusCode}: ${adminSwarm.body.slice(0, 200)}`,
+  );
+  const adminSwarmBody = JSON.parse(adminSwarm.body);
+  check('fresh admin swarm created scanId', typeof adminSwarmBody.scanId === 'string', adminSwarmBody.scanId);
+
+  testTarget.closeAllConnections();
+  testTarget.close();
+  await new Promise((r) => setTimeout(r, 50));
 
   await app.close();
   if (failures) {

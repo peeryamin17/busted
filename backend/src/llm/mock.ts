@@ -37,6 +37,27 @@ export class MockProvider implements LLMProvider {
     if (systemText.includes('MODE: FULL VERDICT')) {
       return makeCompletion(JSON.stringify(this.swarmVerdict(userText)), { inputTokens: 600, outputTokens: 350 });
     }
+    if (systemText.includes('PoC VALIDATOR') || userText.includes('FINDINGS TO VALIDATE')) {
+      const match = /FINDINGS TO VALIDATE:\s*(\[[\s\S]*?\])/.exec(userText);
+      let list: any[] = [];
+      if (match) {
+        try { list = JSON.parse(match[1]); } catch { list = []; }
+      }
+      const validations = list.map((item: any, idx: number) => {
+        const raw = String(item.rawEvidence || item.evidence || '');
+        const isTrap = /canary|honeypot/i.test(raw) || (item.trapProbability ?? 0) >= 0.6;
+        const substantiated = !isTrap && (raw.length > 0 || String(item.title).length > 0);
+        return {
+          index: item.index ?? idx,
+          substantiated,
+          isHoneypot: isTrap,
+          trapProbability: isTrap ? 0.9 : 0.05,
+          reason: isTrap ? 'Canary/honeypot detected in raw evidence' : (substantiated ? 'Substantiated by raw response evidence' : 'Unsubstantiated claim'),
+          fixInIdePrompt: `// Fix-in-IDE Prompt for ${item.title}:\nLocate ${item.location || 'handler'} and apply security remediation.`,
+        };
+      });
+      return makeCompletion(JSON.stringify({ validations }), { inputTokens: 500, outputTokens: 300 });
+    }
     if (systemText.includes('HEAD AGENT')) {
       if (userText.includes('CONDITIONAL specialists to spawn')) {
         return makeCompletion(

@@ -111,7 +111,7 @@ export interface BackendAccount {
  */
 export async function getBackendAccount(): Promise<BackendAccount | null> {
   if (!(await getBackendApiKey())) return null;
-  return fetchJson<BackendAccount>('/api/v1/account', { method: 'GET' }, 8000);
+  return fetchJsonOrThrow<BackendAccount>('/api/v1/account', { method: 'GET' }, 8000);
 }
 
 /**

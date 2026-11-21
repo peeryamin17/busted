@@ -432,6 +432,11 @@ button:disabled {
   margin: -6px 0 12px;
 }
 
+.backend-account-error {
+  color: #ef4444;
+  font-weight: 500;
+}
+
 .authz-form h2,
 .authz-authorized h2,
 .chains-heading {

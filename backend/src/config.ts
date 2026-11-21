@@ -51,6 +51,7 @@ export interface AppConfig {
   allowPrivateTargets: boolean;
   apiRateLimitPerMin: number;
   corsOrigins: string[];
+  adminEmail?: string;
 }
 
 function loadConfig(): AppConfig {
@@ -142,6 +143,7 @@ function loadConfig(): AppConfig {
     allowPrivateTargets,
     apiRateLimitPerMin: num('API_RATE_LIMIT_PER_MIN', 120),
     corsOrigins,
+    adminEmail: str('ADMIN_EMAIL', '').trim().toLowerCase() || undefined,
   };
 }
 

@@ -17,6 +17,7 @@ export interface TrafficEntry {
   id: number;
   /** 'tab' = page's own traffic, 'probe' = our active requests. */
   source: 'tab' | 'probe';
+  probeKind?: string;
   method: string;
   url: string;
   host: string;

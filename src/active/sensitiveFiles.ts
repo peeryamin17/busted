@@ -125,7 +125,7 @@ export async function probeSensitiveFiles(
 
   for (const probe of PROBES) {
     try {
-      const res = await http.get(origin + probe.path);
+      const res = await http.get(origin + probe.path, { probeKind: 'sensitive-files' } as RequestInit);
       if (res.status !== 200) continue;
       const evidence = probe.match(res.bodyText ?? '', res.contentType ?? '');
       if (!evidence) continue;

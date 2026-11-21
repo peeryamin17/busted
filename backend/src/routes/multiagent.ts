@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { buildAuthenticate, requireUser } from '../middleware/auth.js';
+import { isAdminEmail } from '../auth/session.js';
 import { PLAN_QUOTAS, SCAN_CREDIT_COST, monthStartIso } from '../auth/usage.js';
 import { verifyAndRecordAuthorization } from '../guardrails/authorization.js';
 import { normalizeTargetUrl } from '../guardrails/scope.js';
@@ -11,7 +12,7 @@ import { suggestFixes } from '../reports/remediation.js';
 import { createLLMProvider } from '../llm/index.js';
 import type { RouteDeps } from './health.js';
 import { runMultiAgentScan } from '../multiagent/orchestrator.js';
-import type { Confidence, Severity } from '../types.js';
+import type { Confidence, PlanTier, Severity } from '../types.js';
 
 /**
  * Multi-agent "super agent" swarm routes.
@@ -65,10 +66,12 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       return reply.status(400).send({ error: body.error.issues[0]?.message ?? 'Invalid input' });
     }
     const d = body.data;
-    const quota = PLAN_QUOTAS[user.plan];
+    const isOp = isAdminEmail(user.email);
+    const plan: PlanTier = isOp ? 'enterprise' : user.plan;
+    const quota = PLAN_QUOTAS[plan];
 
     // 1. Feature gating: swarm = active testing → Hunter+.
-    if (!quota.activeTesting) {
+    if (!isOp && !quota.activeTesting) {
       return reply.status(403).send({ error: 'Active testing requires the Hunter plan or higher' });
     }
 
@@ -94,9 +97,9 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     const creditCost = SCAN_CREDIT_COST.active;
     try {
       const used = await db.sumUsageSince(user.id, 'scan', monthStartIso());
-      if (used + creditCost > quota.creditsPerMonth) {
+      if (!isOp && used + creditCost > quota.creditsPerMonth) {
         return reply.status(429).send({
-          error: `Monthly credit quota exceeded (${used}/${quota.creditsPerMonth} credits used on the ${user.plan} plan; this scan costs ${creditCost})`,
+          error: `Monthly credit quota exceeded (${used}/${quota.creditsPerMonth} credits used on the ${plan} plan; this scan costs ${creditCost})`,
         });
       }
     } catch (err) {

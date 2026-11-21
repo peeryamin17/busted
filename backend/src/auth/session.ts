@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { config } from '../config.js';
 
 /**
  * Website session + OAuth-state cookie primitives.
@@ -26,7 +27,7 @@ export const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
  * unlocks /api/admin/users, so there is one source of truth.
  */
 export function isAdminEmail(email: string): boolean {
-  const admin = (process.env['ADMIN_EMAIL'] ?? '').trim().toLowerCase();
+  const admin = (process.env['ADMIN_EMAIL'] ?? config.adminEmail ?? '').trim().toLowerCase();
   return admin !== '' && email.trim().toLowerCase() === admin;
 }
 

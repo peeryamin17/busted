@@ -265,6 +265,16 @@ export async function runWorker(
         reasoning: typeof raw.reasoning === 'string' ? raw.reasoning.slice(0, 2000) : '',
       };
       if (verdict.verdict === 'finding') {
+        const rawEvidence = JSON.stringify({
+          test: test.name,
+          tool: test.tool,
+          status: toolResult.status,
+          finalUrl: toolResult.finalUrl,
+          timingMs: toolResult.timingMs,
+          data: toolResult.data,
+          bodyExcerpt: (toolResult.bodySnippet ?? '').slice(0, 600),
+          honeypotSignals: toolResult.honeypotSignals ?? [],
+        });
         report.findings.push({
           severity: verdict.severity ?? 'info',
           confidence: verdict.confidence ?? 'low',
@@ -273,6 +283,7 @@ export async function runWorker(
           description: verdict.description ?? triage.reason,
           location: verdict.location ?? String(test.args?.['url'] ?? ctx.targetUrl),
           evidence: (verdict.evidence ?? '').slice(0, 500),
+          rawEvidence,
           reproSteps: verdict.reproSteps ?? [],
           remediation: verdict.remediation ?? '',
           references: verdict.references ?? [],

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { buildAuthenticate, requireUser } from '../middleware/auth.js';
+import { isAdminEmail } from '../auth/session.js';
 import { PLAN_QUOTAS, monthStartIso } from '../auth/usage.js';
 import { verifyAndRecordAuthorization } from '../guardrails/authorization.js';
 import { normalizeTargetUrl } from '../guardrails/scope.js';
@@ -10,7 +11,7 @@ import { securityScore } from '../reports/score.js';
 import type { RouteDeps } from './health.js';
 import { parseImport, type ImportedFinding } from '../engines/importers.js';
 import { engineStatus, runEngine, type EngineId } from '../engines/runner.js';
-import type { Confidence, Severity } from '../types.js';
+import type { Confidence, PlanTier, Severity } from '../types.js';
 
 /**
  * Open-source engine routes (Phase 5).
@@ -136,8 +137,10 @@ export async function engineRoutes(app: FastifyInstance, deps: RouteDeps): Promi
       return reply.status(400).send({ error: body.error.issues[0]?.message ?? 'Invalid input' });
     }
     const d = body.data;
-    const quota = PLAN_QUOTAS[user.plan];
-    if (!quota.activeTesting) {
+    const isOp = isAdminEmail(user.email);
+    const plan: PlanTier = isOp ? 'enterprise' : user.plan;
+    const quota = PLAN_QUOTAS[plan];
+    if (!isOp && !quota.activeTesting) {
       return reply.status(403).send({ error: 'Active testing requires the Hunter plan or higher' });
     }
 
@@ -164,9 +167,9 @@ export async function engineRoutes(app: FastifyInstance, deps: RouteDeps): Promi
     }
 
     const used = await db.sumUsageSince(user.id, 'scan', monthStartIso());
-    if (used + ENGINE_CREDIT_COST > quota.creditsPerMonth) {
+    if (!isOp && used + ENGINE_CREDIT_COST > quota.creditsPerMonth) {
       return reply.status(429).send({
-        error: `Monthly credit quota exceeded (${used}/${quota.creditsPerMonth} credits used on the ${user.plan} plan; this scan costs ${ENGINE_CREDIT_COST})`,
+        error: `Monthly credit quota exceeded (${used}/${quota.creditsPerMonth} credits used on the ${plan} plan; this scan costs ${ENGINE_CREDIT_COST})`,
       });
     }
 

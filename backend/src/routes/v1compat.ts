@@ -113,7 +113,9 @@ export async function v1CompatRoutes(app: FastifyInstance, deps: RouteDeps): Pro
   // instead of through the form — every request still passes scope checks).
   app.get('/api/v1/account', { preHandler: authenticate }, async (request) => {
     const user = requireUser(request);
-    return { email: user.email, plan: user.plan, operator: isAdminEmail(user.email) };
+    const isOp = isAdminEmail(user.email);
+    const plan = isOp ? 'enterprise' : user.plan;
+    return { email: user.email, plan, operator: isOp };
   });
 
   // Exchange a one-time link code (minted by the signed-in website via
@@ -134,6 +136,10 @@ export async function v1CompatRoutes(app: FastifyInstance, deps: RouteDeps): Pro
     if (!(await db.markPairingCodeUsed(rec.id))) return fail();
     const user = await db.getUserById(rec.userId);
     if (!user) return fail();
+    if (isAdminEmail(user.email) && user.plan !== 'enterprise' && typeof db.setUserPlan === 'function') {
+      await db.setUserPlan(user.id, 'enterprise').catch(() => undefined);
+      user.plan = 'enterprise';
+    }
     const { key, keyHash, keyPrefix } = generateApiKey();
     await db.createApiKey(user.id, 'Extension (link code)', keyHash, keyPrefix);
     return reply.status(201).send({ apiKey: key });

@@ -2,6 +2,7 @@ import type { TechEntry } from '../types.js';
 import { defaultTools, createToolContext } from '../agent/tools.js';
 import { extraTools } from './extraTools.js';
 import { getSpecialist, allSpecialists, ALWAYS_SPAWN, CONDITIONAL_SPAWN } from './specialists.js';
+import { buildFixInIdePrompt } from '../reports/remediation.js';
 import { runWorker } from './worker.js';
 import type {
   MultiAgentEvent,
@@ -288,6 +289,112 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
     }
   }
 
+  // ── Phase 4.5: PoC Validator pass (escalation model, reasoning tier) ──
+  const validationCandidates = deduped.filter((f) =>
+    ['critical', 'high', 'medium'].includes(f.severity),
+  );
+  if (validationCandidates.length > 0 && tokenBudget.input + tokenBudget.output < tokenBudget.max) {
+    event('head_review', `PoC Validator: evaluating ${validationCandidates.length} Medium/High/Critical findings against raw response evidence`);
+    try {
+      const validatorCompletion = await opts.provider.complete({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are the PoC VALIDATOR AGENT of the BugSeek AI swarm. ' +
+              'Your job is to strictly review Medium/High/Critical specialist findings against raw response evidence. ' +
+              'Rules:\n' +
+              '1. Review each finding against its raw response evidence.\n' +
+              '2. Drop unsubstantiated claims (substantiated=false): if the raw response evidence does not prove the vulnerability or contradicts the claim, reject it.\n' +
+              '3. Drop suspected honeypots (isHoneypot=true): if the response exhibits canary patterns or artificial honeypot behavior, reject it.\n' +
+              '4. For substantiated findings, attach a concrete "Fix-in-IDE" prompt.\n' +
+              'Return ONLY valid JSON: {"validations":[{"index":number,"substantiated":boolean,"isHoneypot":boolean,"trapProbability":number,"reason":"...","fixInIdePrompt":"..."}]}',
+          },
+          {
+            role: 'user',
+            content:
+              `TARGET: ${opts.targetUrl}\n\n` +
+              `FINDINGS TO VALIDATE:\n` +
+              JSON.stringify(
+                validationCandidates.map((f, i) => ({
+                  index: i,
+                  category: f.category,
+                  title: f.title,
+                  severity: f.severity,
+                  location: f.location,
+                  evidence: f.evidence,
+                  rawEvidence: f.rawEvidence || f.evidence,
+                  trapProbability: f.trapProbability,
+                })),
+                null,
+                2,
+              ),
+          },
+        ],
+        maxTokens: 2500,
+        temperature: 0.1,
+        tier: 'reasoning',
+      });
+      if (spend(validatorCompletion.usage.inputTokens, validatorCompletion.usage.outputTokens)) {
+        const parsed = validatorCompletion.parseJson<{
+          validations?: Array<{
+            index: number;
+            substantiated: boolean;
+            isHoneypot?: boolean;
+            trapProbability?: number;
+            reason?: string;
+            fixInIdePrompt?: string;
+          }>;
+        }>();
+
+        const droppedIndices = new Set<number>();
+        for (const v of parsed.validations ?? []) {
+          const f = validationCandidates[v.index];
+          if (!f) continue;
+          if (v.substantiated === false || v.isHoneypot === true || (v.trapProbability ?? 0) >= 0.6) {
+            droppedIndices.add(v.index);
+            event('guardrail', `PoC Validator dropped finding: "${f.title}" (${v.reason ?? 'unsubstantiated or suspected honeypot'})`);
+          } else {
+            if (typeof v.trapProbability === 'number') {
+              f.trapProbability = v.trapProbability;
+            }
+            f.suggestedFix = v.fixInIdePrompt?.trim() || buildFixInIdePrompt(f);
+          }
+        }
+
+        if (droppedIndices.size > 0) {
+          const droppedTitles = new Set(
+            [...droppedIndices].map((i) => validationCandidates[i]?.title).filter(Boolean),
+          );
+          const remaining = deduped.filter((f) => !droppedTitles.has(f.title));
+          deduped.length = 0;
+          deduped.push(...remaining);
+          event('head_review', `PoC Validator dropped ${droppedIndices.size} unsubstantiated/honeypot finding(s); ${deduped.length} remaining`);
+        } else {
+          for (const f of validationCandidates) {
+            if (!f.suggestedFix) {
+              f.suggestedFix = buildFixInIdePrompt(f);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      errors.push(`PoC validator pass failed: ${(err as Error).message}`);
+      event('guardrail', 'PoC validator pass failed — preserving existing findings');
+      for (const f of validationCandidates) {
+        if (!f.suggestedFix) {
+          f.suggestedFix = buildFixInIdePrompt(f);
+        }
+      }
+    }
+  } else {
+    for (const f of validationCandidates) {
+      if (!f.suggestedFix) {
+        f.suggestedFix = buildFixInIdePrompt(f);
+      }
+    }
+  }
+
   // ── Phase 5: executive synthesis (reasoning tier) ──
   let headSummary = '';
   const sevCounts = deduped.reduce<Record<string, number>>((acc, f) => {
@@ -341,6 +448,7 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
       honeypotSuspect: f.trapProbability >= 0.6,
       location: f.location,
       evidence: f.evidence,
+      suggestedFix: f.suggestedFix,
       reproSteps: f.reproSteps,
       remediation: f.remediation,
       references: f.references,

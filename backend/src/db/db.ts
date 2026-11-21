@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isAdminEmail } from '../auth/session.js';
 import type {
   ApiKeyRecord,
   AuthorizationRecord,
@@ -199,7 +200,7 @@ export class MemoryDatabase implements Database {
       id: randomUUID(),
       email: normalized,
       passwordHash,
-      plan: 'free',
+      plan: isAdminEmail(normalized) ? 'enterprise' : 'free',
       createdAt: nowIso(),
     };
     this.users.set(user.id, user);
@@ -241,6 +242,7 @@ export class MemoryDatabase implements Database {
     }
     if (profile.name !== undefined) user.name = profile.name;
     if (profile.avatarUrl !== undefined) user.avatarUrl = profile.avatarUrl;
+    if (isAdminEmail(profile.email)) user.plan = 'enterprise';
     user.lastLoginAt = nowIso();
     return { ...user };
   }
@@ -657,10 +659,11 @@ export class PostgresDatabase implements Database {
 
   async createUser(email: string, passwordHash: string): Promise<UserRecord> {
     const normalized = email.trim().toLowerCase();
+    const plan = isAdminEmail(normalized) ? 'enterprise' : 'free';
     try {
       const { rows } = await this.pool.query(
-        `INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING *`,
-        [normalized, passwordHash]
+        `INSERT INTO users (email, password_hash, plan) VALUES ($1, $2, $3) RETURNING *`,
+        [normalized, passwordHash, plan]
       );
       return this.toUser(rows[0]);
     } catch (e: unknown) {
@@ -728,6 +731,10 @@ export class PostgresDatabase implements Database {
          last_login_at = now() WHERE id = $1`,
       [user.id, profile.name ?? null, profile.avatarUrl ?? null],
     );
+    if (isAdminEmail(profile.email)) {
+      await this.pool.query(`UPDATE users SET plan = 'enterprise' WHERE id = $1`, [user.id]);
+      user.plan = 'enterprise';
+    }
     return (await this.getUserById(user.id)) ?? user;
   }
 

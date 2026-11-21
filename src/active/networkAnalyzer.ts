@@ -135,6 +135,10 @@ export function analyzeTraffic(entries: TrafficEntry[]): NetworkAnalysis {
   // --- 3. Interesting endpoints observed. ---
   const interesting = new Map<string, { methods: Set<string>; types: Set<string> }>();
   for (const e of entries) {
+    // Filter out 404 responses
+    if (e.statusCode === 404) continue;
+    // Filter out BugSeek's own discovery probes (apiDiscovery.ts, sensitiveFiles.ts)
+    if (e.probeKind === 'api-discovery' || e.probeKind === 'sensitive-files') continue;
     if (!INTERESTING_PATH_RE.test(e.path)) continue;
     // Skip static assets.
     if (/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff2?|map)(\?|$)/i.test(e.path)) continue;

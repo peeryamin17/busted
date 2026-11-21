@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { hashPassword, verifyPassword, signSession, generateApiKey, generatePairingCode, PAIRING_CODE_TTL_MS } from '../auth/auth.js';
+import { isAdminEmail } from '../auth/session.js';
 import { buildAuthenticate, requireUser } from '../middleware/auth.js';
 import type { RouteDeps } from './health.js';
 
@@ -44,6 +45,10 @@ export async function authRoutes(app: FastifyInstance, deps: RouteDeps): Promise
     }
     try {
       const user = await db.createUser(body.data.email, await hashPassword(body.data.password));
+      if (isAdminEmail(user.email) && user.plan !== 'enterprise' && typeof db.setUserPlan === 'function') {
+        await db.setUserPlan(user.id, 'enterprise').catch(() => undefined);
+        user.plan = 'enterprise';
+      }
       const token = signSession(user);
       return reply.status(201).send({ user: publicUser(user), token });
     } catch (err) {
@@ -62,6 +67,10 @@ export async function authRoutes(app: FastifyInstance, deps: RouteDeps): Promise
     const user = await db.getUserByEmail(body.data.email);
     if (!user || !(await verifyPassword(body.data.password, user.passwordHash))) {
       return reply.status(401).send({ error: 'Invalid email or password' });
+    }
+    if (isAdminEmail(user.email) && user.plan !== 'enterprise' && typeof db.setUserPlan === 'function') {
+      await db.setUserPlan(user.id, 'enterprise').catch(() => undefined);
+      user.plan = 'enterprise';
     }
     return reply.send({ user: publicUser(user), token: signSession(user) });
   });

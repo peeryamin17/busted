@@ -144,8 +144,10 @@ export class ActiveHttpClient {
     }
 
     const u = new URL(finalUrl);
+    const probeKind = (init as { probeKind?: string })?.probeKind;
     const entry: Parameters<TrafficLog['add']>[0] = {
       source: 'probe',
+      probeKind,
       method,
       url: rawUrl.length > 600 ? rawUrl.slice(0, 600) : rawUrl,
       host: u.hostname,

@@ -65,6 +65,8 @@ export interface WorkerFinding {
   description: string;
   location: string;
   evidence: string;
+  rawEvidence?: string;
+  suggestedFix?: string;
   reproSteps: string[];
   remediation: string;
   references: string[];

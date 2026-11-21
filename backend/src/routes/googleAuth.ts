@@ -88,6 +88,10 @@ export async function googleAuthRoutes(
         name: profile.name,
         avatarUrl: profile.picture,
       });
+      if (isAdminEmail(user.email) && user.plan !== 'enterprise' && typeof db.setUserPlan === 'function') {
+        await db.setUserPlan(user.id, 'enterprise').catch(() => undefined);
+        user.plan = 'enterprise';
+      }
     } catch {
       return reply.status(502).send({ error: 'Google sign-in failed — please try again' });
     }
@@ -122,15 +126,20 @@ export async function googleAuthRoutes(
     const authed = requireUser(request);
     const user = await db.getUserById(authed.id);
     if (!user) return reply.status(404).send({ error: 'User not found' });
+    const isOp = isAdminEmail(user.email);
+    const plan = isOp ? 'enterprise' : user.plan;
+    if (isOp && user.plan !== 'enterprise' && typeof db.setUserPlan === 'function') {
+      await db.setUserPlan(user.id, 'enterprise').catch(() => undefined);
+    }
     const usedThisMonth = await db.sumUsageSince(user.id, 'scan', monthStartIso());
-    const monthlyQuota = PLAN_QUOTAS[user.plan].creditsPerMonth;
+    const monthlyQuota = PLAN_QUOTAS[plan].creditsPerMonth;
     return {
       user: {
         id: user.id,
         email: user.email,
         name: user.name ?? null,
         avatar: user.avatarUrl ?? null,
-        plan: user.plan,
+        plan,
       },
       credits: {
         usedThisMonth,

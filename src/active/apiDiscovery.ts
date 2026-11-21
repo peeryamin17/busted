@@ -165,7 +165,7 @@ export async function discoverApiEndpoints(
   for (const [path, source] of candidates) {
     const url = origin + path;
     try {
-      const res = await http.get(url);
+      const res = await http.get(url, { probeKind: 'api-discovery' } as RequestInit);
       if ([200, 201, 204, 301, 302, 401, 403, 405].includes(res.status)) {
         endpoints.push({
           path,
