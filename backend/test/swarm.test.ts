@@ -37,6 +37,12 @@ function makeDb(plan: 'free' | 'hunter' | 'pro' = 'pro', seedUsage: UsageEvent[]
       const s = { id: `scan-${scans.length + 1}`, status: 'queued', ...input };
       scans.push(s); return s;
     },
+    async getScan(id: string) {
+      return scans.find((x) => x.id === id) ?? null;
+    },
+    async listFindings(scanId: string) {
+      return findings.filter((f) => f.scanId === scanId);
+    },
     async updateScan(id: string, patch: any) {
       const s = scans.find((x) => x.id === id); Object.assign(s, patch); return s;
     },
@@ -115,7 +121,7 @@ async function main() {
     await app.close();
   }
 
-  // 5. Happy path: full lifecycle with the mock provider.
+  // 5. Happy path: full lifecycle with the mock provider (sync: true).
   {
     const db = makeDb('pro');
     const app = await buildApp(db);
@@ -126,6 +132,7 @@ async function main() {
         targetUrl, authorization: authz, allowPrivateTargets: true,
         specialists: ['recon', 'headers'],
         maxTokens: 8000, timeoutMinutes: 2,
+        sync: true,
       },
     });
     const body = r.json();
@@ -136,6 +143,29 @@ async function main() {
     check('swarm: scan marked completed', db.scans[0]?.status === 'completed', db.scans[0]?.status);
     check('swarm: findings redacted (no raw secrets)', JSON.stringify(body.findings ?? []).length >= 0, null);
     console.log(`     scan=${body.scanId} findings=${body.findings?.length} workers=${body.workerReports?.length} tokens=${JSON.stringify(body.tokensUsed)}`);
+
+    // 6. Asynchronous 202 Accepted + Polling endpoint test
+    const rAsync = await app.inject({
+      method: 'POST', url: '/api/swarm/scans',
+      headers: { 'x-api-key': 'bs_test' },
+      payload: {
+        targetUrl, authorization: authz, allowPrivateTargets: true,
+        specialists: ['recon'],
+        maxTokens: 4000, timeoutMinutes: 1,
+      },
+    });
+    check('swarm: async enqueued → 202', rAsync.statusCode === 202, rAsync.body);
+    const asyncBody = rAsync.json();
+    check('swarm: async returns jobId and scanId', !!asyncBody.jobId && !!asyncBody.scanId, asyncBody);
+    check('swarm: async status is queued', asyncBody.status === 'queued', asyncBody.status);
+
+    const poll = await app.inject({
+      method: 'GET', url: `/api/swarm/scans/${asyncBody.jobId}`,
+      headers: { 'x-api-key': 'bs_test' },
+    });
+    check('swarm: poll endpoint → 200', poll.statusCode === 200, poll.body);
+    const pollBody = poll.json();
+    check('swarm: poll body has status', typeof pollBody.status === 'string', pollBody.status);
     await app.close();
   }
 

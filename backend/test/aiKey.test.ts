@@ -131,10 +131,14 @@ async function main() {
       authorization: authz,
     },
   });
-  check('free plan WITH BYOK key → 200', swarmWithByok.statusCode === 200, {
-    status: swarmWithByok.statusCode,
-    body: swarmWithByok.body,
-  });
+  check(
+    'free plan WITH BYOK key → 200/202',
+    swarmWithByok.statusCode === 200 || swarmWithByok.statusCode === 202,
+    {
+      status: swarmWithByok.statusCode,
+      body: swarmWithByok.body,
+    },
+  );
 
   // Direct x-gemini-api-key header authentication without cookie or account
   const directHeaderSwarm = await app.inject({
@@ -146,7 +150,10 @@ async function main() {
       authorization: authz,
     },
   });
-  check('direct x-gemini-api-key header → 200', directHeaderSwarm.statusCode === 200);
+  check(
+    'direct x-gemini-api-key header → 200/202',
+    directHeaderSwarm.statusCode === 200 || directHeaderSwarm.statusCode === 202,
+  );
 
   // DELETE key
   const delRes = await app.inject({

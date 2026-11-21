@@ -170,6 +170,7 @@ async function main() {
       specialists: ['recon'],
       maxTokens: 5000,
       timeoutMinutes: 1,
+      sync: true,
     },
   });
   check(

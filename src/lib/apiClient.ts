@@ -308,19 +308,105 @@ export interface SwarmOutcome {
 
 export const SWARM_SCAN_TIMEOUT_MS = 120_000;
 
+export interface SwarmProgressInfo {
+  status: string;
+  completedSteps?: number;
+  totalSteps?: number;
+  currentStep?: string;
+}
+
 export async function runSwarmScan(
   targetUrl: string,
   authorization: SwarmAuthorizationInput,
   scope?: SwarmScopeInput,
+  onProgress?: (progress: SwarmProgressInfo) => void,
 ): Promise<SwarmOutcome> {
-  return fetchJsonOrThrow<SwarmOutcome>(
-    '/api/swarm/scans',
-    {
+  const baseUrl = await getBackendBaseUrl();
+  const apiKey = await getBackendApiKey();
+  const geminiKey = await getGeminiApiKey();
+
+  const authHeaders: Record<string, string> = {
+    'content-type': 'application/json',
+    ...(apiKey ? { 'x-api-key': apiKey, authorization: `Bearer ${apiKey}` } : {}),
+    ...(geminiKey ? { 'x-gemini-api-key': geminiKey } : {}),
+  };
+
+  // 1. Wake Render up if sleeping (retry once if cold-starting)
+  await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(45_000) }).catch(() => null);
+
+  // 2. Enqueue job (fast 202 response or 200)
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30_000);
+  let startRes: Response;
+  try {
+    startRes = await fetch(`${baseUrl}/api/swarm/scans`, {
       method: 'POST',
-      body: JSON.stringify({ targetUrl, authorization, scope }),
-    },
-    SWARM_SCAN_TIMEOUT_MS,
-  );
+      headers: authHeaders,
+      body: JSON.stringify({ targetUrl, authorization, scope, async: true }),
+      signal: ctrl.signal,
+    });
+  } catch (err: any) {
+    clearTimeout(timer);
+    if (err?.name === 'AbortError') {
+      throw new Error(
+        'Backend request timed out (30s) while enqueuing swarm — Render may be waking up, please try again.',
+      );
+    }
+    throw new Error(
+      'Backend unreachable — Render free tier is waking up, please wait ~30s or check your connection.',
+    );
+  }
+  clearTimeout(timer);
+
+  if (!startRes.ok) {
+    let message = `Backend request failed (HTTP ${startRes.status})`;
+    try {
+      const body = (await startRes.json()) as { error?: unknown };
+      if (typeof body?.error === 'string' && body.error) message = body.error;
+    } catch {}
+    throw new Error(message);
+  }
+
+  const startData = (await startRes.json()) as any;
+  // If the server completed synchronously (200), return immediately
+  if (startData.findings && Array.isArray(startData.findings)) {
+    return startData as SwarmOutcome;
+  }
+
+  const id = startData.jobId || startData.scanId;
+  if (!id) {
+    throw new Error('Backend did not return a scan or job ID');
+  }
+
+  // 3. Poll until completed or failed (up to 5 minutes)
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    try {
+      const pollRes = await fetch(`${baseUrl}/api/swarm/scans/${id}`, {
+        headers: authHeaders,
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!pollRes.ok) continue;
+
+      const data = (await pollRes.json()) as any;
+      if (data.progress) onProgress?.({ status: data.status, ...data.progress });
+      else onProgress?.({ status: data.status });
+
+      if (data.status === 'completed') {
+        return data as SwarmOutcome;
+      }
+      if (data.status === 'failed') {
+        throw new Error(data.error || 'Swarm job failed');
+      }
+    } catch (e: any) {
+      if (e.message && e.message !== 'Failed to fetch' && !e.message.includes('timeout')) {
+        throw e;
+      }
+    }
+  }
+
+  throw new Error('Swarm timed out after 5 minutes');
 }
 
 // ---------------------------------------------------------------------------

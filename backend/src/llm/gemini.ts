@@ -103,7 +103,7 @@ export class GeminiProvider implements LLMProvider {
             'x-goog-api-key': this.apiKey,
           },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(60_000),
+          signal: AbortSignal.timeout(30_000),
         });
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));

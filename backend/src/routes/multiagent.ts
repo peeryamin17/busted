@@ -19,6 +19,10 @@ import { ingestSurfaceToOntology } from '../ontology/ingest.js';
 import { ingestUniversalOntology } from '../ontology/universalIngest.js';
 import type { Confidence, PlanTier, Severity } from '../types.js';
 
+// In-memory cache for fast polling lookups of recent swarm outcomes
+const swarmScanResults = new Map<string, any>();
+const swarmScanErrors = new Map<string, string>();
+
 /**
  * Multi-agent "super agent" swarm routes.
  *
@@ -55,6 +59,8 @@ const swarmScanSchema = z.object({
   maxTokens: z.number().int().min(1000).max(500_000).optional(),
   timeoutMinutes: z.number().min(1).max(20).optional(),
   allowPrivateTargets: z.boolean().optional(),
+  sync: z.boolean().optional(),
+  async: z.boolean().optional(),
   specialists: z
     .array(z.enum(['recon', 'secrets', 'headers', 'cors', 'xss', 'idor', 'auth', 'graphql', 'sourcemap']))
     .max(9)
@@ -172,96 +178,203 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       }
     }
 
-    try {
-      const outcome = await runMultiAgentScan({
-        targetUrl: target.toString(),
-        scope: {
-          mode: scope.mode,
-          includeSubdomains: scope.includeSubdomains,
-          excludedHosts: [...scope.excludedHosts],
-          excludedPaths: [...scope.excludedPaths],
-        },
-        limits: {
-          maxWorkers: d.maxWorkers,
-          maxConcurrency: d.concurrency,
-          maxTotalTokens: d.maxTokens,
-          maxDurationMs: d.timeoutMinutes ? d.timeoutMinutes * 60_000 : undefined,
-          requestsPerSecond: d.requestsPerSecond,
-          allowPrivateTargets: d.allowPrivateTargets,
-        },
-        specialists: d.specialists,
-        provider,
-        osdk,
-        scanId: scan.id,
-      });
-      // AI remediation suggestions for high/critical findings (Phase 3, best-effort).
-      const fixes = await suggestFixes(outcome.findings, provider);
-      // Server-side re-redaction + CVSS before persisting (same contract as scan findings).
-      const findings = outcome.findings.map((f, idx) => {
-        const cvss = estimateCvss(f.severity as Severity, f.category);
-        const suggestedFix = fixes.get(idx);
-        return redactFindingEvidence({
-          ...f,
-          severity: f.severity as Severity,
-          confidence: (f.confidence ?? 'low') as Confidence,
-          cvssScore: cvss.score,
-          cvssVector: cvss.vector,
-          ...(suggestedFix ? { suggestedFix } : {}),
-        });
-      });
-      await db.addFindings(
-        findings.map((f) => ({
+    const isSync =
+      d.sync === true ||
+      request.headers['x-sync'] === 'true' ||
+      (request.query as Record<string, string>)?.sync === 'true';
+
+    const runSwarmJob = async () => {
+      await db
+        .updateScan(scan.id, {
+          status: 'running',
+          startedAt: new Date().toISOString(),
+          progress: { completedSteps: 1, totalSteps: 10, currentStep: 'Swarm specialists running' },
+        })
+        .catch(() => undefined);
+
+      try {
+        const outcome = await runMultiAgentScan({
+          targetUrl: target.toString(),
+          scope: {
+            mode: scope.mode,
+            includeSubdomains: scope.includeSubdomains,
+            excludedHosts: [...scope.excludedHosts],
+            excludedPaths: [...scope.excludedPaths],
+          },
+          limits: {
+            maxWorkers: d.maxWorkers,
+            maxConcurrency: d.concurrency,
+            maxTotalTokens: d.maxTokens,
+            maxDurationMs: d.timeoutMinutes ? d.timeoutMinutes * 60_000 : undefined,
+            requestsPerSecond: d.requestsPerSecond,
+            allowPrivateTargets: d.allowPrivateTargets,
+          },
+          specialists: d.specialists,
+          provider,
+          osdk,
           scanId: scan.id,
-          category: f.category,
-          title: f.title,
-          description: f.description,
-          severity: f.severity,
-          confidence: f.confidence,
-          location: f.location,
-          evidence: f.evidence,
-          remediation: f.remediation ?? '',
-          cvssScore: f.cvssScore,
-          cvssVector: f.cvssVector,
-          trapProbability: f.trapProbability,
-          honeypotSuspect: f.honeypotSuspect,
-          reproSteps: f.reproSteps,
-          references: f.references,
-        })),
-      );
-      await db.updateScan(scan.id, { status: 'completed' });
-      return reply.send({
-        scanId: scan.id,
-        targetUrl: outcome.targetUrl,
-        headSummary: outcome.headSummary,
-        score: securityScore(findings, {
+        });
+        // AI remediation suggestions for high/critical findings (Phase 3, best-effort).
+        const fixes = await suggestFixes(outcome.findings, provider);
+        // Server-side re-redaction + CVSS before persisting (same contract as scan findings).
+        const findings = outcome.findings.map((f, idx) => {
+          const cvss = estimateCvss(f.severity as Severity, f.category);
+          const suggestedFix = fixes.get(idx);
+          return redactFindingEvidence({
+            ...f,
+            severity: f.severity as Severity,
+            confidence: (f.confidence ?? 'low') as Confidence,
+            cvssScore: cvss.score,
+            cvssVector: cvss.vector,
+            ...(suggestedFix ? { suggestedFix } : {}),
+          });
+        });
+        await db.addFindings(
+          findings.map((f) => ({
+            scanId: scan.id,
+            category: f.category,
+            title: f.title,
+            description: f.description,
+            severity: f.severity,
+            confidence: f.confidence,
+            location: f.location,
+            evidence: f.evidence,
+            remediation: f.remediation ?? '',
+            cvssScore: f.cvssScore,
+            cvssVector: f.cvssVector,
+            trapProbability: f.trapProbability,
+            honeypotSuspect: f.honeypotSuspect,
+            reproSteps: f.reproSteps,
+            references: f.references,
+          })),
+        );
+        const score = securityScore(findings, {
           mode: 'swarm',
           endpointsDiscovered: Math.max(1, outcome.testsRun),
           endpointsActivelyTested: outcome.testsRun,
           authenticated: false,
-        }),
-        findings,
-        workerReports: outcome.workerReports.map((r) => ({
-          specialistId: r.specialistId,
-          specialistName: r.specialistName,
-          summary: r.summary,
-          findings: r.findings.length,
-          testsRun: r.testsRun,
-          testsPlanned: r.testsPlanned,
-          llmCalls: r.llmCalls,
-          tokensUsed: r.tokensUsed,
-          errors: r.errors,
-          durationMs: r.durationMs,
-        })),
-        testsRun: outcome.testsRun,
-        llmCalls: outcome.llmCalls,
-        tokensUsed: outcome.tokensUsed,
-        durationMs: outcome.durationMs,
-        errors: outcome.errors,
-      });
-    } catch (err) {
-      await db.updateScan(scan.id, { status: 'failed' }).catch(() => undefined);
-      const status = (err as { statusCode?: number }).statusCode ?? 500;
-      return reply.status(status).send({ error: (err as Error).message });
+        });
+        await db.updateScan(scan.id, {
+          status: 'completed',
+          finishedAt: new Date().toISOString(),
+          progress: { completedSteps: 10, totalSteps: 10, currentStep: 'Swarm scan completed' },
+        });
+
+        const fullResult = {
+          jobId: scan.id,
+          scanId: scan.id,
+          status: 'completed' as const,
+          targetUrl: outcome.targetUrl,
+          headSummary: outcome.headSummary,
+          score,
+          findings,
+          workerReports: outcome.workerReports.map((r) => ({
+            specialistId: r.specialistId,
+            specialistName: r.specialistName,
+            summary: r.summary,
+            findings: r.findings.length,
+            testsRun: r.testsRun,
+            testsPlanned: r.testsPlanned,
+            llmCalls: r.llmCalls,
+            tokensUsed: r.tokensUsed,
+            errors: r.errors,
+            durationMs: r.durationMs,
+          })),
+          testsRun: outcome.testsRun,
+          llmCalls: outcome.llmCalls,
+          tokensUsed: outcome.tokensUsed,
+          durationMs: outcome.durationMs,
+          errors: outcome.errors,
+        };
+        swarmScanResults.set(scan.id, fullResult);
+        return fullResult;
+      } catch (err) {
+        const errorMsg = (err as Error).message || 'Swarm job failed';
+        await db
+          .updateScan(scan.id, {
+            status: 'failed',
+            finishedAt: new Date().toISOString(),
+            error: errorMsg,
+          })
+          .catch(() => undefined);
+        swarmScanErrors.set(scan.id, errorMsg);
+        throw err;
+      }
+    };
+
+    if (isSync) {
+      try {
+        const result = await runSwarmJob();
+        return reply.status(200).send(result);
+      } catch (err) {
+        const status = (err as { statusCode?: number }).statusCode ?? 500;
+        return reply.status(status).send({ error: (err as Error).message });
+      }
     }
+
+    // Fire-and-forget background worker execution for 202 Accepted
+    void runSwarmJob().catch((err) => {
+      app.log.error({ err, scanId: scan.id }, 'Swarm job failed');
+    });
+
+    return reply.status(202).send({
+      jobId: scan.id,
+      scanId: scan.id,
+      status: 'queued',
+      targetUrl: target.toString(),
+    });
+  });
+
+  // ── Lightweight polling status endpoint for background swarm scans ──────────
+  app.get('/api/swarm/scans/:id', { preHandler: authenticate }, async (request, reply) => {
+    const user = requireUser(request);
+    const { id } = request.params as { id: string };
+    const scan = await db.getScan(id);
+    if (!scan || (scan.userId !== user.id && !isAdminEmail(user.email))) {
+      return reply.status(404).send({ error: 'Job not found' });
+    }
+
+    if (scan.status === 'completed') {
+      const cached = swarmScanResults.get(id);
+      if (cached) {
+        return reply.send(cached);
+      }
+      const findings = await db.listFindings(id);
+      return reply.send({
+        jobId: scan.id,
+        scanId: scan.id,
+        status: 'completed',
+        targetUrl: scan.targetUrl,
+        headSummary: 'Swarm scan completed.',
+        findings,
+        workerReports: [],
+        score: securityScore(findings, {
+          mode: 'swarm',
+          endpointsDiscovered: Math.max(1, findings.length),
+          endpointsActivelyTested: findings.length,
+          authenticated: false,
+        }),
+        testsRun: findings.length,
+        llmCalls: 0,
+        tokensUsed: 0,
+        durationMs: 0,
+      });
+    }
+
+    if (scan.status === 'failed') {
+      return reply.send({
+        jobId: scan.id,
+        scanId: scan.id,
+        status: 'failed',
+        error: scan.error || swarmScanErrors.get(id) || 'Swarm job failed',
+      });
+    }
+
+    return reply.send({
+      jobId: scan.id,
+      scanId: scan.id,
+      status: scan.status,
+      progress: scan.progress,
+    });
   });
 }

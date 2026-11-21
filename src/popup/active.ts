@@ -562,12 +562,25 @@ async function proceedSwarmScan(
   showSwarmDeploying();
 
   try {
-    const outcome = await runSwarmScan(currentTabUrl, authorization, {
-      mode: authz.scope.mode,
-      includeSubdomains: authz.scope.includeSubdomains,
-      excludedHosts: authz.scope.excludedHosts,
-      excludedPaths: authz.scope.excludedPaths,
-    });
+    const outcome = await runSwarmScan(
+      currentTabUrl,
+      authorization,
+      {
+        mode: authz.scope.mode,
+        includeSubdomains: authz.scope.includeSubdomains,
+        excludedHosts: authz.scope.excludedHosts,
+        excludedPaths: authz.scope.excludedPaths,
+      },
+      (p) => {
+        if (p.currentStep) {
+          setStatus(`Swarm running: ${p.currentStep}`);
+        } else if (p.status === 'running') {
+          setStatus('AI swarm running — specialist workers testing endpoints…');
+        } else if (p.status === 'queued') {
+          setStatus('AI swarm queued — initializing head agent…');
+        }
+      },
+    );
     // Map swarm findings onto the extension Finding shape for rendering.
     const findings = toExtensionFindings(outcome.findings, 'swarm');
     renderSwarmPlayback(outcome);
