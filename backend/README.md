@@ -37,8 +37,8 @@ cp .env.example .env # then fill in values (never commit .env)
 | `JWT_SECRET` | prod only | dev default + warning | Session token signing |
 | `LLM_PROVIDER` | no | `gemini` | `gemini` (Google AI, default), `claude`, or `mock`. Without `GEMINI_API_KEY`, falls back to `mock` with a warning |
 | `GEMINI_API_KEY` | for live Gemini | — | **Env var only. Never hardcode, never commit.** |
-| `GEMINI_ROUTINE_MODEL` | no | `gemini-1.5-flash` | Flash-class model for high-volume routine calls (test planning) |
-| `GEMINI_REASONING_MODEL` | no | `gemini-1.5-pro` | Pro-class model for complex reasoning (reflection, severity, honeypot adjudication) |
+| `GEMINI_ROUTINE_MODEL` | no | `gemini-2.0-flash` | Flash-class model for high-volume routine calls (test planning) |
+| `GEMINI_REASONING_MODEL` | no | `gemini-2.0-flash` | Pro/Flash model for complex reasoning (reflection, severity, honeypot adjudication) |
 | `ANTHROPIC_API_KEY` | when `LLM_PROVIDER=claude` | — | **Env var only. Never hardcode, never commit.** |
 | `ANTHROPIC_MODEL` | no | `claude-sonnet-4-5` | Model for the Claude provider |
 | `DATABASE_URL` | no | in-memory | Postgres connection string (Supabase: Project Settings → Database → URI). Apply `migrations/*.sql` via the Supabase SQL editor first |

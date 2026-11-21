@@ -4,15 +4,20 @@ import { makeCompletion, type LLMCompletion, type LLMCompletionRequest, type LLM
 /**
  * Google Gemini (AI Studio Developer API) implementation — the DEFAULT provider.
  *
- * REST endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
- * Auth: `x-goog-api-key` header (never a query param — keeps the key out of logs/URLs).
- * The API key is read ONLY from the GEMINI_API_KEY env var — never hardcoded,
- * never logged.
+ * REST endpoint: https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent
+ * Auth: Both `x-goog-api-key` header and `?key=` query parameter for maximum proxy compatibility.
+ * The API key is read ONLY from the GEMINI_API_KEY env var or user BYOK — never hardcoded,
+ * and always redacted from errors/logs.
  *
  * Tiered routing (cost control — the user is a cost-sensitive student):
- * - tier 'routine'   → GEMINI_ROUTINE_MODEL   (default gemini-3.8-flash: cheap, fast)
- * - tier 'reasoning' → GEMINI_REASONING_MODEL (default gemini-3.1-pro-preview:  strong reasoning)
- * Model IDs are configurable via env; defaults are pinned stable GA versions.
+ * - tier 'routine'   → GEMINI_ROUTINE_MODEL   (default gemini-2.0-flash: cheap, ultra-fast)
+ * - tier 'reasoning' → GEMINI_REASONING_MODEL (default gemini-2.0-flash / gemini-1.5-pro: strong reasoning)
+ *
+ * Dynamic Model Discovery & Multi-Candidate Fallback:
+ * Dynamically queries `ModelService.ListModels` to discover the exact models supported
+ * by the user's specific API key for `generateContent`. If the primary model 404s,
+ * cascades through candidates ('gemini-2.0-flash', 'gemini-1.5-flash-latest', etc.)
+ * across v1beta and v1 endpoints, locking in the first working model for subsequent calls.
  */
 export class GeminiProvider implements LLMProvider {
   readonly name = 'gemini';
@@ -20,25 +25,139 @@ export class GeminiProvider implements LLMProvider {
   private readonly routineModel: string;
   private readonly reasoningModel: string;
 
+  private static cachedModels = new Map<string, string[]>();
+  private activeRoutineModel?: string;
+  private activeReasoningModel?: string;
+
   constructor(apiKey?: string, routineModel?: string, reasoningModel?: string) {
     const key = apiKey ?? config.geminiApiKey;
     if (!key) {
       throw new Error('GEMINI_API_KEY is required for the Gemini provider');
     }
-    this.apiKey = key;
-    this.routineModel = routineModel ?? config.geminiRoutineModel;
-    this.reasoningModel = reasoningModel ?? config.geminiReasoningModel;
+    this.apiKey = key.trim();
+    this.routineModel = (routineModel ?? config.geminiRoutineModel).trim();
+    this.reasoningModel = (reasoningModel ?? config.geminiReasoningModel).trim();
+  }
+
+  /**
+   * Resets the static model discovery cache.
+   */
+  static resetModelCache(): void {
+    GeminiProvider.cachedModels.clear();
+  }
+
+  /**
+   * Dynamically query ModelService.ListModels for this API key to discover which
+   * models support `generateContent`. Result is cached in memory per API key.
+   */
+  async getAvailableModels(): Promise<string[]> {
+    const cached = GeminiProvider.cachedModels.get(this.apiKey);
+    if (cached && cached.length > 0) return cached;
+
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(this.apiKey)}`;
+      const res = await fetch(url, {
+        headers: {
+          'x-goog-api-key': this.apiKey,
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (res.ok) {
+        const body = (await res.json()) as any;
+        const models = (body.models ?? [])
+          .filter(
+            (m: any) =>
+              Array.isArray(m.supportedGenerationMethods) &&
+              m.supportedGenerationMethods.includes('generateContent') &&
+              typeof m.name === 'string'
+          )
+          .map((m: any) => m.name.replace(/^models\//, ''));
+
+        if (models.length > 0) {
+          GeminiProvider.cachedModels.set(this.apiKey, models);
+          return models;
+        }
+      }
+    } catch {
+      // Ignore network / timeout issues during discovery and proceed to fallbacks
+    }
+    return [];
+  }
+
+  /**
+   * Determine prioritized list of candidate models for the requested tier.
+   */
+  getCandidateModels(tier: 'routine' | 'reasoning', available: string[]): string[] {
+    const active = tier === 'reasoning' ? this.activeReasoningModel : this.activeRoutineModel;
+    if (active) {
+      return [active];
+    }
+
+    let configured = tier === 'reasoning' ? this.reasoningModel : this.routineModel;
+    // Normalize legacy or nonexistent model strings
+    if (configured.includes('3.8-flash') || configured.includes('3.5-flash')) {
+      configured = 'gemini-2.0-flash';
+    } else if (configured.includes('3.1-pro')) {
+      configured = 'gemini-1.5-pro';
+    }
+
+    const priorityPool =
+      tier === 'reasoning'
+        ? [
+            configured,
+            'gemini-2.0-flash',
+            'gemini-1.5-pro',
+            'gemini-1.5-pro-latest',
+            'gemini-1.5-pro-001',
+            'gemini-1.5-pro-002',
+            'gemini-1.5-flash-latest',
+            'gemini-1.5-flash',
+            'gemini-pro',
+          ]
+        : [
+            configured,
+            'gemini-2.0-flash',
+            'gemini-1.5-flash-latest',
+            'gemini-1.5-flash',
+            'gemini-1.5-flash-001',
+            'gemini-1.5-flash-002',
+            'gemini-2.0-flash-exp',
+            'gemini-1.5-pro-latest',
+            'gemini-1.5-pro',
+            'gemini-pro',
+          ];
+
+    if (available.length > 0) {
+      const candidates: string[] = [];
+      // 1. Exact priority matches present in discovered available models
+      for (const p of priorityPool) {
+        if (available.includes(p) && !candidates.includes(p)) {
+          candidates.push(p);
+        }
+      }
+      // 2. Any available models matching the tier's preferred keyword ('flash' or 'pro')
+      const keyword = tier === 'reasoning' ? 'pro' : 'flash';
+      for (const m of available) {
+        if (m.includes(keyword) && !candidates.includes(m)) {
+          candidates.push(m);
+        }
+      }
+      // 3. Any other available models supporting generateContent
+      for (const m of available) {
+        if (!candidates.includes(m)) {
+          candidates.push(m);
+        }
+      }
+      if (candidates.length > 0) return candidates;
+    }
+
+    // Fallback: return deduplicated priority pool
+    return Array.from(new Set(priorityPool));
   }
 
   async complete(req: LLMCompletionRequest): Promise<LLMCompletion> {
-    let model = req.tier === 'reasoning' ? this.reasoningModel : this.routineModel;
-    // Normalize any legacy or non-existent experimental model names
-    if (model.includes('3.8-flash') || model.includes('3.5-flash')) {
-      model = 'gemini-1.5-flash';
-    } else if (model.includes('3.1-pro')) {
-      model = 'gemini-1.5-pro';
-    }
-
+    const tier = req.tier ?? 'routine';
     const system = req.messages
       .filter((m) => m.role === 'system')
       .map((m) => m.content)
@@ -49,6 +168,13 @@ export class GeminiProvider implements LLMProvider {
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }],
       }));
+
+    if (contents.length === 0) {
+      contents.push({
+        role: 'user',
+        parts: [{ text: system || 'Execute request' }],
+      });
+    }
 
     const body: Record<string, unknown> = {
       contents,
@@ -61,9 +187,55 @@ export class GeminiProvider implements LLMProvider {
       body['systemInstruction'] = { parts: [{ text: system }] };
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-    const data = await this.postWithRetry(url, body);
+    const available = await this.getAvailableModels();
+    const candidates = this.getCandidateModels(tier, available);
 
+    let lastError: any = null;
+    for (const model of candidates) {
+      // Try v1beta first, then v1 if 404
+      const versions = ['v1beta', 'v1'];
+      for (const ver of versions) {
+        const url = `https://generativelanguage.googleapis.com/${ver}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
+        try {
+          const data = await this.postWithRetry(url, body);
+
+          // Success! Remember this working model for future calls
+          if (tier === 'reasoning') {
+            this.activeReasoningModel = model;
+          } else {
+            this.activeRoutineModel = model;
+          }
+
+          return this.parseResponse(data);
+        } catch (err: any) {
+          lastError = err;
+          const status = err?.status;
+          const message = String(err?.message ?? '');
+          const isNotFound =
+            status === 404 ||
+            message.includes('not found') ||
+            message.includes('is not supported for generateContent');
+
+          if (isNotFound) {
+            // Clear active model if it failed
+            if (tier === 'reasoning' && this.activeReasoningModel === model) {
+              this.activeReasoningModel = undefined;
+            } else if (tier === 'routine' && this.activeRoutineModel === model) {
+              this.activeRoutineModel = undefined;
+            }
+            continue; // try next API version or next candidate model
+          }
+
+          // For non-404 errors (401 auth, 403 quota, 400 schema, safety block), fail fast
+          throw err;
+        }
+      }
+    }
+
+    throw lastError ?? new Error(`All candidate Gemini models failed for tier "${tier}"`);
+  }
+
+  private parseResponse(data: any): LLMCompletion {
     const blockReason = data?.promptFeedback?.blockReason;
     if (blockReason) {
       throw new Error(`Gemini request blocked (safety): ${blockReason}`);
@@ -120,8 +292,11 @@ export class GeminiProvider implements LLMProvider {
       if (res.ok) {
         return (await res.json()) as any;
       }
-      const payload = await res.text().catch(() => '');
-      lastError = new Error(`Gemini API error ${res.status}: ${payload.slice(0, 300)}`);
+      const rawPayload = await res.text().catch(() => '');
+      const sanitizedPayload = rawPayload.replace(/([?&]key=)[^&"'\s]+/gi, '$1REDACTED');
+      const err = new Error(`Gemini API error ${res.status}: ${sanitizedPayload.slice(0, 300)}`);
+      (err as any).status = res.status;
+      lastError = err;
       if (res.status !== 429 && res.status < 500) break; // non-transient — don't retry
     }
     throw lastError ?? new Error('Gemini request failed');
