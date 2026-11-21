@@ -1,4 +1,4 @@
-import { GeminiProvider } from '../src/llm/gemini.js';
+import { GeminiProvider, isTextGenerationModel } from '../src/llm/gemini.js';
 
 let failures = 0;
 function check(name: string, ok: boolean, extra?: unknown) {
@@ -13,6 +13,14 @@ async function main() {
   const originalFetch = globalThis.fetch;
 
   try {
+    // 0. Model name filtering tests
+    check('identifies standard text model', isTextGenerationModel('gemini-2.0-flash'));
+    check('identifies gemini-2.5-flash as text model', isTextGenerationModel('gemini-2.5-flash'));
+    check('filters out tts models', !isTextGenerationModel('gemini-2.5-flash-preview-tts'));
+    check('filters out audio models', !isTextGenerationModel('gemini-1.5-flash-audio'));
+    check('filters out embedding models', !isTextGenerationModel('text-embedding-004'));
+    check('filters out imagen models', !isTextGenerationModel('imagen-3.0-generate-002'));
+
     // 1. Discovery and caching test
     GeminiProvider.resetModelCache();
     let fetchCalls: Array<{ url: string; options: any }> = [];
@@ -24,6 +32,10 @@ async function main() {
         return new Response(
           JSON.stringify({
             models: [
+              {
+                name: 'models/gemini-2.5-flash-preview-tts',
+                supportedGenerationMethods: ['generateContent'],
+              },
               {
                 name: 'models/gemini-2.0-flash',
                 supportedGenerationMethods: ['generateContent', 'countTokens'],
@@ -48,6 +60,7 @@ async function main() {
     const available = await provider.getAvailableModels();
     check('discovers models supporting generateContent', available.length === 2);
     check('strips models/ prefix', available.includes('gemini-2.0-flash'));
+    check('filters out tts model despite generateContent capability', !available.includes('gemini-2.5-flash-preview-tts'));
     check('filters out models without generateContent', !available.includes('text-embedding-004'));
 
     // Verify caching (second call shouldn't call fetch again)
@@ -71,7 +84,6 @@ async function main() {
       fetchCalls.push({ url, options: init });
 
       if (url.includes('/models?key=')) {
-        // Simulate ListModels failure or empty response
         return new Response('{}', { status: 200 });
       }
 
@@ -124,7 +136,59 @@ async function main() {
     check('tracks input tokens correctly', result.usage.inputTokens === 120);
     check('tracks output tokens correctly', result.usage.outputTokens === 45);
 
-    // 4. Non-404 error (401 Unauthorized) fails fast
+    // 4. Modality 400 error auto-cascade test (exact error user encountered)
+    GeminiProvider.resetModelCache();
+    fetchCalls = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      fetchCalls.push({ url, options: init });
+
+      if (url.includes('gemini-2.5-flash-preview-tts')) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: 400,
+              message:
+                'The requested combination of response modalities (TEXT) is not supported by the model. models/gemini-2.5-flash-preview-tts accepts the following combination of response modalities:\n* AUDIO\n',
+              status: 'INVALID_ARGUMENT',
+            },
+          }),
+          { status: 400, headers: { 'content-type': 'application/json' } }
+        );
+      }
+
+      if (url.includes('gemini-2.0-flash')) {
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: 'Taint engine verification ok.' }],
+                },
+                finishReason: 'STOP',
+              },
+            ],
+            usageMetadata: {
+              promptTokenCount: 200,
+              candidatesTokenCount: 50,
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+
+      return new Response('Not Found', { status: 404 });
+    }) as typeof fetch;
+
+    const ttsProvider = new GeminiProvider('test-api-key-12345', 'gemini-2.5-flash-preview-tts');
+    const ttsResult = await ttsProvider.complete({
+      messages: [{ role: 'user', content: 'Scan analysis' }],
+      tier: 'routine',
+    });
+    check('auto-cascades past 400 audio-only modality error to working text model', ttsResult.text.includes('Taint engine verification ok.'));
+
+    // 5. Non-modality 401 Unauthorized fails fast
     globalThis.fetch = (async () => {
       return new Response(
         JSON.stringify({

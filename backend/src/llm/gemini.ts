@@ -2,6 +2,31 @@ import { config } from '../config.js';
 import { makeCompletion, type LLMCompletion, type LLMCompletionRequest, type LLMProvider } from './provider.js';
 
 /**
+ * Patterns matching specialized non-text models (TTS, audio-only, embeddings,
+ * image generation, live websocket sessions) that cannot generate text output.
+ */
+const NON_TEXT_MODEL_PATTERNS = [
+  /tts/i,
+  /audio/i,
+  /embedding/i,
+  /imagen/i,
+  /live/i,
+  /aqa/i,
+  /whisper/i,
+  /transcribe/i,
+];
+
+/**
+ * Returns true if the model name indicates a text-generation capable LLM,
+ * and false for specialized media/audio/TTS models (e.g. gemini-2.5-flash-preview-tts).
+ */
+export function isTextGenerationModel(name: string): boolean {
+  if (!name || typeof name !== 'string') return false;
+  const lower = name.toLowerCase();
+  return !NON_TEXT_MODEL_PATTERNS.some((pattern) => pattern.test(lower));
+}
+
+/**
  * Google Gemini (AI Studio Developer API) implementation — the DEFAULT provider.
  *
  * REST endpoint: https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent
@@ -15,8 +40,9 @@ import { makeCompletion, type LLMCompletion, type LLMCompletionRequest, type LLM
  *
  * Dynamic Model Discovery & Multi-Candidate Fallback:
  * Dynamically queries `ModelService.ListModels` to discover the exact models supported
- * by the user's specific API key for `generateContent`. If the primary model 404s,
- * cascades through candidates ('gemini-2.0-flash', 'gemini-1.5-flash-latest', etc.)
+ * by the user's specific API key for `generateContent`. Filters out non-text models
+ * (such as `-tts` or `-audio` variants). If a model 404s or returns 400 for unsupported
+ * modalities, cascades through text-capable candidates ('gemini-2.0-flash', 'gemini-2.5-flash', etc.)
  * across v1beta and v1 endpoints, locking in the first working model for subsequent calls.
  */
 export class GeminiProvider implements LLMProvider {
@@ -48,7 +74,7 @@ export class GeminiProvider implements LLMProvider {
 
   /**
    * Dynamically query ModelService.ListModels for this API key to discover which
-   * models support `generateContent`. Result is cached in memory per API key.
+   * models support `generateContent` for text. Result is cached in memory per API key.
    */
   async getAvailableModels(): Promise<string[]> {
     const cached = GeminiProvider.cachedModels.get(this.apiKey);
@@ -70,7 +96,8 @@ export class GeminiProvider implements LLMProvider {
             (m: any) =>
               Array.isArray(m.supportedGenerationMethods) &&
               m.supportedGenerationMethods.includes('generateContent') &&
-              typeof m.name === 'string'
+              typeof m.name === 'string' &&
+              isTextGenerationModel(m.name)
           )
           .map((m: any) => m.name.replace(/^models\//, ''));
 
@@ -87,10 +114,11 @@ export class GeminiProvider implements LLMProvider {
 
   /**
    * Determine prioritized list of candidate models for the requested tier.
+   * Guarantees all candidates are valid text-generation models.
    */
   getCandidateModels(tier: 'routine' | 'reasoning', available: string[]): string[] {
     const active = tier === 'reasoning' ? this.activeReasoningModel : this.activeRoutineModel;
-    if (active) {
+    if (active && isTextGenerationModel(active)) {
       return [active];
     }
 
@@ -99,13 +127,17 @@ export class GeminiProvider implements LLMProvider {
     if (configured.includes('3.8-flash') || configured.includes('3.5-flash')) {
       configured = 'gemini-2.0-flash';
     } else if (configured.includes('3.1-pro')) {
-      configured = 'gemini-1.5-pro';
+      configured = 'gemini-2.0-flash';
     }
 
     const priorityPool =
       tier === 'reasoning'
         ? [
             configured,
+            'gemini-2.5-pro',
+            'gemini-2.5-pro-preview',
+            'gemini-2.5-flash',
+            'gemini-2.5-flash-preview',
             'gemini-2.0-flash',
             'gemini-1.5-pro',
             'gemini-1.5-pro-latest',
@@ -117,43 +149,50 @@ export class GeminiProvider implements LLMProvider {
           ]
         : [
             configured,
+            'gemini-2.5-flash',
+            'gemini-2.5-flash-preview',
             'gemini-2.0-flash',
+            'gemini-2.0-flash-lite',
+            'gemini-2.0-flash-lite-preview',
             'gemini-1.5-flash-latest',
             'gemini-1.5-flash',
             'gemini-1.5-flash-001',
             'gemini-1.5-flash-002',
+            'gemini-1.5-flash-8b',
             'gemini-2.0-flash-exp',
             'gemini-1.5-pro-latest',
             'gemini-1.5-pro',
             'gemini-pro',
           ];
 
-    if (available.length > 0) {
+    const safeAvailable = available.filter(isTextGenerationModel);
+
+    if (safeAvailable.length > 0) {
       const candidates: string[] = [];
       // 1. Exact priority matches present in discovered available models
       for (const p of priorityPool) {
-        if (available.includes(p) && !candidates.includes(p)) {
+        if (safeAvailable.includes(p) && !candidates.includes(p) && isTextGenerationModel(p)) {
           candidates.push(p);
         }
       }
       // 2. Any available models matching the tier's preferred keyword ('flash' or 'pro')
       const keyword = tier === 'reasoning' ? 'pro' : 'flash';
-      for (const m of available) {
-        if (m.includes(keyword) && !candidates.includes(m)) {
+      for (const m of safeAvailable) {
+        if (m.includes(keyword) && !candidates.includes(m) && isTextGenerationModel(m)) {
           candidates.push(m);
         }
       }
-      // 3. Any other available models supporting generateContent
-      for (const m of available) {
-        if (!candidates.includes(m)) {
+      // 3. Any other available text models supporting generateContent
+      for (const m of safeAvailable) {
+        if (!candidates.includes(m) && isTextGenerationModel(m)) {
           candidates.push(m);
         }
       }
       if (candidates.length > 0) return candidates;
     }
 
-    // Fallback: return deduplicated priority pool
-    return Array.from(new Set(priorityPool));
+    // Fallback: return deduplicated, text-only priority pool
+    return Array.from(new Set(priorityPool.filter(isTextGenerationModel)));
   }
 
   async complete(req: LLMCompletionRequest): Promise<LLMCompletion> {
@@ -192,7 +231,7 @@ export class GeminiProvider implements LLMProvider {
 
     let lastError: any = null;
     for (const model of candidates) {
-      // Try v1beta first, then v1 if 404
+      // Try v1beta first, then v1 if 404/incompatible
       const versions = ['v1beta', 'v1'];
       for (const ver of versions) {
         const url = `https://generativelanguage.googleapis.com/${ver}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
@@ -211,12 +250,18 @@ export class GeminiProvider implements LLMProvider {
           lastError = err;
           const status = err?.status;
           const message = String(err?.message ?? '');
-          const isNotFound =
+          const isNotFoundOrIncompatible =
             status === 404 ||
             message.includes('not found') ||
-            message.includes('is not supported for generateContent');
+            message.includes('is not supported for generateContent') ||
+            message.includes('response modalities') ||
+            message.includes('not supported by the model') ||
+            (status === 400 && (message.includes('INVALID_ARGUMENT') || message.includes('modalities')));
 
-          if (isNotFound) {
+          if (isNotFoundOrIncompatible) {
+            console.warn(
+              `[gemini] Model "${model}" on ${ver} is incompatible (${status}): ${message.slice(0, 140)}. Trying next candidate...`
+            );
             // Clear active model if it failed
             if (tier === 'reasoning' && this.activeReasoningModel === model) {
               this.activeReasoningModel = undefined;
@@ -226,7 +271,7 @@ export class GeminiProvider implements LLMProvider {
             continue; // try next API version or next candidate model
           }
 
-          // For non-404 errors (401 auth, 403 quota, 400 schema, safety block), fail fast
+          // For non-compatibility errors (401 auth, 403 quota, schema, safety block), fail fast
           throw err;
         }
       }
