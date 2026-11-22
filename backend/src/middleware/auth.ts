@@ -5,6 +5,7 @@ import { hashApiKey, verifySession } from '../auth/auth.js';
 import { SESSION_COOKIE, SESSION_IDLE_MS, hashSessionToken, isAdminEmail, parseCookies } from '../auth/session.js';
 import { PLAN_QUOTAS } from '../auth/usage.js';
 import type { PlanTier } from '../types.js';
+import { recordSecurityEvent } from '../detection/events.js';
 
 export interface AuthenticatedUser {
   id: string;
@@ -71,6 +72,24 @@ export function buildAuthenticate(db: Database) {
       }
       await db.touchApiKey(rec.id).catch(() => undefined);
       request.user = { id: user.id, email: user.email, plan, viaApiKey: true };
+      // Runtime detection layer (Thread 5, DEFENSIVE — dogfooding): record
+      // the API-key use so the anomaly rules can spot a key used from a new
+      // IP, a volume spike, or endpoints the key never used before. Prefix
+      // only, never the key; path only, never the query string. Best-effort:
+      // detection must never break authentication.
+      try {
+        recordSecurityEvent({
+          userId: user.id,
+          type: 'api_key_use',
+          at: new Date().toISOString(),
+          ip: request.ip,
+          apiKeyPrefix: apiKey.slice(0, 10),
+          endpoint: (request.url ?? '').split('?')[0],
+          userAgent: request.headers['user-agent'],
+        });
+      } catch {
+        /* detection intake must not fail auth */
+      }
       return;
     }
 
