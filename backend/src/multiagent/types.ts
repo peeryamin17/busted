@@ -1,6 +1,7 @@
 import type {
   Confidence,
   Finding,
+  FindingVerification,
   ScopePolicy,
   Severity,
   TechEntry,
@@ -67,6 +68,8 @@ export interface WorkerFinding {
   evidence: string;
   rawEvidence?: string;
   suggestedFix?: string;
+  /** Depth-ladder result (head.ts Phase 4.6): 'verified' vs 'hint'. */
+  verification?: FindingVerification;
   reproSteps: string[];
   remediation: string;
   references: string[];

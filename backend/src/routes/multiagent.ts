@@ -251,6 +251,10 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
             honeypotSuspect: f.honeypotSuspect,
             reproSteps: f.reproSteps,
             references: f.references,
+            // Depth-ladder verification (Thread 4): without this line the
+            // ladder's verdicts never reach the DB, and /api/scans/:id/report
+            // (which reads findings from the DB) shows no verified chains.
+            verification: f.verification,
           })),
         );
         if (outcome.testsRun === 0 && outcome.findings.length === 0) {

@@ -21,6 +21,50 @@ export const SEVERITY_ORDER: Record<Severity, number> = {
 
 export type Confidence = 'high' | 'medium' | 'low';
 
+/**
+ * Exploit-depth verification (depth ladder, multiagent/depthLadder.ts).
+ *
+ * The ladder VALIDATES findings specialists already produced; it never
+ * invents findings. `status: 'verified'` means the vulnerability was
+ * reproduced with a benign canary probe and read-only evidence — it is NOT
+ * proof of exploitability to full impact, and no chain is ever executed.
+ * `status: 'hint'` means the claim could not be reproduced (or could not be
+ * tested live) and must be treated as an unconfirmed hint.
+ */
+export type DepthLevel = 'unproven' | 'confirmed' | 'escalated';
+
+/** Impact measured from OBSERVED depth, never from a model guess. */
+export type DepthImpact = 'not-measured' | 'single-context' | 'cross-context';
+
+export type VerificationStatus = 'verified' | 'hint';
+
+export interface DepthEvidence {
+  /** Which rung of the ladder this evidence supports. */
+  rung: 'confirm' | 'escalate';
+  /** What was probed, e.g. 'xss-reflection', 'idor-neighbor-shape'. */
+  kind: string;
+  /** The (redacted) request that was made — read-only by construction. */
+  request: string;
+  /** What was observed — redacted excerpt, or status/shape metadata only. */
+  observed: string;
+  status?: number;
+}
+
+export interface FindingVerification {
+  status: VerificationStatus;
+  depth: DepthLevel;
+  impact: DepthImpact;
+  /** Human-readable statement of what the observed depth does/does not prove. */
+  impactSummary: string;
+  /** The benign canary token used, if a live probe ran (ours — safe to show). */
+  canaryToken?: string;
+  evidence: DepthEvidence[];
+  /** Why the ladder stopped early, if it did (rate limit, error storm, scope refusal…). */
+  stopReason?: string;
+  testedAt: string; // ISO
+  method: string;
+}
+
 export type ScanMode = 'passive' | 'active';
 
 export type ScanStatus =
@@ -132,6 +176,13 @@ export interface Finding {
    * labeled as unverified in reports — a wrong auto-fix is worse than none.
    */
   suggestedFix?: string;
+  /**
+   * Exploit-depth verification from the swarm depth ladder (see
+   * FindingVerification in this file). Present on swarm findings: 'verified'
+   * means reproduced with a benign canary probe; 'hint' means unproven or
+   * untestable. Absent on findings from older scans / other sources.
+   */
+  verification?: FindingVerification;
   references: string[];
   createdAt: string; // ISO
 }

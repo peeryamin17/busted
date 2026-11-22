@@ -3,6 +3,12 @@ import { defaultTools, createToolContext } from '../agent/tools.js';
 import { extraTools } from './extraTools.js';
 import { getSpecialist, allSpecialists, ALWAYS_SPAWN, CONDITIONAL_SPAWN } from './specialists.js';
 import { buildFixInIdePrompt } from '../reports/remediation.js';
+import {
+  createDepthProber,
+  isLadderTestable,
+  untestedVerification,
+  validateFindingWithLadder,
+} from './depthLadder.js';
 import { runWorker } from './worker.js';
 import {
   OSDK_TOOL_DECLARATIONS,
@@ -456,6 +462,49 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
     }
   }
 
+  // ── Phase 4.6: exploit-depth ladder (benign canary, read-only proofs) ──
+  // Extends the PoC validator: findings that survived validation are
+  // reproduced live where a read-only probe exists (XSS / IDOR / CORS /
+  // GraphQL). The ladder never invents findings and never executes a chain:
+  // it only confirms/escalates what specialists already reported, with
+  // benign canaries, and stops on any rate-limit, lockout, error storm or
+  // guardrail refusal. Everything it cannot test stays an explicit hint.
+  // No LLM tokens are spent here — only bounded, rate-limited HTTP probes
+  // through the shared tool context (scope + SSRF enforced per request).
+  const ladderCandidates = deduped.filter((f) => isLadderTestable(f)).slice(0, 8);
+  if (ladderCandidates.length > 0) {
+    event('head_review', `Depth ladder: validating ${ladderCandidates.length} finding(s) with benign canary probes (read-only)`);
+    const prober = createDepthProber(toolCtx);
+    for (const f of ladderCandidates) {
+      if (opts.shouldContinue && opts.shouldContinue() !== 'run') {
+        f.verification = untestedVerification('swarm run paused/cancelled before the depth ladder ran.');
+        continue;
+      }
+      try {
+        f.verification = await validateFindingWithLadder(f, prober, { targetUrl: opts.targetUrl });
+        event(
+          'head_review',
+          `Depth ladder: "${f.title}" → ${f.verification.status}/${f.verification.depth}` +
+            (f.verification.stopReason ? ` (stopped: ${f.verification.stopReason})` : ''),
+        );
+      } catch (err) {
+        // The ladder never throws, but if it ever did, the finding degrades
+        // to a hint rather than being dropped or corrupted.
+        errors.push(`depth ladder failed for "${f.title}": ${(err as Error).message}`);
+        f.verification = untestedVerification(
+          `the depth ladder errored (${(err as Error).message.slice(0, 120)}) — treated as a hint.`,
+        );
+      }
+    }
+  }
+  for (const f of deduped) {
+    if (!f.verification) {
+      f.verification = untestedVerification(
+        `no read-only live probe exists for category "${f.category}" — the ladder only tests XSS, IDOR, CORS and GraphQL findings live.`,
+      );
+    }
+  }
+
   // Zero-Hallucination Gate: verify cryptographic provenance for all ontology-backed findings
   if (opts.osdk && opts.scanId) {
     try {
@@ -531,6 +580,7 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
       location: f.location,
       evidence: f.evidence,
       suggestedFix: f.suggestedFix,
+      verification: f.verification,
       reproSteps: f.reproSteps,
       remediation: f.remediation,
       references: f.references,
