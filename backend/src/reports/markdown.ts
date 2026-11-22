@@ -1,5 +1,8 @@
 import type { Finding, Scan } from '../types.js';
 import { SEVERITY_ORDER } from '../types.js';
+import { splitWhiteBoxFindings, WHITEBOX_SECTION_NOTE } from './whitebox.js';
+import { chainLines, hintFindings, verifiedFindings, verificationLabel } from './verification.js';
+import { buildDefensiveSection, defensiveClassesFromFindings } from './defensive.js';
 
 export interface ReportInput {
   scan: Scan;
@@ -45,11 +48,80 @@ export function generateMarkdownReport(input: ReportInput): string {
     );
   }
 
+  // White-box findings live in their own section (below) and are excluded
+  // from the verified/hints rollups as well as the general findings list.
+  const { whiteBox, rest } = splitWhiteBoxFindings(sorted);
+
+  // ── Verified exploit chains (depth ladder) ──
+  const verified = verifiedFindings(rest);
+  const hints = hintFindings(rest);
+  if (verified.length > 0) {
+    lines.push(
+      '## Verified exploit chains',
+      '',
+      'These findings were reproduced live by the depth ladder with benign canary probes and read-only ' +
+        'evidence. "Verified" means the vulnerability was reproduced — it is not proof of exploitability ' +
+        'to full impact; the ladder never executes an attack chain.',
+      ''
+    );
+    verified.forEach((f, idx) => {
+      lines.push(`### ${idx + 1}. ${f.title}`, '');
+      lines.push(`**Verification:** ${verificationLabel(f)}`, '');
+      chainLines(f).forEach((l) => lines.push(`- ${l}`));
+      lines.push('');
+    });
+  }
+  if (hints.length > 0) {
+    lines.push(
+      '## Hints (unverified)',
+      '',
+      'These findings could not be reproduced with a benign canary probe, or no read-only live probe ' +
+        'exists for their category. Treat them as unconfirmed hints and verify manually before reporting.',
+      ''
+    );
+    hints.forEach((f) => {
+      lines.push(`- **${f.title}** (${f.severity}) — ${verificationLabel(f)}`);
+    });
+    lines.push('');
+  }
+
+  if (whiteBox.length > 0) {
+    lines.push('## White-box analysis', '', WHITEBOX_SECTION_NOTE, '');
+    whiteBox.forEach((f, idx) => {
+      lines.push(
+        `### W${idx + 1}. ${f.title}`,
+        '',
+        `**Severity:** ${f.severity.toUpperCase()}${f.cvssScore != null ? ` · **CVSS:** ${f.cvssScore.toFixed(1)}` : ''} · **Confidence:** ${f.confidence}`,
+        '',
+        f.description,
+        '',
+      );
+      if (f.location) lines.push(`**Location:** ${f.location}`, '');
+      if (f.evidence) lines.push('**Evidence (redacted):**', '', '```', f.evidence, '```', '');
+      lines.push('**Remediation:**', '', f.remediation, '');
+    });
+  }
+
+  // ── Defensive aftermath (Thread 5) ──
+  // Derived from defense-verification findings when the scan ran the safe
+  // defense probes; omitted entirely when it did not.
+  const defensiveClasses = defensiveClassesFromFindings(sorted);
+  if (defensiveClasses.length > 0) {
+    lines.push(
+      buildDefensiveSection({
+        targetUrl: scan.targetUrl,
+        scannedAt: scan.createdAt,
+        classes: defensiveClasses,
+      }),
+      '',
+    );
+  }
+
   lines.push('## Findings', '');
-  if (sorted.length === 0) {
+  if (rest.length === 0) {
     lines.push('No findings were identified during this scan.', '');
   }
-  sorted.forEach((f, idx) => {
+  rest.forEach((f, idx) => {
     lines.push(
       `### ${idx + 1}. ${f.title}`,
       '',
@@ -62,6 +134,7 @@ export function generateMarkdownReport(input: ReportInput): string {
         ''
       );
     }
+    lines.push(`**Verification:** ${verificationLabel(f)}`, '');
     lines.push(f.description, '');
     if (f.cvssVector) lines.push(`\`CVSS vector: ${f.cvssVector} (estimate)\``, '');
     if (f.location) lines.push(`**Location:** ${f.location}`, '');

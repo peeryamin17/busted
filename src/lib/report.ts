@@ -11,6 +11,7 @@ import {
   type Severity,
 } from './types';
 import { basisLabel } from './authorization';
+import { defensiveSectionLines } from '../active/defenseProbes';
 
 const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
 
@@ -56,6 +57,15 @@ function findingBlock(f: Finding, n: number): string[] {
   lines.push(f.description);
   lines.push('');
   if (f.location) lines.push(`- **Location:** \`${f.location}\``);
+  if (f.secretProvider) lines.push(`- **Provider:** \`${f.secretProvider}\``);
+  if (f.fingerprint) lines.push(`- **Fingerprint:** \`${f.fingerprint}\` (first 4 + last 4 chars only — the key itself is never stored)`);
+  if (f.entropyScore !== undefined) {
+    lines.push(`- **Entropy:** ${f.entropyScore.toFixed(2)} bits/char`);
+  }
+  if (f.trail && f.trail.length > 1) {
+    lines.push(`- **Trail:**`);
+    f.trail.forEach((step, i) => lines.push(`  ${i + 1}. ${step}`));
+  }
   lines.push(`- **Confidence:** ${f.confidence}`);
   lines.push(`- **Category:** ${f.category}`);
   if (f.mode) lines.push(`- **Mode:** ${f.mode}`);
@@ -167,6 +177,14 @@ export function buildMarkdownReport(r: ScanResult): string {
       if (c.aiDeepened) lines.push('- **AI-deepened:** yes');
       lines.push('');
     });
+  }
+
+  // Defensive aftermath (Thread 5): did the site notice the safe probes?
+  // Rendered from defense-verification findings when the active scan ran
+  // them; omitted entirely otherwise.
+  const defensiveLines = defensiveSectionLines(r.findings);
+  if (defensiveLines.length > 0) {
+    lines.push(...defensiveLines);
   }
 
   // Findings: vulnerabilities first, trap-flagged items in their own section.

@@ -14,7 +14,8 @@
  */
 import type { DomScanData, Finding, ScanMessage, ScanResult } from './lib/types';
 import { SEVERITY_ORDER } from './lib/types';
-import { scanSecrets, type ScriptSource } from './scanners/secretScanner';
+import { scanSecrets, scanSecretKeyNames, type ScriptSource } from './scanners/secretScanner';
+import { attachTrailsToFindings, buildTrails, sightingsFromFindings } from './scanners/keyTrail';
 import { fetchSourceMaps, scanSourceMaps } from './scanners/sourceMapScanner';
 import { scanDeepSurface } from './scanners/deepSurface';
 import { auditCookies } from './scanners/cookieAuditor';
@@ -22,6 +23,10 @@ import { checkHeaders } from './scanners/headerChecker';
 import { analyzeDom } from './scanners/domAnalyzer';
 import { fingerprintTech } from './lib/fingerprint';
 import { scanPageBundles } from './scanners/jsBundleScanner';
+import { analyzeScriptsCrossFile } from './sast/crossFileTaint';
+import { analyzeRecoveredSources } from './sast/sourceMapRecovery';
+import { scanWasmModules } from './sast/wasmScan';
+import { crossFileLinksToFindings, taintFlowsToFindings } from './sast/findings';
 import { STORAGE_KEYS } from './lib/config';
 import { runActiveScan } from './active/activeRunner';
 import type { RateLimiter } from './lib/rateLimiter';
@@ -112,12 +117,39 @@ async function runScan(tabId: number): Promise<void> {
     ];
     const secretFindings: Finding[] = scanSecrets(scriptSources);
 
+    // Secret-shaped key NAMES in web storage / cookies (names only — values
+    // are never read). Correlate every secret finding into a per-key trail.
+    try {
+      let cookieNames: string[] = [];
+      try {
+        cookieNames = (await chrome.cookies.getAll({ url })).map((c) => c.name);
+      } catch {
+        /* cookie read unavailable — storage names still checked */
+      }
+      secretFindings.push(...scanSecretKeyNames(dom.storage, cookieNames, url));
+      // No traffic observations in a passive scan (tab capture runs only
+      // during active scans), so trails here link discovery/storage
+      // sightings; traffic steps join when a caller supplies observations.
+      const trails = buildTrails(sightingsFromFindings(secretFindings), []);
+      attachTrailsToFindings(secretFindings, trails);
+    } catch {
+      /* trail/key-name enrichment is best-effort; pattern findings stand */
+    }
+
     sendProgress('Checking for exposed source maps…');
     const exposedMaps = await fetchSourceMaps(
       externalCode.map((s) => ({ url: s.label, code: s.code })),
       url,
     );
     const sourceMapFindings: Finding[] = scanSourceMaps(exposedMaps);
+
+    sendProgress('Running white-box taint analysis…');
+    let whiteBoxFindings: Finding[] = [];
+    try {
+      whiteBoxFindings = await runWhiteBoxAnalysis(scriptSources, exposedMaps, dom.wasmUrls ?? [], url);
+    } catch {
+      /* white-box analysis is best-effort; other findings still stand */
+    }
 
     sendProgress('Checking security headers…');
     const headers = getMainFrameHeaders(tabId) ?? (await fetchHeadersFallback(url));
@@ -156,6 +188,7 @@ async function runScan(tabId: number): Promise<void> {
     const findings = [
       ...secretFindings,
       ...sourceMapFindings,
+      ...whiteBoxFindings,
       ...cookieFindings,
       ...headerFindings,
       ...domFindings,
@@ -185,6 +218,52 @@ async function runScan(tabId: number): Promise<void> {
         /* popup may be closed */
       });
   }
+}
+
+/**
+ * White-box analysis over already-fetched code only (passive — no new
+ * requests except same-origin .wasm fetches, size-capped):
+ *  1. cross-file taint analysis over inline + external scripts
+ *     (single-file flows, cross-bundle flows, shared-helper links);
+ *  2. taint analysis on original sources recovered from exposed maps;
+ *  3. WebAssembly module inventory + embedded-string scan.
+ */
+async function runWhiteBoxAnalysis(
+  scriptSources: ScriptSource[],
+  exposedMaps: import('./scanners/sourceMapScanner').ExposedSourceMap[],
+  wasmUrls: string[],
+  pageUrl: string,
+): Promise<Finding[]> {
+  const findings: Finding[] = [];
+
+  const scripts = scriptSources.map((s) => ({ url: s.label, code: s.code }));
+  const { flows, links } = analyzeScriptsCrossFile(scripts);
+  findings.push(...taintFlowsToFindings(flows));
+  findings.push(...crossFileLinksToFindings(links));
+
+  const recovered = analyzeRecoveredSources(exposedMaps);
+  findings.push(...taintFlowsToFindings(recovered.flows));
+  if (recovered.sourcesAnalysed.length > 0) {
+    findings.push({
+      id: `whitebox-recovered-${Date.now()}`,
+      category: 'whitebox',
+      title: `Taint analysis ran on ${recovered.sourcesAnalysed.length} recovered original source file(s)`,
+      description:
+        `Exposed source maps embedded original sources; the taint engine analysed the recovered originals instead of the minified bundles. ` +
+        `Line numbers in those findings refer to the original files, not the minified code (no mapping back is performed).` +
+        (recovered.skipped.length > 0 ? ` Skipped: ${recovered.skipped.slice(0, 3).join('; ')}` : ''),
+      severity: 'info',
+      confidence: 'high',
+      location: pageUrl,
+      evidence: recovered.sourcesAnalysed.slice(0, 5).join(', '),
+      remediation: 'Remove .map files from production deployments (see the source-map findings) so original sources are not recoverable.',
+    });
+  }
+
+  const { findings: wasmFindings } = await scanWasmModules(wasmUrls, pageUrl);
+  findings.push(...wasmFindings);
+
+  return findings;
 }
 
 async function collectDom(tabId: number): Promise<DomScanData> {

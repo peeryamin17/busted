@@ -5,8 +5,8 @@
  *   authorization check → scope check → DOM collection → tab traffic capture
  *   → baseline GET → API discovery → network analysis → CORS tests
  *   → GraphQL probing → XSS tests → IDOR checks → auth checks
- *   → trap scoring → attack-chain building → (best-effort) backend AI
- *     deepening → report assembly
+ *   → guardrailed brute-force tests → trap scoring → attack-chain building
+ *   → (best-effort) backend AI deepening → report assembly
  *
  * Invariants:
  *  - No active request is sent before a valid authorization record exists.
@@ -38,6 +38,8 @@ import { testCommerce } from './commerceTester';
 import { probeSensitiveFiles } from './sensitiveFiles';
 import { checkIdor } from './idorChecker';
 import { checkAuthentication } from './authChecker';
+import { testBruteForce } from './bruteForce';
+import { runDefenseProbes } from './defenseProbes';
 import {
   DeepInspectSession,
   analyzeDeepBodies,
@@ -235,6 +237,57 @@ export async function runActiveScan(
       findings.push(...authFindings);
     } catch (err) {
       errors.push(`auth checks: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // Guardrailed brute-force tests (default creds + short weak-password
+    // list only; gated on the login-testing grant inside the module).
+    step('Testing brute-force resilience (guardrailed)…');
+    try {
+      const { findings: bruteForceFindings } = await testBruteForce(
+        http,
+        authz,
+        targetUrl,
+        dom,
+      );
+      findings.push(...bruteForceFindings);
+    } catch (err) {
+      errors.push(`brute-force tests: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // Defense verification probes (Thread 5, DEFENSIVE): safe probes that
+    // test whether the target's defenses actually engage — rate limiting,
+    // WAF rules, blocking, logging. Same authorization gate as the other
+    // active tests; every probe is inert by construction (benign canaries,
+    // no execution, no state change).
+    step('Verifying defenses (safe probes)…');
+    try {
+      // Key-exposure assessment reuses the bloodhound findings from the
+      // last passive scan when one exists; without it the probe reports
+      // honestly that there was nothing to assess.
+      let secretFindings: Finding[] = [];
+      try {
+        const stored = await chrome.storage.local.get('lastResult');
+        const last = (stored as { lastResult?: { findings?: Finding[] } }).lastResult;
+        if (Array.isArray(last?.findings)) secretFindings = last.findings;
+      } catch {
+        /* no passive result available — probes run without it */
+      }
+      const { findings: defenseFindings } = await runDefenseProbes(
+        http,
+        authz,
+        targetUrl,
+        dom,
+        {
+          secretFindings,
+          apiEndpoints: apiEndpoints.map((e) => ({ path: e.path, status: e.status })),
+          oastCanaryUrl: null,
+          ownKeys: [],
+          isStaging: false,
+        },
+      );
+      findings.push(...defenseFindings);
+    } catch (err) {
+      errors.push(`defense probes: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     // Commerce surface (GET-only mapping; never places orders).

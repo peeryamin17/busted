@@ -13,6 +13,7 @@ import type {
   UserRecord,
 } from '../types.js';
 import type { RequesterOrigin, WebCheckRecord, WebFinding, WebInfo } from '../webcheck/types.js';
+import type { DetectionRecord } from '../detection/types.js';
 
 export interface CreateScanInput {
   userId: string;
@@ -165,6 +166,13 @@ export interface Database {
    */
   listWebCheckSummaries(userId: string, limit: number): Promise<WebCheckSummary[]>;
 
+  /** Persist a detection the runtime detection rules produced. */
+  recordDetection(input: Omit<DetectionRecord, 'id' | 'createdAt'>): Promise<DetectionRecord>;
+  /** A user's detections, newest first. */
+  listDetections(userId: string, limit: number): Promise<DetectionRecord[]>;
+  /** One detection, only when it belongs to the user. */
+  getDetection(userId: string, id: string): Promise<DetectionRecord | null>;
+
   close(): Promise<void>;
 }
 
@@ -200,6 +208,7 @@ export class MemoryDatabase implements Database {
   private usage: Array<{ userId: string; kind: string; quantity: number; scanId?: string; at: string }> = [];
   private waitlist = new Set<string>(); // normalised emails
   private webChecks: WebCheckRecord[] = [];
+  private detections: DetectionRecord[] = [];
 
   async createUser(email: string, passwordHash: string): Promise<UserRecord> {
     const normalized = email.trim().toLowerCase();
@@ -595,6 +604,27 @@ export class MemoryDatabase implements Database {
     return { runs, total: await this.countWebChecks(userId) };
   }
 
+  async recordDetection(
+    input: Omit<DetectionRecord, 'id' | 'createdAt'>,
+  ): Promise<DetectionRecord> {
+    const rec: DetectionRecord = { ...input, id: randomUUID(), createdAt: nowIso() };
+    this.detections.push(rec);
+    return { ...rec };
+  }
+
+  async listDetections(userId: string, limit: number): Promise<DetectionRecord[]> {
+    return this.detections
+      .filter((d) => d.userId === userId)
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .slice(0, Math.max(1, Math.min(200, limit)))
+      .map((d) => ({ ...d }));
+  }
+
+  async getDetection(userId: string, id: string): Promise<DetectionRecord | null> {
+    const rec = this.detections.find((d) => d.userId === userId && d.id === id);
+    return rec ? { ...rec } : null;
+  }
+
   async close(): Promise<void> {
     // nothing to release
   }
@@ -671,6 +701,12 @@ export class PostgresDatabase implements Database {
       reproSteps: (row['repro_steps'] as string[]) ?? [],
       remediation: (row['remediation'] as string) ?? '',
       references: (row['references'] as string[]) ?? [],
+      verification:
+        row['verification'] == null
+          ? undefined
+          : typeof row['verification'] === 'string'
+            ? (JSON.parse(row['verification']) as Finding['verification'])
+            : (row['verification'] as Finding['verification']),
       createdAt: (row['created_at'] as Date).toISOString(),
     };
   }
@@ -1142,13 +1178,14 @@ export class PostgresDatabase implements Database {
       `INSERT INTO findings
          (scan_id, category, title, description, severity, cvss_score, cvss_vector,
           confidence, trap_probability, honeypot_suspect, location, evidence,
-          repro_steps, remediation, "references")
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+          repro_steps, remediation, "references", verification)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
       [
         f.scanId, f.category, f.title, f.description, f.severity,
         f.cvssScore ?? null, f.cvssVector ?? null, f.confidence,
         f.trapProbability, f.honeypotSuspect, f.location ?? null,
         f.evidence ?? null, f.reproSteps, f.remediation, f.references,
+        f.verification ? JSON.stringify(f.verification) : null,
       ]
     );
     return this.toFinding(rows[0]);
@@ -1156,7 +1193,7 @@ export class PostgresDatabase implements Database {
 
   async addFindings(items: Array<Omit<Finding, 'id' | 'createdAt'>>): Promise<Finding[]> {
     if (items.length === 0) return [];
-    const cols = 15;
+    const cols = 16;
     const values: unknown[] = [];
     const tuples = items.map((f, i) => {
       const b = i * cols;
@@ -1165,6 +1202,7 @@ export class PostgresDatabase implements Database {
         f.cvssScore ?? null, f.cvssVector ?? null, f.confidence,
         f.trapProbability, f.honeypotSuspect, f.location ?? null,
         f.evidence ?? null, f.reproSteps, f.remediation, f.references,
+        f.verification ? JSON.stringify(f.verification) : null,
       );
       return `(${Array.from({ length: cols }, (_, j) => `$${b + j + 1}`).join(',')})`;
     });
@@ -1172,7 +1210,7 @@ export class PostgresDatabase implements Database {
       `INSERT INTO findings
          (scan_id, category, title, description, severity, cvss_score, cvss_vector,
           confidence, trap_probability, honeypot_suspect, location, evidence,
-          repro_steps, remediation, "references")
+          repro_steps, remediation, "references", verification)
        VALUES ${tuples.join(',')} RETURNING *`,
       values,
     );
@@ -1316,6 +1354,55 @@ export class PostgresDatabase implements Database {
       [userId]
     );
     return rows[0]?.n ?? 0;
+  }
+
+  private toDetection(row: Record<string, unknown>): DetectionRecord {
+    return {
+      id: row['id'] as string,
+      userId: row['user_id'] as string,
+      pattern: row['pattern'] as DetectionRecord['pattern'],
+      severity: row['severity'] as DetectionRecord['severity'],
+      title: row['title'] as string,
+      detail: row['detail'] as string,
+      evidence: (row['evidence'] as string) ?? undefined,
+      dedupeKey: row['dedupe_key'] as string,
+      createdAt: (row['created_at'] as Date).toISOString(),
+    };
+  }
+
+  async recordDetection(
+    input: Omit<DetectionRecord, 'id' | 'createdAt'>,
+  ): Promise<DetectionRecord> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO detections (user_id, pattern, severity, title, detail, evidence, dedupe_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [
+        input.userId,
+        input.pattern,
+        input.severity,
+        input.title,
+        input.detail,
+        input.evidence ?? null,
+        input.dedupeKey,
+      ],
+    );
+    return this.toDetection(rows[0]);
+  }
+
+  async listDetections(userId: string, limit: number): Promise<DetectionRecord[]> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM detections WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+      [userId, Math.max(1, Math.min(200, limit))],
+    );
+    return rows.map((r: Record<string, unknown>) => this.toDetection(r));
+  }
+
+  async getDetection(userId: string, id: string): Promise<DetectionRecord | null> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM detections WHERE user_id = $1 AND id = $2`,
+      [userId, id],
+    );
+    return rows[0] ? this.toDetection(rows[0]) : null;
   }
 
   async close(): Promise<void> {

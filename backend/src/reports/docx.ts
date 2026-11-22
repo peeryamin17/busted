@@ -8,6 +8,15 @@ import {
 } from 'docx';
 import type { Finding, Scan } from '../types.js';
 import { SEVERITY_ORDER } from '../types.js';
+import { splitWhiteBoxFindings, WHITEBOX_SECTION_NOTE } from './whitebox.js';
+import { chainLines, hintFindings, verifiedFindings, verificationLabel } from './verification.js';
+import {
+  CLASS_LABELS,
+  REMEDIATION,
+  classVerdict,
+  defensiveClassesFromFindings,
+  signalCell,
+} from './defensive.js';
 
 export interface ReportInput {
   scan: Scan;
@@ -84,13 +93,107 @@ export async function generateDocxReport(input: ReportInput): Promise<Buffer> {
     );
   }
 
+  // ── Verified exploit chains (depth ladder) ──
+  // White-box findings live in their own section (below) and are excluded
+  // from the verified/hints rollups as well as the general findings list.
+  const { whiteBox, rest } = splitWhiteBoxFindings(sorted);
+  const verified = verifiedFindings(rest);
+  const hints = hintFindings(rest);
+  if (verified.length > 0) {
+    children.push(
+      heading('Verified exploit chains', HeadingLevel.HEADING_1),
+      p(
+        'These findings were reproduced live by the depth ladder with benign canary probes and read-only ' +
+          'evidence. "Verified" means the vulnerability was reproduced — it is not proof of exploitability ' +
+          'to full impact; the ladder never executes an attack chain.'
+      )
+    );
+    for (const f of verified) {
+      children.push(
+        heading(f.title, HeadingLevel.HEADING_2),
+        p(verificationLabel(f), { bold: true })
+      );
+      for (const l of chainLines(f)) children.push(p(`• ${l}`));
+      children.push(new Paragraph({ text: '' }));
+    }
+  }
+  if (hints.length > 0) {
+    children.push(
+      heading('Hints (unverified)', HeadingLevel.HEADING_1),
+      p(
+        'These findings could not be reproduced with a benign canary probe, or no read-only live probe ' +
+          'exists for their category. Treat them as unconfirmed hints and verify manually before reporting.'
+      )
+    );
+    for (const f of hints) {
+      children.push(p(`• ${f.title} (${f.severity}) — ${verificationLabel(f)}`));
+    }
+    children.push(new Paragraph({ text: '' }));
+  }
+
+  if (whiteBox.length > 0) {
+    children.push(
+      new Paragraph({ text: '' }),
+      heading('White-box analysis', HeadingLevel.HEADING_1),
+      p(WHITEBOX_SECTION_NOTE),
+    );
+    whiteBox.forEach((f, idx) => {
+      children.push(
+        heading(`W${idx + 1}. ${f.title}`, HeadingLevel.HEADING_2),
+        p(
+          `Severity: ${f.severity.toUpperCase()}${f.cvssScore != null ? `  ·  CVSS: ${f.cvssScore.toFixed(1)}` : ''}  ·  Confidence: ${f.confidence}`,
+          { bold: true, color: SEV_COLORS[f.severity] ?? '4B5563' }
+        ),
+        p(f.description),
+      );
+      if (f.location) children.push(p('Location:', { bold: true }), p(f.location));
+      if (f.evidence) children.push(p('Evidence (redacted):', { bold: true }), p(f.evidence));
+      children.push(p('Remediation:', { bold: true }), p(f.remediation));
+      children.push(new Paragraph({ text: '' }));
+    });
+  }
+
+  // ── Defensive aftermath (Thread 5) ──
+  const defensiveClasses = defensiveClassesFromFindings(sorted);
+  if (defensiveClasses.length > 0) {
+    children.push(
+      new Paragraph({ text: '' }),
+      heading('Did your site notice? — defensive aftermath', HeadingLevel.HEADING_1),
+      p(
+        'Each attack class below was tested with safe, authorized probes (inert canaries, at most 5 canary ' +
+          'logins, read-only GETs — nothing was exploited). "Logged" and "alerted" can only be confirmed ' +
+          'from server-side logs or the BugSeek runtime detection layer; "Unknown" there means "not visible ' +
+          'from outside", not "did not happen".'
+      ),
+    );
+    for (const c of defensiveClasses) {
+      children.push(
+        heading(CLASS_LABELS[c.attackClass], HeadingLevel.HEADING_2),
+        p(
+          `${classVerdict(c)} — Detected: ${signalCell(c.detected)}, Blocked: ${signalCell(c.blocked)}, ` +
+            `Logged: ${signalCell(c.logged)}, Alerted: ${signalCell(c.alerted)}`,
+          { bold: true },
+        ),
+        p(c.summary),
+      );
+    }
+    const gaps = defensiveClasses.filter((c) => c.blocked === 'not-observed' || c.detected === 'not-observed');
+    if (gaps.length > 0) {
+      children.push(heading('What to fix first', HeadingLevel.HEADING_2));
+      for (const c of gaps) {
+        children.push(p(`${CLASS_LABELS[c.attackClass]} — ${classVerdict(c)}`, { bold: true }));
+        for (const fix of REMEDIATION[c.attackClass]) children.push(p(`• ${fix}`));
+      }
+    }
+  }
+
   children.push(new Paragraph({ text: '' }), heading('Findings', HeadingLevel.HEADING_1));
 
-  if (sorted.length === 0) {
+  if (rest.length === 0) {
     children.push(p('No findings were identified during this scan.'));
   }
 
-  sorted.forEach((f, idx) => {
+  rest.forEach((f, idx) => {
     children.push(
       heading(`${idx + 1}. ${f.title}`, HeadingLevel.HEADING_2),
       p(
@@ -106,6 +209,7 @@ export async function generateDocxReport(input: ReportInput): Promise<Buffer> {
         )
       );
     }
+    children.push(p(verificationLabel(f), { bold: true }));
     children.push(p(f.description));
     if (f.cvssVector) children.push(p(`CVSS vector: ${f.cvssVector} (estimate)`, { size: 18, color: '6B7280' }));
     if (f.location) children.push(p('Location:', { bold: true }), p(f.location));

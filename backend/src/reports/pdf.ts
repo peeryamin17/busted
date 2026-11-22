@@ -1,6 +1,15 @@
 import PDFDocument from 'pdfkit';
 import type { Finding, Scan } from '../types.js';
 import { SEVERITY_ORDER } from '../types.js';
+import { splitWhiteBoxFindings, WHITEBOX_SECTION_NOTE } from './whitebox.js';
+import { chainLines, hintFindings, verifiedFindings, verificationLabel } from './verification.js';
+import {
+  CLASS_LABELS,
+  REMEDIATION,
+  classVerdict,
+  defensiveClassesFromFindings,
+  signalCell,
+} from './defensive.js';
 
 export interface ReportInput {
   scan: Scan;
@@ -66,16 +75,118 @@ export function generatePdfReport(input: ReportInput): Promise<Buffer> {
       doc.fillColor('#374151');
     }
 
+    // ── Verified exploit chains (depth ladder) ──
+    // White-box findings live in their own section (below) and are excluded
+    // from the verified/hints rollups as well as the general findings list.
+    const { whiteBox, rest } = splitWhiteBoxFindings(sorted);
+    const verified = verifiedFindings(rest);
+    const hints = hintFindings(rest);
+    if (verified.length > 0) {
+      doc.moveDown();
+      doc.fontSize(16).fillColor('#111827').text('Verified exploit chains');
+      doc.fontSize(11).fillColor('#374151');
+      doc.text(
+        'These findings were reproduced live by the depth ladder with benign canary probes and read-only ' +
+          'evidence. "Verified" means the vulnerability was reproduced — it is not proof of exploitability ' +
+          'to full impact; the ladder never executes an attack chain.'
+      );
+      for (const f of verified) {
+        doc.moveDown(0.5);
+        doc.fontSize(12).fillColor('#111827').text(f.title);
+        doc.fontSize(10).fillColor('#374151').text(verificationLabel(f));
+        for (const l of chainLines(f)) doc.fontSize(10).text(`• ${l}`);
+      }
+      doc.fontSize(11);
+    }
+    if (hints.length > 0) {
+      doc.moveDown();
+      doc.fontSize(16).fillColor('#111827').text('Hints (unverified)');
+      doc.fontSize(11).fillColor('#374151');
+      doc.text(
+        'These findings could not be reproduced with a benign canary probe, or no read-only live probe ' +
+          'exists for their category. Treat them as unconfirmed hints and verify manually before reporting.'
+      );
+      for (const f of hints) doc.text(`• ${f.title} (${f.severity}) — ${verificationLabel(f)}`);
+    }
+
+    // ── White-box analysis ──
+    if (whiteBox.length > 0) {
+      doc.addPage();
+      doc.fontSize(16).fillColor('#111827').text('White-box analysis');
+      doc.fontSize(11).fillColor('#374151').moveDown(0.5);
+      doc.text(WHITEBOX_SECTION_NOTE);
+      doc.moveDown();
+      for (const [idx, f] of whiteBox.entries()) {
+        if (idx > 0) doc.moveDown();
+        const sevColor: Record<string, string> = {
+          critical: '#991b1b', high: '#c2410c', medium: '#92400e', low: '#1e40af', info: '#4b5563',
+        };
+        doc.fontSize(13).fillColor('#111827').text(`W${idx + 1}. ${f.title}`);
+        doc.fontSize(10).fillColor(sevColor[f.severity] ?? '#4b5563')
+          .text(`Severity: ${f.severity.toUpperCase()}${f.cvssScore != null ? `  ·  CVSS: ${f.cvssScore.toFixed(1)}` : ''}  ·  Confidence: ${f.confidence}`);
+        doc.fillColor('#374151').fontSize(11);
+        doc.moveDown(0.25);
+        doc.text(f.description);
+        if (f.location) {
+          doc.moveDown(0.25);
+          doc.fontSize(10).fillColor('#111827').text('Location:');
+          doc.fillColor('#374151').text(f.location);
+        }
+        if (f.evidence) {
+          doc.moveDown(0.25);
+          doc.fontSize(10).fillColor('#111827').text('Evidence (redacted):');
+          doc.fillColor('#374151').font('Courier').fontSize(9).text(f.evidence);
+          doc.font('Helvetica');
+        }
+        doc.moveDown(0.25);
+        doc.fontSize(10).fillColor('#111827').text('Remediation:');
+        doc.fillColor('#374151').text(f.remediation);
+      }
+    }
+
+    // ── Defensive aftermath (Thread 5) ──
+    const defensiveClasses = defensiveClassesFromFindings(sorted);
+    if (defensiveClasses.length > 0) {
+      doc.moveDown();
+      doc.fontSize(16).fillColor('#111827').text('Did your site notice? — defensive aftermath');
+      doc.fontSize(11).fillColor('#374151');
+      doc.text(
+        'Each attack class below was tested with safe, authorized probes (inert canaries, at most 5 canary ' +
+          'logins, read-only GETs — nothing was exploited). "Logged" and "alerted" can only be confirmed ' +
+          'from server-side logs or the BugSeek runtime detection layer; "Unknown" there means "not visible ' +
+          'from outside", not "did not happen".'
+      );
+      for (const c of defensiveClasses) {
+        doc.moveDown(0.5);
+        doc.fontSize(12).fillColor('#111827').text(CLASS_LABELS[c.attackClass]);
+        doc.fontSize(10).fillColor('#374151').text(
+          `${classVerdict(c)} — Detected: ${signalCell(c.detected)}, Blocked: ${signalCell(c.blocked)}, ` +
+            `Logged: ${signalCell(c.logged)}, Alerted: ${signalCell(c.alerted)}`
+        );
+        doc.fontSize(11).text(c.summary);
+      }
+      const gaps = defensiveClasses.filter((c) => c.blocked === 'not-observed' || c.detected === 'not-observed');
+      if (gaps.length > 0) {
+        doc.moveDown(0.5);
+        doc.fontSize(12).fillColor('#111827').text('What to fix first');
+        for (const c of gaps) {
+          doc.fontSize(11).fillColor('#374151').text(`${CLASS_LABELS[c.attackClass]} — ${classVerdict(c)}.`);
+          for (const fix of REMEDIATION[c.attackClass]) doc.fontSize(11).text(`• ${fix}`);
+        }
+      }
+      doc.fontSize(11);
+    }
+
     // ── Findings ──
     doc.addPage();
     doc.fontSize(16).fillColor('#111827').text('Findings');
     doc.moveDown();
 
-    if (sorted.length === 0) {
+    if (rest.length === 0) {
       doc.fontSize(11).fillColor('#374151').text('No findings were identified during this scan.');
     }
 
-    for (const [idx, f] of sorted.entries()) {
+    for (const [idx, f] of rest.entries()) {
       if (idx > 0) doc.moveDown();
       const sevColor: Record<string, string> = {
         critical: '#991b1b', high: '#c2410c', medium: '#92400e', low: '#1e40af', info: '#4b5563',
@@ -86,6 +197,8 @@ export function generatePdfReport(input: ReportInput): Promise<Buffer> {
       if (f.honeypotSuspect) {
         doc.fillColor('#92400e').text(`⚠ Possible trap (trap probability ${(f.trapProbability * 100).toFixed(0)}%) — verify manually before reporting.`);
       }
+      doc.fillColor('#374151').fontSize(10).text(verificationLabel(f));
+      doc.fontSize(11);
       doc.fillColor('#374151').fontSize(11);
       doc.moveDown(0.25);
       doc.text(f.description);

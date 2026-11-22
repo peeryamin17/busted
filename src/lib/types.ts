@@ -47,7 +47,9 @@ export type FindingCategory =
   | 'session'
   | 'payments'
   | 'integrations'
-  | 'commerce';
+  | 'commerce'
+  // White-box categories (static analysis: cross-file links, WASM, recovered sources)
+  | 'whitebox';
 
 export interface Finding {
   id: string;
@@ -93,6 +95,25 @@ export interface Finding {
   attackChainIds?: string[];
   /** Active HTTP requests spent to produce this finding (accountability). */
   requestCount?: number;
+
+  // ---- API-key bloodhound additions (all optional, additive) ----
+  /** Provider id from the secret-pattern library, e.g. 'github-token'. */
+  secretProvider?: string;
+  /**
+   * Redacted fingerprint: `provider:first4…last4`. The middle of the key is
+   * never stored, logged, or rendered. Used to correlate one key across
+   * locations without ever holding its full value.
+   */
+  fingerprint?: string;
+  /** Shannon entropy (bits/char) for generic high-entropy string findings. */
+  entropyScore?: number;
+  /**
+   * Ordered trail of locations where this key (by fingerprint) was seen or
+   * sent, e.g. `discovered in bundle app.js → sent as query param api_key
+   * to api.example.com`. Traffic steps are name-based correlation only —
+   * values are never observed in transit.
+   */
+  trail?: string[];
 }
 
 export interface TechFingerprint {
@@ -134,6 +155,8 @@ export interface DomScanData {
   inlineScripts: string[];
   /** Absolute URLs of external scripts. */
   externalScripts: string[];
+  /** Absolute URLs of WebAssembly modules the page loaded (resource timing). */
+  wasmUrls: string[];
   metaTags: Array<{ name: string; content: string }>;
   /** Potential DOM-based XSS sinks found in inline scripts. */
   sinks: Array<{ sink: string; count: number; sample: string }>;

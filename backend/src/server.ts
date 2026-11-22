@@ -14,6 +14,8 @@ import { scanRoutes, type ScanRouteDeps } from './routes/scans.js';
 import { reportRoutes } from './routes/reports.js';
 import { oastRoutes } from './routes/oast.js';
 import { engineRoutes } from './routes/engines.js';
+import { codeIntakeRoutes } from './routes/codeIntake.js';
+import { detectionRoutes } from './routes/detections.js';
 import { swarmRoutes } from './routes/multiagent.js';
 import { v1CompatRoutes } from './routes/v1compat.js';
 import { waitlistRoutes } from './routes/waitlist.js';
@@ -65,6 +67,8 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
     await reportRoutes(instance, routeDeps);
     await oastRoutes(instance, routeDeps);
     await engineRoutes(instance, routeDeps);
+    await codeIntakeRoutes(instance, routeDeps);
+    await detectionRoutes(instance, routeDeps);
     await waitlistRoutes(instance, routeDeps);
     await webCheckRoutes(instance, routeDeps);
   });
