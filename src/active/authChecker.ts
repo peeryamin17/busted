@@ -47,8 +47,10 @@ function cvssFields(presetKey: string): Pick<
 /**
  * Well-known default credential pairs (public knowledge — shipped in every
  * scanner wordlist; NOT secrets). Kept minimal and ordered by likelihood.
+ * Exported so bruteForce.ts can de-duplicate against pairs already probed
+ * here instead of trying the same pair twice in one scan.
  */
-const DEFAULT_CREDENTIALS: Array<[string, string]> = [
+export const DEFAULT_CREDENTIALS: Array<[string, string]> = [
   ['admin', 'admin'],
   ['admin', 'password'],
   ['administrator', 'administrator'],
@@ -61,14 +63,14 @@ const SUCCESS_HINT_RE = /dashboard|welcome|log\s*out|sign\s*out|my\s*account|pro
 const FAILURE_HINT_RE = /invalid|incorrect|failed|try again|wrong|denied|unauthorized|does not exist/i;
 const CAPTCHA_HINT_RE = /captcha|recaptcha|challenge|verify you are human/i;
 
-interface LoginForm {
+export interface LoginForm {
   actionUrl: string;
   usernameField: string;
   passwordField: string;
   extraFields: Array<[string, string]>;
 }
 
-function detectLoginForms(dom: DomScanData, tabUrl: string): LoginForm[] {
+export function detectLoginForms(dom: DomScanData, tabUrl: string): LoginForm[] {
   const forms: LoginForm[] = [];
   // dom.forms doesn't carry field names; reconstruct from inputs heuristically.
   const passwordInputs = dom.inputs.filter((i) => i.type === 'password');
@@ -97,7 +99,7 @@ function detectLoginForms(dom: DomScanData, tabUrl: string): LoginForm[] {
   return forms.slice(0, 2);
 }
 
-function looksLikeSuccess(res: {
+export function looksLikeSuccess(res: {
   status: number;
   finalUrl: string;
   bodyText: string;
