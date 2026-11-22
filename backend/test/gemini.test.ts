@@ -215,6 +215,62 @@ async function main() {
     }
     check('fails fast on 401 error without cycling models', failedFast);
 
+    // 6. Timeout on the first candidate cascades to the next model instead of failing the call
+    GeminiProvider.resetModelCache();
+    fetchCalls = [];
+    let sawTimeoutModel = false;
+    let sawFallbackModel = false;
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      fetchCalls.push({ url, options: init });
+
+      if (url.includes('/models?key=')) {
+        return new Response(
+          JSON.stringify({
+            models: [
+              { name: 'models/gemini-2.0-flash', supportedGenerationMethods: ['generateContent'] },
+              { name: 'models/gemini-1.5-pro-latest', supportedGenerationMethods: ['generateContent'] },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+
+      // First candidate hangs: AbortSignal.timeout fires a TimeoutError
+      if (url.includes('gemini-2.0-flash')) {
+        sawTimeoutModel = true;
+        throw new DOMException('The operation timed out.', 'TimeoutError');
+      }
+
+      if (url.includes('gemini-1.5-pro-latest')) {
+        sawFallbackModel = true;
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: { parts: [{ text: 'Cascade after timeout ok.' }] },
+                finishReason: 'STOP',
+              },
+            ],
+            usageMetadata: { promptTokenCount: 90, candidatesTokenCount: 20 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+
+      return new Response('Not Found', { status: 404 });
+    }) as typeof fetch;
+
+    const timeoutProvider = new GeminiProvider('test-api-key-timeout');
+    const timeoutResult = await timeoutProvider.complete({
+      messages: [{ role: 'user', content: 'Scan analysis' }],
+      tier: 'routine',
+    });
+    check('cascades past a timed-out model to the next candidate', timeoutResult.text.includes('Cascade after timeout ok.'));
+    check('tried the timed-out model first', sawTimeoutModel);
+    check('reached the fallback model', sawFallbackModel);
+
   } finally {
     globalThis.fetch = originalFetch;
   }

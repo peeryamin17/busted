@@ -27,6 +27,17 @@ export function isTextGenerationModel(name: string): boolean {
 }
 
 /**
+ * True when an error is a fetch abort / timeout (AbortSignal.timeout fires
+ * a DOMException named TimeoutError). Treated as "this model is hanging",
+ * not as a fatal call failure, so the cascade can try the next candidate.
+ */
+export function isTimeoutError(err: unknown): boolean {
+  const name = (err as any)?.name ?? '';
+  const message = String((err as any)?.message ?? '');
+  return name === 'TimeoutError' || name === 'AbortError' || /timed out|aborted/i.test(message);
+}
+
+/**
  * Google Gemini (AI Studio Developer API) implementation — the DEFAULT provider.
  *
  * REST endpoint: https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent
@@ -235,6 +246,7 @@ export class GeminiProvider implements LLMProvider {
       const versions = ['v1beta', 'v1'];
       for (const ver of versions) {
         const url = `https://generativelanguage.googleapis.com/${ver}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
+        const attemptStarted = Date.now();
         try {
           const data = await this.postWithRetry(url, body);
 
@@ -250,6 +262,8 @@ export class GeminiProvider implements LLMProvider {
           lastError = err;
           const status = err?.status;
           const message = String(err?.message ?? '');
+          const elapsedMs = Date.now() - attemptStarted;
+          const isTimeout = isTimeoutError(err);
           const isNotFoundOrIncompatible =
             status === 404 ||
             message.includes('not found') ||
@@ -258,9 +272,9 @@ export class GeminiProvider implements LLMProvider {
             message.includes('not supported by the model') ||
             (status === 400 && (message.includes('INVALID_ARGUMENT') || message.includes('modalities')));
 
-          if (isNotFoundOrIncompatible) {
+          if (isTimeout || isNotFoundOrIncompatible) {
             console.warn(
-              `[gemini] Model "${model}" on ${ver} is incompatible (${status}): ${message.slice(0, 140)}. Trying next candidate...`
+              `[gemini] Model "${model}" on ${ver} ${isTimeout ? `timed out after ${elapsedMs}ms` : `is incompatible (${status})`}: ${message.slice(0, 140)} — trying next candidate...`
             );
             // Clear active model if it failed
             if (tier === 'reasoning' && this.activeReasoningModel === model) {
@@ -271,6 +285,7 @@ export class GeminiProvider implements LLMProvider {
             continue; // try next API version or next candidate model
           }
 
+          console.warn(`[gemini] Model "${model}" on ${ver} failed after ${elapsedMs}ms: ${message.slice(0, 140)}`);
           // For non-compatibility errors (401 auth, 403 quota, schema, safety block), fail fast
           throw err;
         }
@@ -331,7 +346,12 @@ export class GeminiProvider implements LLMProvider {
           signal: AbortSignal.timeout(30_000),
         });
       } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
+        const error = err instanceof Error ? err : new Error(String(err));
+        lastError = error;
+        // A fetch abort (TimeoutError) means this model+version is hanging.
+        // Retrying the same endpoint would burn the worker's budget, so fail
+        // fast and let complete() cascade to the next version/candidate.
+        if (isTimeoutError(error)) throw error;
         continue;
       }
       if (res.ok) {

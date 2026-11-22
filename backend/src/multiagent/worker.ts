@@ -13,7 +13,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function completeWithTimeout(
   provider: LLMProvider,
   req: Parameters<LLMProvider['complete']>[0],
-  timeoutMs = 30_000,
+  // Long enough for a slow model plus a cascade to the next candidate:
+  // one candidate can take ~30s per API version before it fails over.
+  // The swarm runs async with polling, so a slow call blocks nothing.
+  timeoutMs = 120_000,
 ) {
   let timer: NodeJS.Timeout;
   const timeoutPromise = new Promise<never>((_, reject) => {
