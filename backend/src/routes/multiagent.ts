@@ -151,7 +151,9 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       await db.recordUsage(user.id, 'scan', creditCost, scan.id);
     }
 
-    const provider = createLLMProvider(userKey || config.geminiApiKey);
+    const provider = userKey
+      ? createLLMProvider(userKey)
+      : (deps.provider ?? createLLMProvider(config.geminiApiKey));
 
     // Ingest SurfaceSnapshot into immutable ontology graph + evidence blobs if Postgres pool is available
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -251,6 +253,10 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
             references: f.references,
           })),
         );
+        if (outcome.testsRun === 0 && outcome.findings.length === 0) {
+          const firstErr = outcome.errors?.[0] || 'All specialists failed to execute tests';
+          throw new Error(`Swarm scan aborted: 0 tests were executed. ${firstErr}`);
+        }
         const score = securityScore(findings, {
           mode: 'swarm',
           endpointsDiscovered: Math.max(1, outcome.testsRun),
@@ -286,9 +292,11 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
           testsRun: outcome.testsRun,
           llmCalls: outcome.llmCalls,
           tokensUsed: {
-            input: Number(outcome.tokensUsed?.input ?? 0),
-            output: Number(outcome.tokensUsed?.output ?? 0),
-            total: Number(outcome.tokensUsed?.input ?? 0) + Number(outcome.tokensUsed?.output ?? 0),
+            input: Number.isFinite(outcome.tokensUsed?.input) ? outcome.tokensUsed.input : 0,
+            output: Number.isFinite(outcome.tokensUsed?.output) ? outcome.tokensUsed.output : 0,
+            total:
+              (Number.isFinite(outcome.tokensUsed?.input) ? outcome.tokensUsed.input : 0) +
+              (Number.isFinite(outcome.tokensUsed?.output) ? outcome.tokensUsed.output : 0),
           },
           durationMs: outcome.durationMs,
           errors: outcome.errors,

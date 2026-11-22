@@ -1225,15 +1225,21 @@ function renderSwarmPlayback(outcome: SwarmOutcome): void {
   const totals = document.createElement('div');
   totals.className = reduce ? 'stat-line' : 'stat-line swarm-enter';
   const rawTok = outcome.tokensUsed;
-  const totalTokens =
-    typeof rawTok === 'number'
-      ? rawTok
-      : (Number((rawTok as any)?.total ?? 0) ||
-         Number((rawTok as any)?.input ?? 0) + Number((rawTok as any)?.output ?? 0));
-  const tokenDisplay =
-    Number.isFinite(totalTokens) && totalTokens > 0
-      ? `${(totalTokens / 1000).toFixed(1)}k tokens`
-      : '0k tokens';
+  let totalTokens = 0;
+  if (typeof rawTok === 'number' && Number.isFinite(rawTok)) {
+    totalTokens = rawTok;
+  } else if (rawTok && typeof rawTok === 'object') {
+    const total = Number((rawTok as any).total);
+    if (Number.isFinite(total) && total > 0) {
+      totalTokens = total;
+    } else {
+      const inT = Number((rawTok as any).input);
+      const outT = Number((rawTok as any).output);
+      const sum = (Number.isFinite(inT) ? inT : 0) + (Number.isFinite(outT) ? outT : 0);
+      totalTokens = sum;
+    }
+  }
+  const tokenDisplay = totalTokens > 0 ? `${(totalTokens / 1000).toFixed(1)}k tokens` : '0k tokens';
   totals.textContent =
     `${outcome.testsRun} tests · ${tokenDisplay}` +
     ` · ${(outcome.durationMs / 1000).toFixed(1)}s · scan ${outcome.scanId}`;

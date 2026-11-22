@@ -7,6 +7,7 @@
 import Fastify from 'fastify';
 import { createServer } from 'node:http';
 import { swarmRoutes } from '../src/routes/multiagent.js';
+import { MockProvider } from '../src/llm/mock.js';
 
 let failures = 0;
 function check(name: string, cond: boolean, extra?: unknown) {
@@ -61,7 +62,7 @@ function makeDb(plan: 'free' | 'hunter' | 'pro' = 'pro', seedUsage: UsageEvent[]
 
 async function buildApp(db: any) {
   const app = Fastify();
-  await swarmRoutes(app as any, { db, queue: {} as any, provider: { name: 'mock' } as any });
+  await swarmRoutes(app as any, { db, queue: {} as any, provider: new MockProvider() });
   return app;
 }
 
@@ -167,6 +168,31 @@ async function main() {
     const pollBody = poll.json();
     check('swarm: poll body has status', typeof pollBody.status === 'string', pollBody.status);
     await app.close();
+
+    // 7. Verify that swallowed errors are eliminated: failing provider aborts with error instead of fake 100 score
+    const failingDb = makeDb('pro');
+    const failingApp = Fastify();
+    const failingProvider = {
+      name: 'failing',
+      async complete() {
+        throw new Error('Gemini API error 400: Bad Request (Invalid Argument)');
+      },
+    };
+    await swarmRoutes(failingApp as any, { db: failingDb, queue: {} as any, provider: failingProvider as any });
+
+    const rFailing = await failingApp.inject({
+      method: 'POST', url: '/api/swarm/scans?sync=true',
+      headers: { 'x-api-key': 'bs_test' },
+      payload: {
+        targetUrl, authorization: authz, allowPrivateTargets: true,
+        specialists: ['recon'],
+      },
+    });
+    check('swarm with failing LLM fails instead of fake 100 score', rFailing.statusCode >= 400, rFailing.statusCode);
+    const failBody = rFailing.json();
+    check('swarm failure surfaces actual LLM error message', failBody.error?.includes('Gemini API error 400') || failBody.error?.includes('recon'), failBody);
+    check('failing scan marks status as failed', failingDb.scans[0]?.status === 'failed', failingDb.scans[0]?.status);
+    await failingApp.close();
   }
 
   target.closeAllConnections();

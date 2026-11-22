@@ -165,20 +165,25 @@ export async function runWorker(
       temperature: 0.2,
       tier: 'routine',
     });
-    if (!spend(completion.usage.inputTokens, completion.usage.outputTokens)) {
+    if (!spend(completion.usage?.inputTokens, completion.usage?.outputTokens)) {
       report.durationMs = Date.now() - started;
       return report;
     }
     const parsed = completion.parseJson<PlannedTest[]>();
-    if (!Array.isArray(parsed)) throw new Error('plan is not an array');
+    if (!Array.isArray(parsed)) throw new Error(`Plan is not a valid JSON array: ${completion.text.slice(0, 150)}`);
     plan = parsed
       .filter((t) => t && typeof t.tool === 'string')
       .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99))
       .slice(0, def.maxActions);
   } catch (err) {
-    report.errors.push(`planning failed: ${(err as Error).message}`);
+    const errorMsg = (err as Error).message || String(err);
+    console.error(`[worker] ${def.name} planning failed:`, errorMsg);
+    report.errors.push(`planning failed: ${errorMsg}`);
     report.durationMs = Date.now() - started;
-    return report;
+    // CRITICAL FIX: Do NOT silently swallow LLM API errors during planning.
+    // Swallowing API errors here returns 0 tests and masks fatal LLM failures
+    // (such as 400 bad argument, 401 unauthenticated, 403 quota) as a "clean" 100-score scan.
+    throw new Error(`${def.name} planning failed: ${errorMsg}`);
   }
   report.testsPlanned = plan.length;
   event('worker_progress', `${def.name}: planned ${plan.length} tests`, plan.map((t) => t.name));

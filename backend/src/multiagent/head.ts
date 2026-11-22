@@ -120,9 +120,11 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
   const tokenBudget = { input: 0, output: 0, max: limits.maxTotalTokens };
   const deadline = Date.now() + limits.maxDurationMs;
 
-  const spend = (input: number, output: number): boolean => {
-    tokenBudget.input += input;
-    tokenBudget.output += output;
+  const spend = (input?: number, output?: number): boolean => {
+    const inCount = Number.isFinite(input) ? Number(input) : 0;
+    const outCount = Number.isFinite(output) ? Number(output) : 0;
+    tokenBudget.input += inCount;
+    tokenBudget.output += outCount;
     return tokenBudget.input + tokenBudget.output <= tokenBudget.max;
   };
 
@@ -149,9 +151,18 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
   event('head_plan', `Head agent starting multi-agent scan of ${opts.targetUrl}`);
   const reconDef = getSpecialist('recon');
   event('worker_start', `Spawning ${reconDef.name} (phase 0)`);
-  const reconReport = await runWorker(reconDef, makeWorkerCtx([]));
-  workerReports.push(reconReport);
-  event('worker_done', reconReport.summary, { specialist: reconDef.id });
+  let reconReport: WorkerReport;
+  try {
+    reconReport = await runWorker(reconDef, makeWorkerCtx([]));
+    workerReports.push(reconReport);
+    event('worker_done', reconReport.summary, { specialist: reconDef.id });
+  } catch (err) {
+    const msg = `Recon phase failed: ${(err as Error).message}`;
+    console.error(`[head] ${msg}`);
+    errors.push(msg);
+    // If recon (the foundation phase) fails due to LLM API error, abort early
+    throw new Error(`Swarm failed during recon: ${(err as Error).message}`);
+  }
 
   // Pull tech-stack hints from recon findings (category 'tech').
   for (const f of reconReport.findings) {
@@ -219,7 +230,9 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
         rationale: parsed.rationale,
       });
     } catch (err) {
-      errors.push(`head planning failed: ${(err as Error).message} — falling back to always-spawn set`);
+      const msg = `head planning failed: ${(err as Error).message}`;
+      console.error(`[head] ${msg}`);
+      errors.push(`${msg} — falling back to always-spawn set`);
       specialistIds = [...ALWAYS_SPAWN];
       event('guardrail', 'Head planning failed; using default specialist set');
     }
@@ -237,6 +250,7 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
       event('worker_done', rep.summary, { specialist: id });
     } catch (err) {
       const msg = `${def.name} crashed: ${(err as Error).message}`;
+      console.error(`[head] ${msg}`);
       errors.push(msg);
       event('guardrail', msg);
     }
@@ -495,10 +509,10 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
   const testsRun = workerReports.reduce((n, r) => n + (Number.isFinite(r.testsRun) ? r.testsRun : 0), 0);
   const llmCalls = workerReports.reduce((n, r) => n + (Number.isFinite(r.llmCalls) ? r.llmCalls : 0), 0);
 
-  const allWorkerErrors = workerReports.flatMap((r) => r.errors);
-  if (workerReports.length > 0 && testsRun === 0 && allWorkerErrors.length > 0) {
+  const allWorkerErrors = [...workerReports.flatMap((r) => r.errors), ...errors];
+  if (testsRun === 0 && (allWorkerErrors.length > 0 || workerReports.length === 0)) {
     throw new Error(
-      `All specialist agents failed to execute tests. First error: ${allWorkerErrors[0]}`,
+      `All specialist agents failed to execute tests. First error: ${allWorkerErrors[0] || 'No workers completed'}`,
     );
   }
 
