@@ -208,6 +208,18 @@ function collectDom(): DomScanData {
     .filter((s) => !!s.src)
     .map((s) => s.src);
 
+  // WebAssembly modules the page loaded (resource timing only — no fetches
+  // here; the background worker fetches same-origin ones, size-capped).
+  const wasmUrls: string[] = [];
+  try {
+    for (const entry of performance.getEntriesByType('resource')) {
+      const name = (entry as PerformanceResourceTiming).name ?? '';
+      if (/\.wasm(\?|#|$)/i.test(name)) wasmUrls.push(name);
+    }
+  } catch {
+    /* performance API unavailable — inventory stays empty */
+  }
+
   const metaTags = Array.from(document.querySelectorAll('meta'))
     .map((m) => ({
       name: m.getAttribute('name') || m.getAttribute('property') || '',
@@ -229,6 +241,7 @@ function collectDom(): DomScanData {
     comments,
     inlineScripts,
     externalScripts,
+    wasmUrls,
     metaTags,
     sinks: collectSinks(inlineScripts),
     globals: probePageGlobals(),
