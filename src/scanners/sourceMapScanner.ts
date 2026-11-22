@@ -10,8 +10,9 @@
  * original sources; secret patterns run over sourcesContent just like they do
  * over fetched scripts.
  */
-import { SECRET_PATTERNS, isPlaceholder, redactSecret } from '../lib/regexes';
+import { SECRET_PATTERNS, fingerprintSecret, isPlaceholder, redactSecret } from '../lib/regexes';
 import type { Finding } from '../lib/types';
+import { scanHighEntropyStrings } from './secretScanner';
 
 export interface FetchedScript {
   url: string;
@@ -140,6 +141,7 @@ export function scanSourceMaps(maps: ExposedSourceMap[]): Finding[] {
     // Run the standard secret patterns over the reconstructed original sources.
     const corpus = map.sourcesContent.join('\n');
     if (!corpus) continue;
+    const patternSpans: Array<{ start: number; end: number }> = [];
     for (const pattern of SECRET_PATTERNS) {
       const flags = pattern.regex.flags.includes('g')
         ? pattern.regex.flags
@@ -150,6 +152,7 @@ export function scanSourceMaps(maps: ExposedSourceMap[]): Finding[] {
       while ((match = re.exec(corpus)) !== null && reported < MAX_SECRET_MATCHES) {
         if (match.index === re.lastIndex) re.lastIndex++;
         const matched = match[0];
+        patternSpans.push({ start: match.index, end: match.index + matched.length });
         if (isPlaceholder(matched)) continue;
         reported++;
         findings.push({
@@ -162,9 +165,16 @@ export function scanSourceMaps(maps: ExposedSourceMap[]): Finding[] {
           location: `source map ${shortUrl(map.mapUrl)} → original sources`,
           evidence: redactSecret(matched),
           remediation: pattern.remediation,
+          secretProvider: pattern.id,
+          fingerprint: fingerprintSecret(matched, pattern.id),
+          trail: [`discovered in source map ${shortUrl(map.mapUrl)} → original sources`],
         });
       }
     }
+    // Generic high-entropy pass over the same corpus (deduped vs patterns).
+    findings.push(
+      ...scanHighEntropyStrings(corpus, `source map ${shortUrl(map.mapUrl)} → original sources`, patternSpans),
+    );
   }
 
   return findings;
