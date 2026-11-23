@@ -29,6 +29,8 @@ declare module 'fastify' {
 /**
  * Authentication, three ways:
  *  - `x-api-key: bs_…` — the extension's API keys (plan §6.1: Pro+ feature).
+ *  - `x-gemini-api-key` / `x-qwen-api-key` — a pasted BYOK provider key
+ *    signs in as a BYOK user, no bs_ key or session needed.
  *  - `bs_session` cookie — the website's server-side session, created by
  *    the Google sign-in flow (src/routes/googleAuth.ts).
  *  - `Authorization: Bearer <jwt>` — the email/password accounts' session
@@ -53,10 +55,19 @@ export function buildAuthenticate(db: Database, opts: AuthenticateOptions = {}) 
       apiKey = authHeader.slice(7);
     }
     const geminiKey = request.headers['x-gemini-api-key'];
+    const qwenKey = request.headers['x-qwen-api-key'];
+    const byokKey =
+      typeof geminiKey === 'string' && geminiKey.trim().length >= 16
+        ? geminiKey.trim()
+        : typeof qwenKey === 'string' && qwenKey.trim().length >= 16
+          ? qwenKey.trim()
+          : null;
 
-    // Direct Gemini BYOK from extension popup
-    if (typeof geminiKey === 'string' && geminiKey.trim().length >= 16) {
-      const trimmed = geminiKey.trim();
+    // Direct BYOK from the extension popup: a pasted provider key is the
+    // credential. Either provider works, Gemini or Qwen; the key holder
+    // pays for their own model use.
+    if (byokKey) {
+      const trimmed = byokKey;
       const idHash = createHash('sha256').update(trimmed).digest('hex').slice(0, 16);
       const byokEmail = `byok-${idHash}@bugseek.local`;
       let user = await db.getUserByEmail(byokEmail);
