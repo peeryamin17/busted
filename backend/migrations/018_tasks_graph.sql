@@ -50,15 +50,6 @@ create table if not exists exploration_edges (
 );
 create index if not exists exploration_edges_task_idx on exploration_edges (task_id, created_at);
 
-create table if not exists exploration_anchors (
-  id         uuid primary key default gen_random_uuid(),
-  task_id    uuid not null references tasks (id) on delete cascade,
-  node_id    uuid not null references exploration_nodes (id) on delete cascade,
-  asset_id   uuid not null references assets (id) on delete cascade,
-  created_at timestamptz not null default now()
-);
-create index if not exists exploration_anchors_task_idx on exploration_anchors (task_id, created_at);
-
 create table if not exists assets (
   id         uuid primary key default gen_random_uuid(),
   task_id    uuid not null references tasks (id) on delete cascade,
@@ -68,3 +59,12 @@ create table if not exists assets (
   created_at timestamptz not null default now()
 );
 create index if not exists assets_task_idx on assets (task_id, created_at);
+
+create table if not exists exploration_anchors (
+  id         uuid primary key default gen_random_uuid(),
+  task_id    uuid not null references tasks (id) on delete cascade,
+  node_id    uuid not null references exploration_nodes (id) on delete cascade,
+  asset_id   uuid not null references assets (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists exploration_anchors_task_idx on exploration_anchors (task_id, created_at);
