@@ -66,12 +66,60 @@ interface AnchorRow {
   assetId: string;
 }
 
+interface WorkerReportRow {
+  specialistId?: string;
+  specialistName?: string;
+  summary?: string | null;
+  providerId?: string | null;
+  model?: string | null;
+  tokensUsed?: number | { input?: number; output?: number; total?: number } | null;
+  testsRun?: number;
+  findings?: number;
+  durationMs?: number;
+}
+
+interface RetesterRow {
+  providerId?: string | null;
+  model?: string | null;
+  tokensUsed?: number | { input?: number; output?: number; total?: number } | null;
+}
+
 interface TaskDetail {
   task: TaskRow;
   nodes: GraphNodeRow[];
   edges: GraphEdgeRow[];
   anchors: AnchorRow[];
   assets: AssetRow[];
+  workerReports?: WorkerReportRow[];
+  retester?: RetesterRow | null;
+}
+
+function finiteTokens(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.floor(value));
+  if (value && typeof value === 'object') {
+    const v = value as { total?: unknown; input?: unknown; output?: unknown };
+    const t = Number(v.total);
+    if (Number.isFinite(t) && t > 0) return Math.max(0, Math.floor(t));
+    const i = Number(v.input);
+    const o = Number(v.output);
+    return Math.max(0, Math.floor((Number.isFinite(i) ? i : 0) + (Number.isFinite(o) ? o : 0)));
+  }
+  return 0;
+}
+
+function formatRunTelemetry(r: {
+  providerId?: string | null;
+  model?: string | null;
+  tokensUsed?: number | { input?: number; output?: number; total?: number } | null;
+}): string {
+  const parts: string[] = [];
+  if (r.providerId) parts.push(r.providerId);
+  if (r.model) parts.push(r.model);
+  if (r.tokensUsed !== undefined && r.tokensUsed !== null) {
+    const total = finiteTokens(r.tokensUsed);
+    parts.push(total > 0 ? `${(total / 1000).toFixed(1)}k tokens` : '0k tokens');
+  }
+  return parts.join(' · ');
 }
 
 const KIND_ORDER: NodeKind[] = ['goal', 'intent', 'fact', 'finding', 'hint', 'digest'];
@@ -494,6 +542,38 @@ export function TasksPage() {
                                           </li>
                                         );
                                       })}
+                                    </ul>
+                                  </div>
+                                )}
+
+                                {((d.workerReports && d.workerReports.length > 0) ||
+                                  (d.retester && formatRunTelemetry(d.retester))) && (
+                                  <div className="mt-5">
+                                    <p className="font-mono text-[11px] tracking-[0.18em] text-slate2">
+                                      SWARM RUN RECORD
+                                    </p>
+                                    <ul className="mt-2 space-y-1.5">
+                                      {(d.workerReports ?? []).map((w, i) => {
+                                        const telemetry = formatRunTelemetry(w);
+                                        if (!telemetry) return null;
+                                        return (
+                                          <li
+                                            key={w.specialistId ?? `worker-${i}`}
+                                            className="break-words font-mono text-[11px] leading-relaxed text-body/80"
+                                          >
+                                            <span className="font-semibold text-bone">
+                                              {(w.specialistName ?? w.specialistId ?? `Specialist ${i + 1}`).toUpperCase()}
+                                            </span>{' '}
+                                            {telemetry}
+                                          </li>
+                                        );
+                                      })}
+                                      {d.retester && formatRunTelemetry(d.retester) && (
+                                        <li className="break-words font-mono text-[11px] leading-relaxed text-body/80">
+                                          <span className="font-semibold text-bone">RETESTER</span>{' '}
+                                          {formatRunTelemetry(d.retester)}
+                                        </li>
+                                      )}
                                     </ul>
                                   </div>
                                 )}

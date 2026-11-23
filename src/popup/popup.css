@@ -486,6 +486,38 @@ button:disabled {
   font-weight: 500;
 }
 
+.ai-keys-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.ai-key-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.ai-key-row .ai-key-hint {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+}
+
+.ai-key-row button {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 .authz-form h2,
 .authz-authorized h2,
 .chains-heading {

@@ -172,59 +172,95 @@
 
         <div id="backend-status" class="backend-badge backend-unknown">Backend: checking…</div>
         <div class="backend-key-row">
-          <label for="backend-api-provider" class="label">AI provider</label>
-          <select id="backend-api-provider" aria-label="AI provider">
-            <option value="gemini">Gemini</option>
-            <option value="qwen" selected>Qwen — Recommended</option>
-            <option value="ollama">Ollama (local)</option>
-          </select>
-        </div>
-        <div id="backend-key-qwen" class="backend-key-sub">
-          <div class="backend-key-row">
-            <label for="backend-qwen-region" class="label">Region</label>
-            <select id="backend-qwen-region" aria-label="Qwen region">
-              <option value="intl" selected>International (default)</option>
-              <option value="cn">Beijing</option>
-              <option value="custom">Custom workspace URL</option>
-            </select>
-          </div>
-          <input
-            id="backend-qwen-custom-url"
-            type="url"
-            placeholder="https://your-workspace.dashscope.aliyuncs.com/compatible-mode/v1"
-            autocomplete="off"
-            spellcheck="false"
-            hidden
-          />
-          <p class="backend-key-note">
-            Your key is a DashScope API key from Alibaba Cloud Model Studio.
-            Usage is billed to your own Alibaba Cloud account.
-            <a
-              href="https://www.alibabacloud.com/help/en/model-studio/model-pricing"
-              target="_blank"
-              rel="noreferrer"
-              >See DashScope pricing</a
-            >. A key from one region fails in another — check the region
-            first if saving fails.
-          </p>
-        </div>
-        <div id="backend-key-ollama" class="backend-key-sub" hidden>
-          <p class="backend-key-note">
-            Ollama runs models on your own machine — no key, no cloud bill.
-            It only works with a locally-run backend: the hosted BugSeek
-            backend cannot reach your localhost.
-          </p>
-          <div class="backend-key-checkrow">
-            <button id="backend-ollama-check" type="button">Check local Ollama</button>
-            <span id="backend-ollama-status" class="backend-key-note"></span>
-          </div>
-        </div>
-        <div class="backend-key-row">
-          <label for="backend-api-key" class="label">API Key / Account Link</label>
-          <input id="backend-api-key" type="password" placeholder="Paste DashScope key (sk-...) or link code" autocomplete="off" spellcheck="false" />
+          <label for="backend-api-key" class="label">Account link</label>
+          <input id="backend-api-key" type="password" placeholder="Paste bs_ key or link code" autocomplete="off" spellcheck="false" />
           <button id="backend-api-key-save" type="button">Save</button>
         </div>
         <div id="backend-account" class="backend-account" hidden></div>
+
+        <section id="ai-keys-section" class="backend-key-sub">
+          <h2 class="chains-heading">AI provider keys</h2>
+          <p id="ai-keys-unpaired" class="backend-key-note" hidden>
+            Link your account first — hosted provider keys are saved to your
+            account, encrypted, and shared with this paired extension. No raw
+            keys are stored in this browser.
+          </p>
+          <div id="ai-keys-form" hidden>
+            <div id="ai-keys-saved" class="ai-keys-list"></div>
+            <div class="backend-key-row">
+              <label for="ai-key-provider" class="label">Provider</label>
+              <select id="ai-key-provider" aria-label="AI provider"></select>
+            </div>
+            <div id="ai-key-qwen" class="backend-key-sub" hidden>
+              <div class="backend-key-row">
+                <label for="ai-qwen-region" class="label">Region</label>
+                <select id="ai-qwen-region" aria-label="Qwen region">
+                  <option value="intl" selected>International (default)</option>
+                  <option value="cn">Beijing</option>
+                  <option value="custom">Custom workspace URL</option>
+                </select>
+              </div>
+              <input
+                id="ai-qwen-custom-url"
+                type="url"
+                placeholder="https://your-workspace.dashscope.aliyuncs.com/compatible-mode/v1"
+                autocomplete="off"
+                spellcheck="false"
+                hidden
+              />
+              <p class="backend-key-note">
+                Your key is a DashScope API key from Alibaba Cloud Model Studio.
+                Usage is billed to your own Alibaba Cloud account.
+                <a
+                  href="https://www.alibabacloud.com/help/en/model-studio/model-pricing"
+                  target="_blank"
+                  rel="noreferrer"
+                  >See DashScope pricing</a
+                >. A key from one region fails in another — check the region
+                first if saving fails.
+              </p>
+            </div>
+            <div class="backend-key-row">
+              <label for="ai-key-input" class="label">Provider key</label>
+              <input id="ai-key-input" type="password" placeholder="Paste provider API key" autocomplete="off" spellcheck="false" />
+              <button id="ai-key-save" type="button">Save key</button>
+            </div>
+            <div id="ai-key-error" class="error" hidden></div>
+            <div class="backend-key-row">
+              <label for="routing-worker-provider" class="label">Worker tier</label>
+              <select id="routing-worker-provider" aria-label="Worker tier provider"></select>
+              <input id="routing-worker-model" type="text" placeholder="Worker model" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="backend-key-row">
+              <label for="routing-reasoning-provider" class="label">Reasoning tier</label>
+              <select id="routing-reasoning-provider" aria-label="Reasoning tier provider"></select>
+              <input id="routing-reasoning-model" type="text" placeholder="Reasoning model" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="backend-key-row">
+              <button id="routing-save" type="button">Save routing</button>
+            </div>
+            <div id="routing-error" class="error" hidden></div>
+            <p class="backend-key-note">
+              Hosted keys are encrypted in Postgres and shared across the web
+              app and this paired extension. The browser never stores the raw key.
+            </p>
+          </div>
+        </section>
+
+        <section id="ollama-triage" class="backend-key-sub">
+          <label class="check">
+            <input id="ollama-triage-toggle" type="checkbox" />
+            <span><strong>Local Triage (Ollama — Extension Only)</strong></span>
+          </label>
+          <p class="backend-key-note">
+            Powers client-side passive and SAST summaries on this machine only.
+            Local Ollama does not run the cloud Render swarm.
+          </p>
+          <div class="backend-key-checkrow">
+            <button id="ollama-triage-check" type="button">Check local Ollama</button>
+            <span id="ollama-triage-status" class="backend-key-note"></span>
+          </div>
+        </section>
 
         <!-- Authorization confirmation (shown when no record exists) -->
         <form id="authz-form" class="authz-form" onsubmit="return false">

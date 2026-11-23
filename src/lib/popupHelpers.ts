@@ -26,26 +26,6 @@ export async function restoreTabScanIfMatching<T extends { targetUrl: string }>(
   await chrome.storage.local.remove(storageKey);
 }
 
-export async function verifyGeminiApiKey(
-  rawKey: string,
-): Promise<{ valid: boolean; error?: string }> {
-  const key = rawKey.trim();
-  if (!key) return { valid: false, error: 'Enter a Gemini API key.' };
-
-  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
-    method: 'GET',
-    headers: {
-      'x-goog-api-key': key,
-    },
-    signal: AbortSignal.timeout(10_000),
-  });
-
-  if (!res.ok) {
-    return { valid: false, error: `Gemini rejected key (HTTP ${res.status}).` };
-  }
-  return { valid: true };
-}
-
 export async function onProviderKeySaved(
   syncFn: () => Promise<void>,
   refreshAccountUi: () => Promise<void>,
@@ -60,4 +40,61 @@ export async function onProviderKeySaved(
     await refreshAccountUi();
     setStatus(`Saved locally; backend sync failed (${detail}).`);
   }
+}
+
+/** Local Ollama triage toggle. A plain preference, it never touches operator status. */
+const LOCAL_OLLAMA_STORAGE_KEY = 'bugseek:localOllama';
+
+export async function getLocalOllamaEnabled(): Promise<boolean> {
+  try {
+    const stored = await chrome.storage.local.get(LOCAL_OLLAMA_STORAGE_KEY);
+    return stored[LOCAL_OLLAMA_STORAGE_KEY] === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function setLocalOllamaEnabled(enabled: boolean): Promise<void> {
+  try {
+    await chrome.storage.local.set({ [LOCAL_OLLAMA_STORAGE_KEY]: enabled });
+  } catch {
+    /* storage unavailable, the toggle stays off */
+  }
+}
+
+/** Finite token count as a short display string. Never NaN, 0 minimum. */
+export function formatTokenCount(value: unknown): string {
+  let total = 0;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    total = value;
+  } else if (value && typeof value === 'object') {
+    const v = value as { total?: unknown; input?: unknown; output?: unknown };
+    const t = Number(v.total);
+    if (Number.isFinite(t) && t > 0) {
+      total = t;
+    } else {
+      const i = Number(v.input);
+      const o = Number(v.output);
+      total = (Number.isFinite(i) ? i : 0) + (Number.isFinite(o) ? o : 0);
+    }
+  }
+  total = Math.max(0, Math.floor(total));
+  return total > 0 ? `${(total / 1000).toFixed(1)}k tokens` : '0k tokens';
+}
+
+export interface WorkerTelemetryInput {
+  providerId?: string | null;
+  model?: string | null;
+  tokensUsed?: unknown;
+}
+
+/** One telemetry line for a run record. Empty when the record carries no telemetry. */
+export function formatWorkerTelemetry(report: WorkerTelemetryInput): string {
+  const parts: string[] = [];
+  if (report.providerId) parts.push(report.providerId);
+  if (report.model) parts.push(report.model);
+  if (report.tokensUsed !== undefined && report.tokensUsed !== null) {
+    parts.push(formatTokenCount(report.tokensUsed));
+  }
+  return parts.join(' · ');
 }

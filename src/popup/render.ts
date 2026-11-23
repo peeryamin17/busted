@@ -7,6 +7,45 @@
  */
 import type { Finding, Severity } from '../lib/types';
 import { SEVERITY_LABEL } from '../lib/types';
+import type { SwarmOutcome } from '../lib/apiClient';
+import { formatWorkerTelemetry } from '../lib/popupHelpers';
+
+/** One specialist card in the swarm run record, with provider/model/token telemetry when the run record carries it. */
+export function swarmWorkerCard(
+  w: SwarmOutcome['workerReports'][number],
+  enter: boolean,
+): HTMLElement {
+  const card = document.createElement('div');
+  card.className = enter ? 'swarm-card swarm-enter' : 'swarm-card';
+
+  const name = document.createElement('div');
+  name.className = 'swarm-card-name';
+  name.textContent = w.specialistName;
+  card.appendChild(name);
+
+  const stats = document.createElement('div');
+  stats.className = 'swarm-card-stats';
+  stats.textContent =
+    `${w.testsRun} tests · ${w.findings} finding${w.findings === 1 ? '' : 's'}` +
+    ` · ${(w.durationMs / 1000).toFixed(1)}s`;
+  card.appendChild(stats);
+
+  const telemetry = formatWorkerTelemetry(w);
+  if (telemetry) {
+    const tele = document.createElement('div');
+    tele.className = 'swarm-card-stats';
+    tele.textContent = telemetry;
+    card.appendChild(tele);
+  }
+
+  if (w.summary) {
+    const sum = document.createElement('p');
+    sum.className = 'swarm-card-summary';
+    sum.textContent = w.summary;
+    card.appendChild(sum);
+  }
+  return card;
+}
 
 export function addMeta(dl: HTMLElement, term: string, value: string): void {
   const dt = document.createElement('dt');

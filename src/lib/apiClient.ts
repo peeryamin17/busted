@@ -30,8 +30,29 @@ export async function getBackendBaseUrl(): Promise<string> {
 
 /** Backend API key (bs_…), stored by the user in extension settings. Sent as x-api-key. */
 const API_KEY_STORAGE_KEY = 'bugseek:apiKey';
-/** User's own AI provider key (Gemini AIza… or DashScope sk-…), stored locally for direct BYOK scans. The provider pick decides which header it is sent as. */
-const GEMINI_API_KEY_STORAGE_KEY = 'bugseek:geminiApiKey';
+
+/**
+ * Hosted provider keys an older popup stored locally. The 0.4.0 key flow
+ * keeps hosted keys on the account, never in browser storage.
+ */
+const LEGACY_PROVIDER_KEY_STORAGE_KEYS = [
+  'bugseek:geminiApiKey',
+  'geminiApiKey',
+  'qwenApiKey',
+] as const;
+const LEGACY_CLEANUP_DONE_KEY = 'bugseek:legacyKeysCleaned';
+
+/** One-time removal of hosted provider keys left in local storage by older popup versions. */
+export async function cleanupLegacyProviderKeys(): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get(LEGACY_CLEANUP_DONE_KEY);
+    if (stored[LEGACY_CLEANUP_DONE_KEY]) return;
+    await chrome.storage.local.remove([...LEGACY_PROVIDER_KEY_STORAGE_KEYS]);
+    await chrome.storage.local.set({ [LEGACY_CLEANUP_DONE_KEY]: true });
+  } catch {
+    /* storage unavailable, cleanup retries on the next popup open */
+  }
+}
 
 export async function getBackendApiKey(): Promise<string | null> {
   try {
@@ -49,25 +70,6 @@ export async function setBackendApiKey(key: string | null): Promise<void> {
     else await chrome.storage.local.remove(API_KEY_STORAGE_KEY);
   } catch {
     /* storage unavailable, backend calls simply stay unauthenticated */
-  }
-}
-
-export async function getGeminiApiKey(): Promise<string | null> {
-  try {
-    const stored = await chrome.storage.local.get(GEMINI_API_KEY_STORAGE_KEY);
-    const key = stored[GEMINI_API_KEY_STORAGE_KEY];
-    return typeof key === 'string' && key.trim().length > 0 ? key.trim() : null;
-  } catch {
-    return null;
-  }
-}
-
-export async function setGeminiApiKey(key: string | null): Promise<void> {
-  try {
-    if (key) await chrome.storage.local.set({ [GEMINI_API_KEY_STORAGE_KEY]: key.trim() });
-    else await chrome.storage.local.remove(GEMINI_API_KEY_STORAGE_KEY);
-  } catch {
-    /* storage unavailable */
   }
 }
 
@@ -176,11 +178,10 @@ function asPlan(value: unknown): AccountState['plan'] {
 
 /**
  * Who the stored API key belongs to (GET /api/v1/account). Operator status
- * comes strictly from that endpoint; storing a local BYOK key never
- * elevates operator or ownership privileges.
+ * comes strictly from that endpoint; hasByok comes from the synced key
+ * list, never from anything stored in this browser.
  */
 export async function getBackendAccount(): Promise<AccountState> {
-  const hasByok = (await getGeminiApiKey()) !== null;
   const res = await fetchJson<{ email?: unknown; plan?: unknown; operator?: unknown }>(
     '/api/v1/account',
     { method: 'GET' },
@@ -192,15 +193,16 @@ export async function getBackendAccount(): Promise<AccountState> {
       email: null,
       plan: 'free',
       operator: false,
-      hasByok,
+      hasByok: false,
     };
   }
+  const keys = await getAiKeys();
   return {
     authenticated: true,
     email: typeof res.data.email === 'string' ? res.data.email : null,
     plan: asPlan(res.data.plan),
     operator: Boolean(res.data.operator),
-    hasByok,
+    hasByok: keys.ok ? keys.data.hasByok : false,
   };
 }
 
@@ -248,6 +250,111 @@ export async function pairWithCode(rawCode: string): Promise<AccountState> {
     throw new Error('Linked, but the account could not be verified — reopen the popup.');
   }
   return account;
+}
+
+// ---------------------------------------------------------------------------
+// AI provider keys (BYOK), synced to the account
+//
+// Hosted provider keys live encrypted on the backend, shared across the
+// web app and this paired extension. The browser never stores the raw
+// key. Every call below authenticates with the stored bs_ key only.
+// ---------------------------------------------------------------------------
+
+export type ProviderId =
+  | 'gemini'
+  | 'claude'
+  | 'qwen'
+  | 'kimi'
+  | 'glm'
+  | 'deepseek'
+  | 'openrouter'
+  | 'ollama';
+
+export type ModelTier = 'worker' | 'reasoning';
+
+export interface LlmProviderCapability {
+  id: ProviderId;
+  label: string;
+  mode: 'hosted' | 'local';
+  available: boolean;
+  reason?: string;
+  defaultModels: Record<ModelTier, string>;
+}
+
+export interface CapabilitiesResponse {
+  version: string;
+  runtime: 'cloud' | 'local';
+  llmProviders: LlmProviderCapability[];
+  engines: Array<{ id: string; available: boolean; reason?: string }>;
+}
+
+export interface SavedAiKey {
+  providerId: ProviderId;
+  keyHint: string;
+  baseUrl: string;
+  verifiedAt: string;
+}
+
+export interface LlmRouting {
+  workerProvider: string;
+  workerModel?: string | null;
+  reasoningProvider: string;
+  reasoningModel?: string | null;
+}
+
+export interface AiKeysResponse {
+  keys: SavedAiKey[];
+  routing: LlmRouting;
+  hasByok: boolean;
+}
+
+/** GET /api/v1/capabilities, what this backend runtime offers. */
+export async function getCapabilities(): Promise<ApiResult<CapabilitiesResponse>> {
+  return fetchJson<CapabilitiesResponse>('/api/v1/capabilities', { method: 'GET' }, 10_000);
+}
+
+/** GET /api/v1/ai-keys, saved providers (masked hints only) plus tier routing. */
+export async function getAiKeys(): Promise<ApiResult<AiKeysResponse>> {
+  return fetchJson<AiKeysResponse>('/api/v1/ai-keys', { method: 'GET' }, 10_000);
+}
+
+/**
+ * POST /api/v1/ai-keys, verify a hosted provider key against the
+ * provider and store it encrypted on the account.
+ */
+export async function saveAiKey(
+  providerId: ProviderId,
+  apiKey: string,
+  baseUrl?: string,
+): Promise<ApiResult<{ keyHint: string; hasByok: boolean }>> {
+  return fetchJson<{ keyHint: string; hasByok: boolean }>('/api/v1/ai-keys', {
+    method: 'POST',
+    body: JSON.stringify({
+      providerId,
+      apiKey,
+      ...(baseUrl ? { baseUrl } : {}),
+    }),
+  });
+}
+
+/** DELETE /api/v1/ai-keys/:providerId, drop one saved provider key. */
+export async function deleteAiKey(
+  providerId: ProviderId,
+): Promise<ApiResult<{ deleted: boolean; hasByok: boolean }>> {
+  return fetchJson<{ deleted: boolean; hasByok: boolean }>(
+    `/api/v1/ai-keys/${encodeURIComponent(providerId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+/** PUT /api/v1/ai-keys/routing, pick the worker and reasoning tier providers. */
+export async function saveLlmRouting(
+  routing: LlmRouting,
+): Promise<ApiResult<{ routing: LlmRouting }>> {
+  return fetchJson<{ routing: LlmRouting }>('/api/v1/ai-keys/routing', {
+    method: 'PUT',
+    body: JSON.stringify(routing),
+  });
 }
 
 /**
@@ -303,6 +410,18 @@ export interface SwarmScopeInput {
   excludedPaths?: string[];
 }
 
+/** Token usage as the backend reports it: a plain count, or input/output parts. */
+export type TokenUsage =
+  | number
+  | { input?: number; output?: number; total?: number };
+
+/** Which provider and model ran a piece of work, plus its token count. */
+export interface WorkerTelemetry {
+  providerId?: string;
+  model?: string;
+  tokensUsed?: TokenUsage;
+}
+
 export interface SwarmOutcome {
   scanId: string;
   targetUrl: string;
@@ -328,11 +447,16 @@ export interface SwarmOutcome {
     summary: string;
     testsRun: number;
     findings: number;
-    tokensUsed: number;
+    tokensUsed: TokenUsage;
     durationMs: number;
+    /** Added by the backend run record when the pool reports it. */
+    providerId?: string;
+    model?: string;
   }>;
+  /** Retester proof gate telemetry, when the backend run record carries it. */
+  retester?: WorkerTelemetry;
   testsRun: number;
-  tokensUsed: number;
+  tokensUsed: TokenUsage;
   durationMs: number;
   /** Server-computed security score (0–100) + letter grade (A–F); null when the run was not scored. */
   score?: { value: number; grade: string } | null;

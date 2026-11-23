@@ -1,14 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  cleanupLegacyProviderKeys,
+  deleteAiKey,
+  getAiKeys,
   getBackendAccount,
+  getCapabilities,
   runSwarmScan,
+  saveAiKey,
   setBackendApiKey,
   pairWithCode,
 } from '../lib/apiClient.js';
 import {
+  formatTokenCount,
+  formatWorkerTelemetry,
+  getLocalOllamaEnabled,
   restoreTabScanIfMatching,
-  verifyGeminiApiKey,
+  setLocalOllamaEnabled,
 } from '../lib/popupHelpers.js';
 import { maskSecret, scanBundleSecrets } from '../scanners/secretScanner.js';
 
@@ -41,16 +49,142 @@ function mockFetch(handler: (input: unknown, init?: RequestInit) => Promise<Resp
   ) => handler(input, init);
 }
 
-test('storing a local BYOK key alone never grants operator: true', async () => {
-  mockChromeStorage({ 'bugseek:geminiApiKey': 'AIzaSyFakeLocalKey12345678901234567890' });
+test('legacy hosted keys are removed on popup cleanup and never grant operator: true', async () => {
+  const store = mockChromeStorage({
+    'bugseek:geminiApiKey': 'AIzaSyFakeLocalKey12345678901234567890',
+    geminiApiKey: 'AIzaSyFakeLocalKey12345678901234567890',
+    qwenApiKey: 'sk-fake-local-key',
+  });
   mockFetch(
     async () =>
       new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 }),
   );
 
+  await cleanupLegacyProviderKeys();
+  assert.equal(store['bugseek:geminiApiKey'], undefined);
+  assert.equal(store['geminiApiKey'], undefined);
+  assert.equal(store['qwenApiKey'], undefined);
+
   const account = await getBackendAccount();
   assert.equal(account.operator, false);
   assert.equal(account.authenticated, false);
+});
+
+test('saving a hosted provider key posts to /api/v1/ai-keys with bs_ auth and stores nothing locally', async () => {
+  const store = mockChromeStorage({ 'bugseek:apiKey': 'bs_testkey123' });
+  const seen: Array<{ url: string; method: string; auth: string | null; body: string }> = [];
+  mockFetch(async (input, init) => {
+    seen.push({
+      url: String(input),
+      method: init?.method ?? 'GET',
+      auth: new Headers(init?.headers).get('x-api-key'),
+      body: typeof init?.body === 'string' ? init.body : '',
+    });
+    return new Response(JSON.stringify({ keyHint: '****1a2b', hasByok: true }), {
+      status: 201,
+    });
+  });
+
+  const res = await saveAiKey(
+    'qwen',
+    'sk-secret-provider-key',
+    'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+  );
+  assert.equal(res.ok, true);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].url.endsWith('/api/v1/ai-keys'), true);
+  assert.equal(seen[0].method, 'POST');
+  assert.equal(seen[0].auth, 'bs_testkey123');
+  const body = JSON.parse(seen[0].body) as Record<string, unknown>;
+  assert.equal(body['providerId'], 'qwen');
+  assert.equal(body['apiKey'], 'sk-secret-provider-key');
+  assert.equal(body['baseUrl'], 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1');
+  assert.equal(
+    Object.values(store).some((v) => v === 'sk-secret-provider-key'),
+    false,
+  );
+  assert.equal(store['bugseek:geminiApiKey'], undefined);
+});
+
+test('getCapabilities and getAiKeys authenticate with the stored bs_ key only', async () => {
+  mockChromeStorage({ 'bugseek:apiKey': 'bs_testkey123' });
+  const auths: Array<string | null> = [];
+  mockFetch(async (input, init) => {
+    auths.push(new Headers(init?.headers).get('x-api-key'));
+    if (String(input).endsWith('/api/v1/capabilities')) {
+      return new Response(
+        JSON.stringify({ version: '0.4.0', runtime: 'cloud', llmProviders: [], engines: [] }),
+        { status: 200 },
+      );
+    }
+    return new Response(JSON.stringify({ keys: [], routing: {}, hasByok: false }), {
+      status: 200,
+    });
+  });
+
+  const caps = await getCapabilities();
+  const keys = await getAiKeys();
+  assert.equal(caps.ok, true);
+  assert.equal(keys.ok, true);
+  assert.deepEqual(auths, ['bs_testkey123', 'bs_testkey123']);
+});
+
+test('deleteAiKey calls DELETE /api/v1/ai-keys/:providerId with bs_ auth', async () => {
+  mockChromeStorage({ 'bugseek:apiKey': 'bs_testkey123' });
+  let seenUrl = '';
+  let seenMethod = '';
+  mockFetch(async (input, init) => {
+    seenUrl = String(input);
+    seenMethod = init?.method ?? '';
+    return new Response(JSON.stringify({ deleted: true, hasByok: false }), {
+      status: 200,
+    });
+  });
+
+  const res = await deleteAiKey('qwen');
+  assert.equal(res.ok, true);
+  assert.equal(seenUrl.endsWith('/api/v1/ai-keys/qwen'), true);
+  assert.equal(seenMethod, 'DELETE');
+});
+
+test('enabling local Ollama never sets operator: true', async () => {
+  const store = mockChromeStorage({ 'bugseek:apiKey': 'bs_testkey123' });
+  mockFetch(
+    async () =>
+      new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 }),
+  );
+
+  await setLocalOllamaEnabled(true);
+  assert.equal(store['bugseek:localOllama'], true);
+  assert.equal(await getLocalOllamaEnabled(), true);
+  assert.equal(
+    Object.keys(store).some((k) => k.toLowerCase().includes('operator')),
+    false,
+  );
+
+  const account = await getBackendAccount();
+  assert.equal(account.operator, false);
+  assert.equal(account.authenticated, false);
+});
+
+test('formatTokenCount never emits NaN and floors at 0', () => {
+  assert.equal(formatTokenCount(NaN), '0k tokens');
+  assert.equal(formatTokenCount(undefined), '0k tokens');
+  assert.equal(formatTokenCount(-5), '0k tokens');
+  assert.equal(formatTokenCount(0), '0k tokens');
+  assert.equal(formatTokenCount(1500), '1.5k tokens');
+  assert.equal(formatTokenCount({ input: 500, output: 700 }), '1.2k tokens');
+  assert.equal(formatTokenCount({ total: 2500 }), '2.5k tokens');
+});
+
+test('formatWorkerTelemetry renders provider, model and tokens only when present', () => {
+  assert.equal(
+    formatWorkerTelemetry({ providerId: 'qwen', model: 'qwen-plus', tokensUsed: 1200 }),
+    'qwen · qwen-plus · 1.2k tokens',
+  );
+  assert.equal(formatWorkerTelemetry({}), '');
+  assert.equal(formatWorkerTelemetry({ providerId: 'deepseek' }), 'deepseek');
+  assert.equal(formatWorkerTelemetry({ tokensUsed: NaN }), '0k tokens');
 });
 
 test('restoreTabScanIfMatching purges stale findings when tab origin changes', async () => {
@@ -83,21 +217,6 @@ test('restoreTabScanIfMatching restores the scan when the origin matches', async
 
   assert.equal(rendered, true);
   assert.notEqual(store['scan:7'], undefined);
-});
-
-test('verifyGeminiApiKey sends x-goog-api-key header and never puts key in URL', async () => {
-  let seenUrl = '';
-  let seenHeader = '';
-  mockFetch(async (input, init) => {
-    seenUrl = String(input);
-    seenHeader = new Headers(init?.headers).get('x-goog-api-key') ?? '';
-    return new Response('{}', { status: 200 });
-  });
-
-  const res = await verifyGeminiApiKey('AIzaSyTestHeaderOnlyKey123456789012345');
-  assert.equal(res.valid, true);
-  assert.equal(seenUrl, 'https://generativelanguage.googleapis.com/v1beta/models');
-  assert.equal(seenHeader, 'AIzaSyTestHeaderOnlyKey123456789012345');
 });
 
 test('runSwarmScan aborts immediately on 401 instead of polling for 5 minutes', async () => {
