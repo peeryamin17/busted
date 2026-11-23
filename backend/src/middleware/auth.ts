@@ -1,4 +1,4 @@
-import type { FastifyRequest } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { createHash } from 'node:crypto';
 import type { Database } from '../db/db.js';
 import { hashApiKey, verifySession } from '../auth/auth.js';
@@ -6,6 +6,12 @@ import { SESSION_COOKIE, SESSION_IDLE_MS, hashSessionToken, isAdminEmail, parseC
 import { PLAN_QUOTAS } from '../auth/usage.js';
 import type { PlanTier } from '../types.js';
 import { recordSecurityEvent } from '../detection/events.js';
+import {
+  apiKeyAuthFailures,
+  apiKeyFingerprint,
+  clientIp,
+  type FailedAuthRateLimiter,
+} from '../guardrails/ratelimit.js';
 
 export interface AuthenticatedUser {
   id: string;
@@ -28,8 +34,19 @@ declare module 'fastify' {
  *  - `Authorization: Bearer <jwt>` — the email/password accounts' session
  *    token (register/login in src/routes/auth.ts).
  */
-export function buildAuthenticate(db: Database) {
-  return async function authenticate(request: FastifyRequest): Promise<void> {
+export interface AuthenticateOptions {
+  /**
+   * Failed-`bs_`-key limiter. Defaults to the shared module-level instance
+   * (10 failures / 60 s per IP and per key fingerprint). Tests may inject a
+   * short-window instance; production routes share one so an attacker cannot
+   * get a fresh budget per route (every route calls buildAuthenticate).
+   */
+  failedAuthLimiter?: FailedAuthRateLimiter;
+}
+
+export function buildAuthenticate(db: Database, opts: AuthenticateOptions = {}) {
+  const failedAuthLimiter = opts.failedAuthLimiter ?? apiKeyAuthFailures;
+  return async function authenticate(request: FastifyRequest, reply?: FastifyReply): Promise<void> {
     const authHeader = request.headers.authorization;
     let apiKey = request.headers['x-api-key'];
     if (!apiKey && authHeader?.startsWith('Bearer bs_')) {
@@ -53,13 +70,43 @@ export function buildAuthenticate(db: Database) {
       return;
     }
 
+    // `bs_` API-key auth, with a login-equivalent brake on FAILED attempts
+    // only (10 failures / 60 s per client IP and per key fingerprint).
+    // Successes are never throttled and clear the buckets, so the
+    // extension's legitimate polling is untouched. The Google OAuth /
+    // session-cookie and Bearer-JWT paths below are NOT limited here:
+    // Google enforces its own sign-in limits, and sessions are not
+    // guessable credentials. A 403 for a valid key on a plan without API
+    // access is an authorisation failure, not an authentication failure,
+    // so it does not count either.
     if (typeof apiKey === 'string' && apiKey.startsWith('bs_')) {
+      const ipBucket = `ip:${clientIp(request)}`;
+      const fpBucket = `fp:${apiKeyFingerprint(apiKey)}`;
+      const limitedBucket = failedAuthLimiter.isLimited(ipBucket)
+        ? ipBucket
+        : failedAuthLimiter.isLimited(fpBucket)
+          ? fpBucket
+          : null;
+      if (limitedBucket) {
+        const retryAfter = failedAuthLimiter.retryAfterSeconds(limitedBucket);
+        if (reply) reply.header('Retry-After', String(retryAfter));
+        throw Object.assign(
+          new Error(`Too many failed API-key attempts — try again in ${retryAfter}s`),
+          { statusCode: 429, retryAfterSeconds: retryAfter },
+        );
+      }
+      // A failed attempt counts against both buckets before we answer.
+      const apiKeyFailure = (message: string): Error & { statusCode: number } => {
+        failedAuthLimiter.recordFailure(ipBucket);
+        failedAuthLimiter.recordFailure(fpBucket);
+        return Object.assign(new Error(message), { statusCode: 401 });
+      };
       const rec = await db.getApiKeyByHash(hashApiKey(apiKey));
       if (!rec || rec.revokedAt) {
-        throw Object.assign(new Error('Invalid or revoked API key'), { statusCode: 401 });
+        throw apiKeyFailure('Invalid or revoked API key');
       }
       const user = await db.getUserById(rec.userId);
-      if (!user) throw Object.assign(new Error('Invalid API key'), { statusCode: 401 });
+      if (!user) throw apiKeyFailure('Invalid API key');
       const isOp = isAdminEmail(user.email);
       const plan: PlanTier = isOp ? 'enterprise' : user.plan;
       if (isOp && user.plan !== 'enterprise' && typeof db.setUserPlan === 'function') {
@@ -71,6 +118,8 @@ export function buildAuthenticate(db: Database) {
         });
       }
       await db.touchApiKey(rec.id).catch(() => undefined);
+      failedAuthLimiter.recordSuccess(ipBucket);
+      failedAuthLimiter.recordSuccess(fpBucket);
       request.user = { id: user.id, email: user.email, plan, viaApiKey: true };
       // Runtime detection layer (Thread 5, DEFENSIVE — dogfooding): record
       // the API-key use so the anomaly rules can spot a key used from a new

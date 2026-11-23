@@ -4,9 +4,11 @@ import { PLAN_QUOTAS } from '../auth/usage.js';
 import { generatePdfReport } from '../reports/pdf.js';
 import { generateDocxReport } from '../reports/docx.js';
 import { generateMarkdownReport } from '../reports/markdown.js';
+import { generateCsvReport } from '../reports/csv.js';
+import { generateJsonReport } from '../reports/json.js';
 import type { ScanRouteDeps } from './scans.js';
 
-const FORMATS = ['pdf', 'docx', 'md', 'json'] as const;
+const FORMATS = ['pdf', 'docx', 'md', 'json', 'csv'] as const;
 type ReportFormat = (typeof FORMATS)[number];
 
 const CONTENT_TYPES: Record<ReportFormat, string> = {
@@ -14,6 +16,7 @@ const CONTENT_TYPES: Record<ReportFormat, string> = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   md: 'text/markdown',
   json: 'application/json',
+  csv: 'text/csv; charset=utf-8',
 };
 
 export async function reportRoutes(app: FastifyInstance, deps: ScanRouteDeps): Promise<void> {
@@ -60,7 +63,9 @@ export async function reportRoutes(app: FastifyInstance, deps: ScanRouteDeps): P
       case 'md':
         return reply.send(generateMarkdownReport(input));
       case 'json':
-        return reply.send({ scan, findings });
+        return reply.send(generateJsonReport(input));
+      case 'csv':
+        return reply.send(generateCsvReport(input));
     }
   });
 }
