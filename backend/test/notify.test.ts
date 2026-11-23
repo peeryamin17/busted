@@ -146,6 +146,86 @@ async function main() {
     check('validation: good webhook input passes', good.type === 'webhook' && good.enabled === true);
     check('validation: default filters cover every event', good.filters.events.length === 4);
     check('validation: default min severity is info', good.filters.minSeverity === 'info');
+    // SSRF guard at creation time (literal hosts only, no DNS here).
+    for (const badUrl of [
+      'http://127.0.0.1/hook',
+      'http://10.0.0.5/hook',
+      'http://172.16.0.9/hook',
+      'http://192.168.1.1/hook',
+      'http://169.254.169.254/latest/meta-data/',
+      'http://localhost/hook',
+      'http://api.local/hook',
+      'http://[::1]/hook',
+      'http://[::ffff:127.0.0.1]/hook',
+    ]) {
+      let refused = false;
+      try {
+        validateNotifyTarget('webhook', { url: badUrl });
+      } catch (e) {
+        refused = /invalid_webhook_url/.test((e as Error).message);
+      }
+      check(`validation: private webhook URL refused (${badUrl})`, refused);
+    }
+    check(
+      'validation: public webhook URL still passes',
+      validateNotifyTarget('webhook', { url: 'https://hooks.example.com/notify' }).url ===
+        'https://hooks.example.com/notify',
+    );
+  }
+
+  // ── 1b. SSRF guard at send time (DNS resolution, per hop) ──
+  {
+    const channels = new MemoryNotifyChannelStore();
+    const secrets = new MemorySecretStore();
+    const fetchFake = okFetch();
+    const channel = await channels.create({
+      userId: USER,
+      type: 'webhook',
+      label: 'hooks',
+      target: { url: 'https://hooks.example.com/notify' },
+    });
+    // A host check that refuses: the fetch must never run.
+    const refusing = new NotifyService({
+      channels,
+      secrets,
+      fetchFn: fetchFake.fn,
+      assertHost: async () => {
+        throw new Error('private host');
+      },
+    });
+    fetchFake.calls.length = 0;
+    const refused = await refusing.sendToChannel(channel, findingCritical, { ignoreFilters: true });
+    check('send-time: refused host returns ok:false', refused.ok === false, refused);
+    check('send-time: refused host error names the guard', refused.error === 'webhook_private_host_refused', refused);
+    check('send-time: refused host never fetched', fetchFake.calls.length === 0, fetchFake.calls);
+    // A redirect whose target host turns private between hops is
+    // refused before the second fetch (same-origin redirect, host
+    // check throws on its second call, DNS changing mid-chain).
+    const checkedHosts: string[] = [];
+    let hostCheckCalls = 0;
+    const redirecting = makeFakeFetch((url) =>
+      url === 'https://hooks.example.com/notify'
+        ? { status: 302, headers: { location: 'https://hooks.example.com/notify2' } }
+        : { status: 200, body: 'ok' },
+    );
+    const hopping = new NotifyService({
+      channels,
+      secrets,
+      fetchFn: redirecting.fn,
+      assertHost: async (host) => {
+        checkedHosts.push(host);
+        hostCheckCalls += 1;
+        if (hostCheckCalls >= 2) throw new Error('now resolves privately');
+      },
+    });
+    const hopResult = await hopping.sendToChannel(channel, findingCritical, { ignoreFilters: true });
+    check('send-time: redirect to refused host returns ok:false', hopResult.ok === false, hopResult);
+    check('send-time: redirect target never fetched', redirecting.calls.length === 1, redirecting.calls);
+    check(
+      'send-time: host re-checked on the redirect hop',
+      checkedHosts.length === 2 && checkedHosts.every((h) => h === 'hooks.example.com'),
+      checkedHosts,
+    );
   }
 
   // ── 2. Filter logic via fan-out ──
@@ -174,7 +254,7 @@ async function main() {
       target: { url: 'https://hooks.example.com/off' },
       enabled: false,
     });
-    const service = new NotifyService({ channels, secrets, fetchFn: fetchFake.fn });
+    const service = new NotifyService({ channels, secrets, fetchFn: fetchFake.fn, assertHost: async () => undefined });
 
     fetchFake.calls.length = 0;
     const highResults = await service.notifyEvent(USER, findingHigh);
@@ -240,7 +320,7 @@ async function main() {
       label: 'hooks',
       target: { url: 'https://hooks.example.com/notify' },
     });
-    const service = new NotifyService({ channels, secrets, fetchFn: fetchFake.fn });
+    const service = new NotifyService({ channels, secrets, fetchFn: fetchFake.fn, assertHost: async () => undefined });
     const result = await service.sendToChannel(channel, findingCritical, { ignoreFilters: true });
     check('webhook: send reports ok', result.ok === true, result);
     const call = fetchFake.calls[0];
@@ -271,7 +351,7 @@ async function main() {
       label: 'hooks',
       target: { url: 'https://hooks.example.com/notify' },
     });
-    const service = new NotifyService({ channels, secrets, fetchFn: evil.fn });
+    const service = new NotifyService({ channels, secrets, fetchFn: evil.fn, assertHost: async () => undefined });
     const result = await service.sendToChannel(channel, findingCritical, { ignoreFilters: true });
     check('redirect: cross-origin redirect refused', result.ok === false, result);
     check(
@@ -286,7 +366,7 @@ async function main() {
         ? { status: 302, headers: { location: '/notify2' } }
         : { status: 200, body: '{"ok":true}' },
     );
-    const service2 = new NotifyService({ channels, secrets, fetchFn: sameOrigin.fn });
+    const service2 = new NotifyService({ channels, secrets, fetchFn: sameOrigin.fn, assertHost: async () => undefined });
     const result2 = await service2.sendToChannel(channel, findingCritical, { ignoreFilters: true });
     check('redirect: same-origin redirect followed to ok', result2.ok === true, result2);
     check('redirect: same-origin hop fetched twice', sameOrigin.calls.length === 2, sameOrigin.calls);
@@ -308,7 +388,7 @@ async function main() {
       label: 'hooks',
       target: { url: 'https://hooks.example.com/notify' },
     });
-    const service = new NotifyService({ channels, secrets, fetchFn: huge.fn });
+    const service = new NotifyService({ channels, secrets, fetchFn: huge.fn, assertHost: async () => undefined });
     const result = await service.sendToChannel(channel, findingCritical, { ignoreFilters: true });
     check('cap: response over 1 MiB fails the send', result.ok === false && result.error === 'response_too_large', result);
   }
@@ -332,7 +412,7 @@ async function main() {
       encryptedValue: encryptSecret(token),
       hint: '1234••••ew11',
     });
-    const service = new NotifyService({ channels, secrets, fetchFn: fetchFake.fn });
+    const service = new NotifyService({ channels, secrets, fetchFn: fetchFake.fn, assertHost: async () => undefined });
     const result = await service.sendToChannel(channel, findingCritical, { ignoreFilters: true });
     check('telegram: send reports ok', result.ok === true, result);
     const call = fetchFake.calls[0];
@@ -378,6 +458,7 @@ async function main() {
       channels,
       secrets,
       fetchFn: fetchFake.fn,
+      assertHost: async () => undefined,
       now: () => nowMs,
     });
     let okCount = 0;
@@ -410,7 +491,7 @@ async function main() {
       label: 'hooks',
       target: { url: 'https://hooks.example.com/notify' },
     });
-    const service = new NotifyService({ channels, secrets, fetchFn: exploding });
+    const service = new NotifyService({ channels, secrets, fetchFn: exploding, assertHost: async () => undefined });
     let result;
     let threw = false;
     try {
@@ -422,7 +503,7 @@ async function main() {
     check('failure: throwing fetch returns ok:false', result?.ok === false, result);
 
     const failing = makeFakeFetch(() => ({ status: 500, body: 'nope' }));
-    const service2 = new NotifyService({ channels, secrets, fetchFn: failing.fn });
+    const service2 = new NotifyService({ channels, secrets, fetchFn: failing.fn, assertHost: async () => undefined });
     const httpResult = await service2.sendToChannel(channel, findingCritical, { ignoreFilters: true });
     check('failure: HTTP 500 returns ok:false', httpResult.ok === false && httpResult.error === 'webhook_http_500', httpResult);
 
@@ -456,6 +537,7 @@ async function main() {
       secrets,
       fetchFn: okFetch().fn,
       smtpTransportFactory: smtp.factory,
+      assertHost: async () => undefined,
     });
     const result = await service.sendToChannel(channel, findingCritical, { ignoreFilters: true });
     check('smtp: send reports ok', result.ok === true, result);

@@ -5,6 +5,7 @@
  */
 import net from 'node:net';
 import { decryptSecret } from '../lib/crypto.js';
+import { assertPublicHost } from '../guardrails/scope.js';
 import type { SecretStore } from '../secrets/store.js';
 import {
   channelMatchesEvent,
@@ -33,6 +34,17 @@ export interface SendResult {
 
 /** Minimal fetch shape (global fetch, or an injected fake in tests). */
 export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * Send-time host check for webhooks: resolves the hostname and refuses
+ * private/loopback addresses (the same SSRF guard the agent's fetch
+ * uses). Defaults to `assertPublicHost(host, false)`; tests inject a
+ * stub so no DNS lookup happens offline.
+ */
+export type HostCheck = (hostname: string) => Promise<void>;
+
+export const defaultHostCheck: HostCheck = (hostname: string) =>
+  assertPublicHost(hostname, false);
 
 /** A mail transport: the only thing the fan-out needs from SMTP. */
 export interface SmtpTransport {
@@ -132,18 +144,28 @@ function webhookPayload(event: NotifyEvent): Record<string, unknown> {
 
 /**
  * POST the webhook payload, following same-origin redirects for at
- * most 3 hops and refusing any cross-origin redirect. Returns the
- * final response (never throws for HTTP-level outcomes).
+ * most 3 hops and refusing any cross-origin redirect. The host is
+ * re-checked with `assertHost` before EVERY hop (initial URL included),
+ * so a redirect to a DNS-rebinding or privately-resolving host is
+ * caught instead of followed. Returns the final response (never throws
+ * for HTTP-level outcomes).
  */
 export async function postWebhook(
   fetchFn: FetchFn,
   url: string,
   event: NotifyEvent,
   extraHeaders?: Record<string, string>,
+  assertHost: HostCheck = defaultHostCheck,
 ): Promise<{ ok: boolean; error?: string }> {
   const body = JSON.stringify(webhookPayload(event));
   let current = url;
   for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+    try {
+      await assertHost(new URL(current).hostname);
+    } catch {
+      // Never leak the resolved address in the error.
+      return { ok: false, error: 'webhook_private_host_refused' };
+    }
     let res: Response;
     try {
       res = await fetchFn(current, {
@@ -242,6 +264,7 @@ export async function sendWebhook(
   secrets: SecretStore,
   channel: NotifyChannelRecord,
   event: NotifyEvent,
+  assertHost: HostCheck = defaultHostCheck,
 ): Promise<SendResult> {
   const target = channel.target;
   if (!('url' in target)) return fail(channel.id, 'webhook_bad_target');
@@ -254,7 +277,7 @@ export async function sendWebhook(
   } catch {
     return fail(channel.id, 'webhook_secret_unreadable');
   }
-  const result = await postWebhook(fetchFn, target.url, event, extraHeaders);
+  const result = await postWebhook(fetchFn, target.url, event, extraHeaders, assertHost);
   return result.ok ? { ok: true, channelId: channel.id } : fail(channel.id, result.error ?? 'webhook_failed');
 }
 
@@ -309,6 +332,11 @@ export interface NotifyServiceDeps {
   now?: () => number;
   /** Max sends per channel per window (default 10). */
   rateLimitMax?: number;
+  /**
+   * Send-time webhook host check. Defaults to the real SSRF guard
+   * (DNS resolution + private-IP refusal); tests inject a stub.
+   */
+  assertHost?: HostCheck;
 }
 
 /**
@@ -324,6 +352,7 @@ export class NotifyService {
   private readonly smtpTransportFactory: SmtpTransportFactory;
   private readonly now: () => number;
   private readonly limiter: ChannelRateLimiter;
+  private readonly assertHost: HostCheck;
 
   constructor(deps: NotifyServiceDeps) {
     this.channels = deps.channels;
@@ -332,6 +361,7 @@ export class NotifyService {
     this.smtpTransportFactory = deps.smtpTransportFactory ?? ((opts) => new NodeSmtpTransport(opts));
     this.now = deps.now ?? Date.now;
     this.limiter = new ChannelRateLimiter(deps.rateLimitMax, RATE_LIMIT_WINDOW_MS);
+    this.assertHost = deps.assertHost ?? defaultHostCheck;
   }
 
   /** How many sends to this channel the rate limit has dropped. */
@@ -358,7 +388,7 @@ export class NotifyService {
       return { ok: false, channelId: channel.id, error: 'rate_limited', rateLimited: true };
     }
     try {
-      if (channel.type === 'webhook') return await sendWebhook(this.fetchFn, this.secrets, channel, event);
+      if (channel.type === 'webhook') return await sendWebhook(this.fetchFn, this.secrets, channel, event, this.assertHost);
       if (channel.type === 'telegram') return await sendTelegram(this.fetchFn, this.secrets, channel, event);
       return await sendSmtp(this.smtpTransportFactory, this.secrets, channel, event);
     } catch {

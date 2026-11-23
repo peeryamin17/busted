@@ -70,7 +70,8 @@ export function isUrlInScope(urlStr: string, target: URL, scope: ScopePolicy): S
   }
 }
 
-function isPrivateIp(ip: string): boolean {
+/** True for loopback, RFC-1918, link-local, CGNAT and other non-public IPs (v4 + v6). */
+export function isPrivateIp(ip: string): boolean {
   if (!net.isIP(ip)) return false;
   const lower = ip.toLowerCase();
   // IPv4-mapped IPv6 literals (::ffff:127.0.0.1, ::ffff:7f00:1): the embedded

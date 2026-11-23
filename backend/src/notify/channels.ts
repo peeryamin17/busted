@@ -4,6 +4,8 @@
  * the secrets store and decrypt at send time.
  */
 import { randomUUID } from 'node:crypto';
+import net from 'node:net';
+import { isPrivateIp } from '../guardrails/scope.js';
 
 export type NotifyChannelType = 'webhook' | 'telegram' | 'smtp';
 
@@ -136,6 +138,20 @@ export function validateNotifyTarget(
       throw new Error('invalid_webhook_url');
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('invalid_webhook_url');
+    }
+    // Creation-time SSRF guard (literal hosts only, no DNS here):
+    // a webhook must never point at localhost, a.local name, or a
+    // literal private IP. Send time re-checks with full DNS resolution
+    // (see postWebhook), so a name that later resolves privately is
+    // still refused.
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
+      throw new Error('invalid_webhook_url');
+    }
+    // URL keeps IPv6 literals bracketed ([::1]); strip them for net.isIP.
+    const bareHost = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+    if (net.isIP(bareHost) && isPrivateIp(bareHost)) {
       throw new Error('invalid_webhook_url');
     }
     return { url: parsed.toString() };
