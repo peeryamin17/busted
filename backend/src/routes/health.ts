@@ -21,6 +21,19 @@ export interface RouteDeps {
   approvals?: ApprovalStore;
   approvalRules?: ApprovalRuleStore;
   pins?: PinStore;
+  /**
+   * hook, called best-effort when a swarm run completes
+   * (server.ts wires it to the notification fan-out). A throwing or
+   * slow hook must never break the scan response, so the caller wraps
+   * it in a no-throw guard.
+   */
+  onSwarmCompleted?: (input: {
+    userId: string;
+    scanId: string;
+    taskId: string | null;
+    targetUrl: string;
+    findings: Array<{ severity: string; title: string; category: string }>;
+  }) => Promise<void>;
 }
 
 export async function healthRoutes(app: FastifyInstance, deps: RouteDeps): Promise<void> {

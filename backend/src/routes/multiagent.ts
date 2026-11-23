@@ -428,6 +428,24 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
         if (taskCtx) {
           await taskCtx.graph.updateTaskStatus(taskCtx.taskId, 'done').catch(() => undefined);
         }
+        // notification fan-out (best-effort, a failing
+        // channel must never break the scan response). The hook sends
+        // one task-completed event plus one event per critical/high
+        // finding (capped at 5); channel filters decide what the user
+        // actually receives.
+        await deps
+          .onSwarmCompleted?.({
+            userId: scan.userId,
+            scanId: scan.id,
+            taskId: taskId ?? null,
+            targetUrl: outcome.targetUrl,
+            findings: findings.map((f) => ({
+              severity: f.severity,
+              title: f.title,
+              category: f.category,
+            })),
+          })
+          .catch(() => undefined);
 
         const fullResult = {
           jobId: scan.id,
