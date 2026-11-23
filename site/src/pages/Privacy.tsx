@@ -159,7 +159,7 @@ export function Privacy() {
 
         <FullPolicyCard />
       </main>
-      <Footer home={false} />
+      <Footer />
     </div>
   );
 }

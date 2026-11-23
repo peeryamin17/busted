@@ -12,6 +12,7 @@ interface Tier {
   creditAmount: number;
   features: string[];
   cta: string;
+  plan: string;
   icon: typeof Rocket;
   featured?: boolean;
 }
@@ -26,6 +27,7 @@ const TIERS: Tier[] = [
     creditAmount: 50,
     features: ['Passive recon scans', 'Markdown reports', 'CVSS scoring', 'Community support'],
     cta: 'Start free',
+    plan: 'scout',
     icon: MousePointerClick,
   },
   {
@@ -43,6 +45,7 @@ const TIERS: Tier[] = [
       'All report formats',
     ],
     cta: 'Hunt harder',
+    plan: 'hunter',
     icon: Rocket,
     featured: true,
   },
@@ -60,6 +63,7 @@ const TIERS: Tier[] = [
       'Early access to new agents',
     ],
     cta: 'Go pro',
+    plan: 'pro',
     icon: Crown,
   },
 ];
@@ -139,7 +143,7 @@ export function Pricing() {
                 ))}
               </ul>
               <motion.a
-                href="#download"
+                href={`/?plan=${t.plan}#download`}
                 {...pressable}
                 className={`mt-8 rounded-2xl px-6 py-3 text-center font-display text-base font-semibold ${
                   t.featured
@@ -171,12 +175,12 @@ export function Pricing() {
         <div className="mt-10 rounded-2xl border border-white/10 bg-ink p-6 text-center">
           <p className="font-mono text-sm text-body/85">
             <span className="text-bone">The math:</span> passive scan ={' '}
-            <span className="text-mint">1 credit</span> · AI swarm scan ={' '}
+            <span className="text-mint">free, runs locally</span> · AI swarm scan ={' '}
             <span className="text-mint">25 credits</span>
           </p>
           <p className="mt-2 text-sm text-slate2">
-            A Hunter plan is 300 passive scans — or 12 full swarm runs — every month.
-            Credits never buy permission, though: authorization is always on you.
+            A Hunter plan is 12 full swarm runs every month. Credits never
+            buy permission, though: authorization is always on you.
           </p>
         </div>
       </Reveal>

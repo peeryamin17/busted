@@ -108,7 +108,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
     } else if (tab.page) {
       navigate(tab.page);
     } else if (tab.hash) {
-      scrollToHash(tab.hash);
+      goSectionHash(tab.hash);
     }
   };
 
@@ -117,11 +117,21 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
       ? '/signin'
       : tab.connect
         ? '/app/check'
-        : tab.page ?? (tab.hash ?? '#top');
+        : tab.page ?? (tab.hash ? `/app${tab.hash}` : '#top');
+
+  /** Section anchors live in the members' home at /app: from any other
+      page, route there first and let the app scroll to the hash. */
+  const goSectionHash = (hash: string) => {
+    if (window.location.pathname !== '/app') {
+      navigate(`/app${hash}`);
+    } else {
+      scrollToHash(hash);
+    }
+  };
 
   const goSection = (e: MouseEvent, hash: string) => {
     e.preventDefault();
-    scrollToHash(hash);
+    goSectionHash(hash);
   };
 
   const goHome = (e: MouseEvent) => {
@@ -229,10 +239,21 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
                 >
                   Connect site
                 </a>
+                <a
+                  href="/tasks"
+                  data-cat-tab="tasks"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigate('/tasks');
+                  }}
+                  className="text-sm font-medium text-body/80 transition-colors hover:text-bone"
+                >
+                  Tasks
+                </a>
                 {LINKS.map((l) => (
                   <a
                     key={l.hash}
-                    href={l.hash}
+                    href={`/app${l.hash}`}
                     data-cat-tab={l.hash.slice(1)}
                     onClick={(e) => goSection(e, l.hash)}
                     className="text-sm font-medium text-body/80 transition-colors hover:text-bone"

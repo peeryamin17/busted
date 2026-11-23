@@ -30,23 +30,3 @@ export function Reveal({
     </motion.div>
   );
 }
-
-/** Masked line reveal for display type, lines slide up from behind a mask. */
-export function MaskedLine({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
-  const reduce = useReducedMotion();
-  if (reduce) {
-    return <span className="block">{children}</span>;
-  }
-  return (
-    <span className="block overflow-hidden pb-1">
-      <motion.span
-        className="block"
-        initial={{ y: '112%' }}
-        animate={{ y: '0%' }}
-        transition={{ ...springQuiet, delay }}
-      >
-        {children}
-      </motion.span>
-    </span>
-  );
-}

@@ -21,7 +21,7 @@ const PROVIDER_LABELS: Record<Provider, string> = {
   ollama: 'Ollama (local)',
 };
 
-export function AiKeyCard({ onUnlocked }: { onUnlocked?: () => void }) {
+export function AiKeyCard() {
   const [status, setStatus] = useState<KeyStatus | null>(null);
   const [provider, setProvider] = useState<Provider>('qwen');
   const [apiKey, setApiKey] = useState('');
@@ -107,7 +107,6 @@ export function AiKeyCard({ onUnlocked }: { onUnlocked?: () => void }) {
         setApiKey('');
         setSuccess(data.message || 'Key verified and saved.');
         await loadStatus();
-        onUnlocked?.();
       }
     } catch {
       setError('Network error while verifying key.');
@@ -122,9 +121,17 @@ export function AiKeyCard({ onUnlocked }: { onUnlocked?: () => void }) {
     setSuccess(null);
     setLoading(true);
     try {
-      await fetch('/api/me/ai-key', { method: 'DELETE', credentials: 'include' });
+      const res = await fetch('/api/me/ai-key', { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        setError(data?.error ?? `Could not remove the key (${res.status}). It is still saved.`);
+        return;
+      }
       setOllamaReachable(null);
+      setSuccess('Key removed.');
       await loadStatus();
+    } catch {
+      setError('Network error while removing the key. It is still saved.');
     } finally {
       setLoading(false);
     }
@@ -152,8 +159,10 @@ export function AiKeyCard({ onUnlocked }: { onUnlocked?: () => void }) {
           </h3>
           <p className="mt-1 text-sm text-zinc-400">
             Bring your own AI provider to unlock AI Swarm scans. Keys are
-            encrypted at rest (AES-256-GCM) and never exposed to the browser
-            extension.
+            encrypted at rest (AES-256-GCM) and saved to your account,
+            paired with the extension&apos;s bs_ key: the extension keeps
+            its own copy of the same key for local runs, and the backend
+            copy is what powers hosted swarm runs.
           </p>
         </div>
         {status?.connected && (
@@ -262,7 +271,10 @@ export function AiKeyCard({ onUnlocked }: { onUnlocked?: () => void }) {
               )}
               {ollamaReachable === false && (
                 <span className="text-sm text-amber-400">
-                  Ollama is not reachable — start it, then check again.
+                  Ollama is not reachable — start it, then check again. This
+                  page is served over HTTPS, so stricter browsers may block
+                  the check to http://127.0.0.1:11434 even while Ollama is
+                  running; saving still works, the check is only a hint.
                 </span>
               )}
             </div>

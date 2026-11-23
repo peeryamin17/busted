@@ -9,6 +9,8 @@
  * MCP is not supported (HTTP/SSE only).
  */
 import { useCallback, useEffect, useState } from 'react';
+import { safeExternalUrl } from '../lib/urls';
+import { safeStorageGet, safeStorageRemove, safeStorageSet } from '../lib/storage';
 
 type Tab = 'skills' | 'mcp' | 'search' | 'alerts' | 'workspace' | 'companies' | 'lessons';
 
@@ -353,16 +355,23 @@ function SearchTab() {
         <input className={`${inputCls} flex-1`} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search the web…" required />
         <button type="submit" className={btnCls}>Search</button>
       </form>
-      {results.map((r) => (
-        <div key={r.url} className={rowCls}>
-          <div>
-            <a href={r.url} target="_blank" rel="noreferrer" className="text-sm font-bold text-bone underline decoration-white/30 underline-offset-2">
-              {r.title}
-            </a>
-            <p className="mt-1 text-sm text-slate2">{r.snippet}</p>
+      {results.map((r) => {
+        const href = safeExternalUrl(r.url);
+        return (
+          <div key={r.url} className={rowCls}>
+            <div>
+              {href ? (
+                <a href={href} target="_blank" rel="noreferrer" className="text-sm font-bold text-bone underline decoration-white/30 underline-offset-2">
+                  {r.title}
+                </a>
+              ) : (
+                <span className="text-sm font-bold text-bone">{r.title}</span>
+              )}
+              <p className="mt-1 text-sm text-slate2">{r.snippet}</p>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </Section>
   );
 }
@@ -561,6 +570,13 @@ function WorkspaceTab() {
   }, [load]);
   async function upload(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
+    setNote(null);
+    const bytes = new TextEncoder().encode(fileText).length;
+    if (bytes > 10 * 1024 * 1024) {
+      setError(`That file is ${(bytes / (1024 * 1024)).toFixed(1)} MiB — the per-file cap is 10 MiB.`);
+      return;
+    }
     try {
       const contentBase64 = btoa(unescape(encodeURIComponent(fileText)));
       await api('/api/workspace/upload', {
@@ -571,6 +587,34 @@ function WorkspaceTab() {
       setFileText('');
       setNote('Uploaded. Remember: workspace files live on the backend host and a redeploy can wipe them.');
       await load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+  async function download(path: string) {
+    setError(null);
+    try {
+      const res = await fetch(`/api/workspace/file?path=${encodeURIComponent(path)}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        throw new Error(
+          res.status === 401
+            ? 'Sign in again to download this file.'
+            : res.status === 404
+              ? 'That file is no longer on the backend.'
+              : `Download failed (${res.status}).`,
+        );
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = path.split('/').pop() ?? 'file';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -602,7 +646,7 @@ function WorkspaceTab() {
             </div>
             {!f.isDir ? (
               <div className="flex gap-2">
-                <a className={btnCls} href={`/api/workspace/file?path=${encodeURIComponent(f.path)}`}>Download</a>
+                <button type="button" className={btnCls} onClick={() => void download(f.path)}>Download</button>
                 <button type="button" className={btnDangerCls} onClick={() => void remove(f.path)}>Delete</button>
               </div>
             ) : null}
@@ -632,7 +676,7 @@ const COMPANY_KEY = 'bugseek-company';
 
 function CompaniesTab() {
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [selected, setSelected] = useState<string>(() => localStorage.getItem(COMPANY_KEY) ?? '');
+  const [selected, setSelected] = useState<string>(() => safeStorageGet(COMPANY_KEY) ?? '');
   const [name, setName] = useState('');
   const [domains, setDomains] = useState('');
   const [error, setError] = useError();
@@ -667,7 +711,7 @@ function CompaniesTab() {
       await api(`/api/companies/${id}`, { method: 'DELETE' });
       if (selected === id) {
         setSelected('');
-        localStorage.removeItem(COMPANY_KEY);
+        safeStorageRemove(COMPANY_KEY);
       }
       await load();
     } catch (err) {
@@ -687,8 +731,8 @@ function CompaniesTab() {
           value={selected}
           onChange={(e) => {
             setSelected(e.target.value);
-            if (e.target.value) localStorage.setItem(COMPANY_KEY, e.target.value);
-            else localStorage.removeItem(COMPANY_KEY);
+            if (e.target.value) safeStorageSet(COMPANY_KEY, e.target.value);
+            else safeStorageRemove(COMPANY_KEY);
           }}
         >
           <option value="">No company selected</option>

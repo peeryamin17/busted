@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { probeSession } from './probeSession';
 
 export interface SessionUser {
   id: string;
@@ -26,6 +27,10 @@ interface AuthState {
   user: SessionUser | null;
   credits: SessionCredits | null;
   loading: boolean;
+  /** True when the probe could not reach the backend at all. */
+  waking: boolean;
+  wakingDetail: string | null;
+  retry: () => void;
   signOut: () => Promise<void>;
 }
 
@@ -33,50 +38,44 @@ const AuthContext = createContext<AuthState>({
   user: null,
   credits: null,
   loading: true,
+  waking: false,
+  wakingDetail: null,
+  retry: () => {},
   signOut: async () => {},
 });
-
-/**
- * Session probe against our own backend, reached through the site's
- * /api proxy (see vercel.json / vite.config.ts) so the httpOnly
- * bs_session cookie stays same-site in the browser. 200 means signed
- * in; anything else, 401, network trouble, backend asleep, means
- * signed out.
- */
-async function probeSession(): Promise<{
-  user: SessionUser;
-  credits: SessionCredits | null;
-} | null> {
-  try {
-    const res = await fetch('/api/me', { credentials: 'include' });
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
-      user: SessionUser;
-      credits?: SessionCredits;
-    };
-    return { user: data.user, credits: data.credits ?? null };
-  } catch {
-    return null;
-  }
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [credits, setCredits] = useState<SessionCredits | null>(null);
   const [loading, setLoading] = useState(true);
+  const [waking, setWaking] = useState(false);
+  const [wakingDetail, setWakingDetail] = useState<string | null>(null);
+
+  const probe = useCallback(async () => {
+    setLoading(true);
+    const result = await probeSession();
+    if (result.status === 'authenticated') {
+      setUser(result.user);
+      setCredits(result.credits);
+      setWaking(false);
+      setWakingDetail(null);
+    } else if (result.status === 'backend_waking') {
+      setUser(null);
+      setCredits(null);
+      setWaking(true);
+      setWakingDetail(result.detail);
+    } else {
+      setUser(null);
+      setCredits(null);
+      setWaking(false);
+      setWakingDetail(null);
+    }
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    let alive = true;
-    probeSession().then((session) => {
-      if (!alive) return;
-      setUser(session?.user ?? null);
-      setCredits(session?.credits ?? null);
-      setLoading(false);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
+    void probe();
+  }, [probe]);
 
   const signOut = useCallback(async () => {
     try {
@@ -89,11 +88,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setUser(null);
     setCredits(null);
+    setWaking(false);
+    setWakingDetail(null);
   }, []);
 
   const value = useMemo(
-    () => ({ user, credits, loading, signOut }),
-    [user, credits, loading, signOut],
+    () => ({ user, credits, loading, waking, wakingDetail, retry: probe, signOut }),
+    [user, credits, loading, waking, wakingDetail, probe, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

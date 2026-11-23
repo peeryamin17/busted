@@ -5,15 +5,13 @@
  * list follows for entries that carry an assetValue.
  *
  * Presentational only, it renders the exact shape
- * GET /api/tasks/:id/coverage returns. Not wired into any page yet.
+ * GET /api/tasks/:id/coverage returns.
  */
 
-export interface CoverageClassCounts {
-  tested: number;
-  untested: number;
-  finding: number;
-  notApplicable: number;
-}
+import { mergeCoverageClasses } from '../lib/coverage';
+import type { CoverageClassCounts } from '../lib/coverage';
+
+export type { CoverageClassCounts } from '../lib/coverage';
 
 export interface CoverageSummary {
   byClass: Record<string, CoverageClassCounts>;
@@ -39,21 +37,6 @@ export interface CoveragePanelProps {
   entries: CoverageEntryView[];
 }
 
-const RISK_CLASSES: { id: string; label: string }[] = [
-  { id: 'recon', label: 'Recon' },
-  { id: 'secrets', label: 'Secrets' },
-  { id: 'headers', label: 'Headers & cookies' },
-  { id: 'cors', label: 'CORS' },
-  { id: 'xss', label: 'XSS' },
-  { id: 'idor', label: 'IDOR' },
-  { id: 'auth', label: 'Auth' },
-  { id: 'graphql', label: 'GraphQL' },
-  { id: 'sourcemap', label: 'Source maps' },
-  { id: 'general', label: 'General' },
-];
-
-const ZERO: CoverageClassCounts = { tested: 0, untested: 0, finding: 0, notApplicable: 0 };
-
 function hostOf(value: string): string {
   try {
     return new URL(value).hostname;
@@ -66,6 +49,8 @@ export function CoveragePanel({ summary, entries }: CoveragePanelProps) {
   const untested = new Set(summary.untestedClasses);
   const assetEntries = entries.filter((e) => e.assetValue);
   const assets = [...new Set(assetEntries.map((e) => e.assetValue as string))];
+  const rows = mergeCoverageClasses(summary.byClass);
+  const labelOf = (id: string) => rows.find((r) => r.id === id)?.label ?? id;
 
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
@@ -86,9 +71,7 @@ export function CoveragePanel({ summary, entries }: CoveragePanelProps) {
       {summary.untestedClasses.length > 0 && (
         <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-200">
           Unexamined is not clean — these areas were not tested:{' '}
-          {summary.untestedClasses
-            .map((c) => RISK_CLASSES.find((r) => r.id === c)?.label ?? c)
-            .join(', ')}
+          {summary.untestedClasses.map((c) => labelOf(c)).join(', ')}
           .
         </p>
       )}
@@ -112,16 +95,16 @@ export function CoveragePanel({ summary, entries }: CoveragePanelProps) {
             </tr>
           </thead>
           <tbody>
-            {RISK_CLASSES.map((rc) => {
-              const counts = summary.byClass[rc.id] ?? ZERO;
-              const isUntested = untested.has(rc.id);
+            {rows.map((row) => {
+              const counts = row.counts;
+              const isUntested = untested.has(row.id);
               return (
                 <tr
-                  key={rc.id}
+                  key={row.id}
                   className={`border-b border-white/5 ${isUntested ? 'bg-amber-500/5' : ''}`}
                 >
                   <th scope="row" className="py-2.5 pr-3 font-medium text-white">
-                    {rc.label}
+                    {row.label}
                     {isUntested && (
                       <span className="ml-2 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-300">
                         Not tested
@@ -162,7 +145,7 @@ export function CoveragePanel({ summary, entries }: CoveragePanelProps) {
                         key={`${e.riskClass}-${i}`}
                         className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-zinc-300"
                       >
-                        {RISK_CLASSES.find((r) => r.id === e.riskClass)?.label ?? e.riskClass}
+                        {labelOf(e.riskClass)}
                         {' · '}
                         {e.outcome === 'not_applicable' ? 'n/a' : e.outcome}
                       </li>

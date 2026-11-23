@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Copy, KeyRound, Link2, Puzzle, Trash2 } from 'lucide-react';
 import { Reveal } from './Reveal';
+import { formatPairingCode } from '../lib/pairing';
+import { ExtensionKeyMint } from '../lib/keyMint';
 
 /**
  * "Connect the extension", the members'-site half of extension sign-in
@@ -40,6 +42,8 @@ export function ConnectExtensionCard() {
   const [linkState, setLinkState] = useState<'idle' | 'working' | 'error'>('idle');
   const [codeCopied, setCodeCopied] = useState(false);
   const ackWaiter = useRef<((ok: boolean) => void) | null>(null);
+  const keyGuard = useRef<ExtensionKeyMint | null>(null);
+  if (!keyGuard.current) keyGuard.current = new ExtensionKeyMint();
 
   const loadKeys = useCallback(async () => {
     try {
@@ -90,29 +94,36 @@ export function ConnectExtensionCard() {
   );
 
   const doConnect = async () => {
+    if (connect === 'working') return;
     setError(null);
     setConnect('working');
     setFreshKey(null);
     try {
-      const res = await fetch('/api/auth/api-keys', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Extension' }),
+      // One key per session: rapid clicks share the in-flight mint,
+      // and a retry reuses the key already minted instead of minting
+      // a duplicate.
+      const key = await keyGuard.current!.mint(async () => {
+        const res = await fetch('/api/auth/api-keys', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Extension' }),
+        });
+        if (!res.ok) throw new Error(`Key request failed (${res.status})`);
+        const data = (await res.json()) as { key: string; keyPrefix: string };
+        return data.key;
       });
-      if (!res.ok) throw new Error(`Key request failed (${res.status})`);
-      const data = (await res.json()) as { key: string; keyPrefix: string };
       await loadKeys();
       if (ext === 'present') {
         const ackPromise = waitForAck();
-        postToExtension({ type: 'BUGSEEK_CONNECT', apiKey: data.key });
+        postToExtension({ type: 'BUGSEEK_CONNECT', apiKey: key });
         if (await ackPromise) {
           setConnect('connected');
           return;
         }
       }
       // No relay (or no answer): the one-time key becomes a manual paste.
-      setFreshKey(data.key);
+      setFreshKey(key);
       setConnect('manual');
     } catch (err) {
       setConnect('error');
@@ -224,7 +235,7 @@ export function ConnectExtensionCard() {
                 {link && (
                   <div className="mt-4">
                     <p className="break-all font-mono text-base tracking-[0.14em] text-bone">
-                      {link.code.match(/.{4}/g)?.join('-')}
+                      {formatPairingCode(link.code)}
                     </p>
                     <button
                       type="button"

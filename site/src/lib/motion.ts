@@ -7,7 +7,6 @@ import type { Transition } from 'framer-motion';
  * out input mid-flight.
  */
 export const springQuiet: Transition = { type: 'spring', bounce: 0, duration: 0.45 };
-export const springMove: Transition = { type: 'spring', bounce: 0, duration: 0.4 };
 export const springPop: Transition = { type: 'spring', bounce: 0.28, duration: 0.55 };
 export const springSheet: Transition = { type: 'spring', bounce: 0.12, duration: 0.35 };
 

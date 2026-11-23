@@ -21,7 +21,7 @@ const STATS = [
  * the interactive scan demo framed by a travelling border beam.
  * Tap the black anywhere, the sonar answers.
  */
-export function Hero({ memberName, teaser = false }: { memberName?: string; teaser?: boolean }) {
+export function Hero({ teaser = false }: { teaser?: boolean }) {
   const reduce = useReducedMotion();
   const rise = (delay: number) => ({
     initial: reduce ? (false as const) : { opacity: 0, y: 18 },
@@ -44,14 +44,8 @@ export function Hero({ memberName, teaser = false }: { memberName?: string; teas
             <span className="text-shiny font-semibold tracking-wide">AI SECURITY RECON · CHROME EXTENSION</span>
           </motion.div>
 
-          {memberName && (
-            <motion.p {...rise(0.2)} className="mt-6 font-display text-xl font-semibold tracking-tight text-bone sm:text-2xl">
-              Welcome back, {memberName}. <span className="text-slate2">The full site is unlocked.</span>
-            </motion.p>
-          )}
-
           <motion.h1
-            {...rise(memberName ? 0.24 : 0.14)}
+            {...rise(0.14)}
             aria-label="Find what scanners miss."
             className="mt-7 font-display text-[2.85rem] font-bold leading-[1.03] tracking-tight text-bone sm:text-6xl lg:text-[4.6rem]"
           >

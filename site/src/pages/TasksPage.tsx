@@ -113,8 +113,12 @@ export function TasksPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, TaskDetail>>({});
   const [coverage, setCoverage] = useState<Record<string, CoverageData>>({});
+  const [detailErrors, setDetailErrors] = useState<Record<string, string>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
+  const [actError, setActError] = useState<string | null>(null);
+  const [extracting, setExtracting] = useState<string | null>(null);
+  const [extractNote, setExtractNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setFailed(false);
@@ -132,6 +136,40 @@ export function TasksPage() {
     if (!authLoading && user) void load();
   }, [authLoading, user, load]);
 
+  const anyActive = (tasks ?? []).some((t) => t.status === 'running');
+  useEffect(() => {
+    if (!anyActive) return;
+    const timer = setInterval(() => void load(), 5000);
+    return () => clearInterval(timer);
+  }, [anyActive, load]);
+
+  const fetchDetail = async (task: TaskRow) => {
+    setDetailErrors((prev) => {
+      const next = { ...prev };
+      delete next[task.id];
+      return next;
+    });
+    setLoadingDetail(task.id);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, { credentials: 'include' });
+      if (!res.ok) throw new Error(`Task detail failed (${res.status})`);
+      const data = (await res.json()) as TaskDetail;
+      setDetails((prev) => ({ ...prev, [task.id]: data }));
+      const cov = await fetch(`/api/tasks/${task.id}/coverage`, { credentials: 'include' });
+      if (cov.ok) {
+        const covData = (await cov.json()) as CoverageData;
+        setCoverage((prev) => ({ ...prev, [task.id]: covData }));
+      }
+    } catch (err) {
+      setDetailErrors((prev) => ({
+        ...prev,
+        [task.id]: err instanceof Error ? err.message : 'Could not load this task.',
+      }));
+    } finally {
+      setLoadingDetail(null);
+    }
+  };
+
   const open = async (task: TaskRow) => {
     if (openId === task.id) {
       setOpenId(null);
@@ -139,44 +177,49 @@ export function TasksPage() {
     }
     setOpenId(task.id);
     if (details[task.id]) return;
-    setLoadingDetail(task.id);
-    try {
-      const res = await fetch(`/api/tasks/${task.id}`, { credentials: 'include' });
-      if (res.ok) {
-        const data = (await res.json()) as TaskDetail;
-        setDetails((prev) => ({ ...prev, [task.id]: data }));
-      }
-      const cov = await fetch(`/api/tasks/${task.id}/coverage`, { credentials: 'include' });
-      if (cov.ok) {
-        const data = (await cov.json()) as CoverageData;
-        setCoverage((prev) => ({ ...prev, [task.id]: data }));
-      }
-    } catch {
-      /* the row stays expandable; a re-open retries */
-    } finally {
-      setLoadingDetail(null);
-    }
+    await fetchDetail(task);
   };
 
   const act = async (task: TaskRow, action: 'pause' | 'resume') => {
     setActing(task.id);
+    setActError(null);
     try {
       const res = await fetch(`/api/tasks/${task.id}/${action}`, {
         method: 'POST',
         credentials: 'include',
       });
-      if (res.ok) {
-        const data = (await res.json()) as { task: TaskRow };
-        setTasks((prev) => prev?.map((t) => (t.id === task.id ? data.task : t)) ?? null);
-        setDetails((prev) => {
-          const d = prev[task.id];
-          return d ? { ...prev, [task.id]: { ...d, task: data.task } } : prev;
-        });
-      }
-    } catch {
-      /* the status chip still shows the last known state; retry from the row */
+      if (!res.ok) throw new Error(`${action} failed (${res.status})`);
+      const data = (await res.json()) as { task: TaskRow };
+      setTasks((prev) => prev?.map((t) => (t.id === task.id ? data.task : t)) ?? null);
+      setDetails((prev) => {
+        const d = prev[task.id];
+        return d ? { ...prev, [task.id]: { ...d, task: data.task } } : prev;
+      });
+    } catch (err) {
+      setActError(err instanceof Error ? err.message : `${action} failed.`);
     } finally {
       setActing(null);
+    }
+  };
+
+  const extractLessons = async (task: TaskRow) => {
+    setExtracting(task.id);
+    setExtractNote(null);
+    setActError(null);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/lessons/extract`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`Lesson extract failed (${res.status})`);
+      const data = (await res.json()) as { lessons: unknown[] };
+      setExtractNote(
+        `Extracted ${data.lessons.length} lesson${data.lessons.length === 1 ? '' : 's'} from this task.`,
+      );
+    } catch (err) {
+      setActError(err instanceof Error ? err.message : 'Lesson extract failed.');
+    } finally {
+      setExtracting(null);
     }
   };
 
@@ -289,10 +332,25 @@ export function TasksPage() {
 
                         {isOpen && (
                           <div className="border-t border-white/8 px-4 py-4">
-                            {loadingDetail === task.id && !d && (
+                            {loadingDetail === task.id && !d && !detailErrors[task.id] && (
                               <p className="font-mono text-[11px] tracking-[0.18em] text-slate2">
                                 LOADING GRAPH…
                               </p>
+                            )}
+                            {detailErrors[task.id] && !d && (
+                              <div>
+                                <p className="text-sm text-body/85" role="alert">
+                                  Couldn&apos;t load this task ({detailErrors[task.id]}).
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => void fetchDetail(task)}
+                                  disabled={loadingDetail === task.id}
+                                  className="mt-3 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-bone transition-colors hover:bg-white/5 disabled:opacity-50"
+                                >
+                                  Retry
+                                </button>
+                              </div>
                             )}
                             {d && (
                               <>
@@ -312,12 +370,39 @@ export function TasksPage() {
                                       {d.task.status === 'running' ? 'Pause' : 'Resume'}
                                     </button>
                                   )}
+                                  {(d.task.status === 'done' ||
+                                    d.task.status === 'timeout' ||
+                                    d.task.status === 'failed') && (
+                                    <button
+                                      type="button"
+                                      disabled={extracting === task.id}
+                                      onClick={() => void extractLessons(d.task)}
+                                      className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-bone transition-colors hover:bg-white/5 disabled:opacity-50"
+                                    >
+                                      {extracting === task.id ? 'Extracting…' : 'Extract lessons'}
+                                    </button>
+                                  )}
                                   <span className="font-mono text-[11px] text-slate2">
                                     {d.nodes.length} NODE{d.nodes.length === 1 ? '' : 'S'} ·{' '}
                                     {d.edges.length} EDGE{d.edges.length === 1 ? '' : 'S'} ·{' '}
                                     {d.assets.length} ASSET{d.assets.length === 1 ? '' : 'S'}
                                   </span>
                                 </div>
+                                {actError && (
+                                  <p className="mt-3 text-sm text-red-300" role="alert">
+                                    {actError}
+                                  </p>
+                                )}
+                                {extractNote && (
+                                  <p className="mt-3 text-sm text-emerald-300" role="status">
+                                    {extractNote}
+                                  </p>
+                                )}
+                                <p className="mt-3 text-xs leading-relaxed text-slate2">
+                                  Findings below are verified at POE 3 or higher. Hints are POE
+                                  2 at best — reproduced in one context only — and are never
+                                  labelled verified.
+                                </p>
 
                                 {grouped.length === 0 && (
                                   <p className="mt-4 text-sm text-body/85">
@@ -328,6 +413,7 @@ export function TasksPage() {
                                   <div key={group.kind} className="mt-5">
                                     <p className="font-mono text-[11px] tracking-[0.18em] text-slate2">
                                       {group.kind.toUpperCase()}
+                                      {group.kind === 'hint' ? ' — NOT VERIFIED (POE 2 AT BEST)' : ''}
                                     </p>
                                     <ul className="mt-2 space-y-2">
                                       {group.nodes.map((n) => (

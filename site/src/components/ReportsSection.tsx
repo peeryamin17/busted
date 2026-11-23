@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, Download, FileText, RefreshCw } from 'lucide-react';
 import { Reveal } from './Reveal';
+import { useAuth } from '../lib/auth';
 
 /**
  * "My reports", every scan tied to this account (extension runs, swarm
@@ -48,7 +49,23 @@ function hostOf(url: string): string {
   }
 }
 
+const REPORT_FORMATS: { format: string; label: string }[] = [
+  { format: 'md', label: '.md' },
+  { format: 'json', label: '.json' },
+  { format: 'pdf', label: '.pdf' },
+  { format: 'docx', label: '.docx' },
+];
+
+/** PDF and DOCX are Hunter and up; Markdown and JSON ship on every plan. */
+function formatsForPlan(plan: string | undefined): { format: string; label: string }[] {
+  return plan === 'free' || !plan
+    ? REPORT_FORMATS.filter((f) => f.format === 'md' || f.format === 'json')
+    : REPORT_FORMATS;
+}
+
 export function ReportsSection() {
+  const { user } = useAuth();
+  const formats = formatsForPlan(user?.plan);
   const [scans, setScans] = useState<ScanRow[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -224,14 +241,28 @@ export function ReportsSection() {
                             </ul>
                           )}
                           {scan.status === 'completed' && (
-                            <a
-                              href={`/api/scans/${scan.id}/report?format=md`}
-                              className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-bone transition-colors hover:bg-white/5"
-                            >
-                              <Download className="h-3.5 w-3.5" aria-hidden /> Download the full
-                              report (.md)
-                            </a>
+                            <div className="mt-4 flex flex-wrap items-center gap-2">
+                              {formats.map((f) => (
+                                <a
+                                  key={f.format}
+                                  href={`/api/scans/${scan.id}/report?format=${f.format}`}
+                                  className="inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-bone transition-colors hover:bg-white/5"
+                                >
+                                  <Download className="h-3.5 w-3.5" aria-hidden /> Download the
+                                  full report ({f.label})
+                                </a>
+                              ))}
+                            </div>
                           )}
+                          {scan.status === 'completed' && user?.plan === 'free' && (
+                            <p className="mt-3 text-xs leading-relaxed text-slate2">
+                              PDF and DOCX reports need the Hunter plan or higher.
+                            </p>
+                          )}
+                          <p className="mt-3 text-xs leading-relaxed text-slate2">
+                            Only findings verified at POE 3 or higher count as verified — anything
+                            weaker is a hint, not a finding.
+                          </p>
                           <p className="mt-3 flex items-center gap-2 font-mono text-[11px] text-slate2">
                             <FileText className="h-3.5 w-3.5" aria-hidden /> {scan.targetUrl}
                           </p>

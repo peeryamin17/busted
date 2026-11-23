@@ -2,17 +2,17 @@ const COLUMNS: Array<{ title: string; links: Array<{ label: string; href: string
   {
     title: 'PRODUCT',
     links: [
-      { label: 'The toolkit', href: '#what' },
-      { label: 'The swarm', href: '#swarm' },
-      { label: 'How it works', href: '#how' },
+      { label: 'The toolkit', href: '/app#what' },
+      { label: 'The swarm', href: '/app#swarm' },
+      { label: 'How it works', href: '/app#how' },
     ],
   },
   {
     title: 'DECIDE',
     links: [
-      { label: 'Pricing', href: '#pricing' },
-      { label: 'FAQ', href: '#faq' },
-      { label: 'Get the extension', href: '#download' },
+      { label: 'Pricing', href: '/app#pricing' },
+      { label: 'FAQ', href: '/app#faq' },
+      { label: 'Get the extension', href: '/app#download' },
     ],
   },
   {
@@ -25,8 +25,7 @@ const COLUMNS: Array<{ title: string; links: Array<{ label: string; href: string
  * Footer with an oversized wordmark bleeding off the bottom edge,
  * the agency-poster treatment. Links and credits ride above it.
  */
-export function Footer({ home = true, member = false }: { home?: boolean; member?: boolean }) {
-  const prefix = member ? '/app' : home ? '' : '/';
+export function Footer() {
   return (
     <footer className="relative overflow-hidden border-t border-white/10">
       <div className="mx-auto max-w-6xl px-4 pb-10 pt-14 sm:px-6">
@@ -52,7 +51,7 @@ export function Footer({ home = true, member = false }: { home?: boolean; member
                   {col.links.map((l) => (
                     <li key={l.label}>
                       <a
-                        href={l.href.startsWith('/') ? l.href : `${prefix}${l.href}`}
+                        href={l.href}
                         className="text-sm text-body/80 transition-colors hover:text-bone"
                       >
                         {l.label}

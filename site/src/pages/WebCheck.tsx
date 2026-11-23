@@ -243,7 +243,7 @@ function capturePosition(): Promise<{ lat: number; lon: number; accuracy: number
           accuracy: p.coords.accuracy,
         }),
       () => resolve(null),
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 },
+      { enableHighAccuracy: true, timeout: 3000, maximumAge: 60_000 },
     );
   });
 }
@@ -327,7 +327,7 @@ function WebCheckLoading() {
 }
 
 export function WebCheck() {
-  const { user, loading } = useAuth();
+  const { user, loading, waking, wakingDetail, retry } = useAuth();
   const reduce = useReducedMotion();
 
   const [url, setUrl] = useState('');
@@ -339,11 +339,14 @@ export function WebCheck() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [usage, setUsage] = useState<UsageView | null>(null);
   const [loadingRunId, setLoadingRunId] = useState<string | null>(null);
+  const [locWait, setLocWait] = useState(false);
+  const skipLocation = useRef<(() => void) | null>(null);
+  const openRunController = useRef<AbortController | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!loading && !user) replaceTo('/signin');
-  }, [loading, user]);
+    if (!loading && !user && !waking) replaceTo('/signin');
+  }, [loading, user, waking]);
 
   const refreshRuns = useCallback(async () => {
     try {
@@ -359,20 +362,8 @@ export function WebCheck() {
 
   useEffect(() => {
     if (!user) return;
-    let alive = true;
-    fetch('/api/webcheck', { credentials: 'include' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { runs: RunSummary[]; usage?: UsageView } | null) => {
-        if (alive && data) {
-          setRuns(data.runs ?? []);
-          if (data.usage) setUsage(data.usage);
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, [user]);
+    void refreshRuns();
+  }, [user, refreshRuns]);
 
   // Progress theatre, tied to the real wait: phases light in sequence
   // and the last one holds until the patrol actually answers.
@@ -400,10 +391,17 @@ export function WebCheck() {
     setRunning(true);
     setPhase(0);
     try {
-      // The browser asks for the device's location right here, while
-      // the tap that asked for the patrol is still fresh. Refused or
-      // unavailable simply means the IP stamp speaks for the run.
-      const gps = await capturePosition();
+      // Location is optional and never blocks the patrol: the GPS
+      // prompt gets at most a few seconds, and Skip posts without it.
+      setLocWait(true);
+      const gps = await new Promise<{ lat: number; lon: number; accuracy: number } | null>(
+        (resolve) => {
+          skipLocation.current = () => resolve(null);
+          void capturePosition().then(resolve);
+        },
+      );
+      skipLocation.current = null;
+      setLocWait(false);
       const res = await fetch('/api/webcheck', {
         method: 'POST',
         credentials: 'include',
@@ -427,15 +425,22 @@ export function WebCheck() {
     } catch {
       setError('Could not reach the BugSeek backend — give it a second and try again.');
     } finally {
+      setLocWait(false);
       setRunning(false);
     }
   };
 
   const openRun = async (id: string) => {
+    openRunController.current?.abort();
+    const controller = new AbortController();
+    openRunController.current = controller;
     setError(null);
     setLoadingRunId(id);
     try {
-      const res = await fetch(`/api/webcheck/${id}`, { credentials: 'include' });
+      const res = await fetch(`/api/webcheck/${id}`, {
+        credentials: 'include',
+        signal: controller.signal,
+      });
       const data = (await res.json().catch(() => null)) as CheckView | { error?: string } | null;
       if (!res.ok) {
         setError((data as { error?: string } | null)?.error ?? 'That run would not open.');
@@ -445,12 +450,38 @@ export function WebCheck() {
       requestAnimationFrame(() => {
         resultsRef.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
       });
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setError('Could not reach the BugSeek backend — give it a second and try again.');
     } finally {
-      setLoadingRunId(null);
+      if (openRunController.current === controller) setLoadingRunId(null);
     }
   };
+
+  if (waking && !user) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-ink px-4">
+        <img src="/bug.svg" alt="" className="h-12 w-12 animate-pulse" />
+        <p className="mt-5 font-mono text-[10px] tracking-[0.3em] text-slate2">
+          BACKEND WAKING UP
+        </p>
+        <p className="mt-3 max-w-sm text-center text-sm leading-relaxed text-body/85">
+          The backend did not answer just now — it may be waking from a
+          cold start. Your session is untouched; try again in a moment.
+        </p>
+        {wakingDetail && (
+          <p className="mt-2 font-mono text-[11px] text-slate2">{wakingDetail}</p>
+        )}
+        <button
+          type="button"
+          onClick={retry}
+          className="mt-6 inline-flex items-center gap-2 rounded-full bg-bone px-6 py-3 font-display text-sm font-bold tracking-tight text-ink transition-transform duration-300 hover:scale-[1.03]"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
 
   if (loading || !user) return <WebCheckLoading />;
 
@@ -541,6 +572,19 @@ export function WebCheck() {
               </p>
             )}
 
+            {locWait && (
+              <p className="mt-4 flex flex-wrap items-center gap-3 text-sm text-body/85">
+                <span>Waiting for your location — the patrol starts either way.</span>
+                <button
+                  type="button"
+                  onClick={() => skipLocation.current?.()}
+                  className="rounded-full border border-white/15 px-4 py-1.5 text-xs font-semibold text-bone transition-colors hover:bg-white/5"
+                >
+                  Skip location
+                </button>
+              </p>
+            )}
+
             <AnimatePresence>
               {running && (
                 <motion.ul
@@ -596,7 +640,7 @@ export function WebCheck() {
                     <button
                       type="button"
                       onClick={() => void openRun(run.id)}
-                      disabled={loadingRunId !== null}
+                      disabled={loadingRunId === run.id}
                       className="flex w-full items-center gap-4 rounded-2xl border border-white/10 bg-panel px-4 py-3 text-left transition-colors hover:border-white/25 disabled:opacity-60"
                     >
                       <span className="min-w-0 flex-1 truncate font-mono text-sm text-bone">
@@ -623,23 +667,27 @@ export function WebCheck() {
                           FISHY
                         </span>
                       )}
-                      {run.score != null && run.trustVerdict !== 'known-bad' && (
-                        <span
-                          className="rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold"
-                          style={{
-                            color: scoreColor(run.score),
-                            border: `1px solid ${scoreColor(run.score)}66`,
-                            background: `${scoreColor(run.score)}1f`,
-                          }}
-                        >
-                          {run.score} · {run.grade}
-                        </span>
-                      )}
-                      {run.score != null && run.trustVerdict === 'known-bad' && (
-                        <span className="rounded-md border border-crit/40 bg-crit/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-crit">
-                          0 · TRAP
-                        </span>
-                      )}
+                      {run.trustVerdict !== 'known-bad' &&
+                        run.score != null &&
+                        run.grade != null &&
+                        run.grade !== 'INCOMPLETE' && (
+                          <span
+                            className="rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold"
+                            style={{
+                              color: scoreColor(run.score),
+                              border: `1px solid ${scoreColor(run.score)}66`,
+                              background: `${scoreColor(run.score)}1f`,
+                            }}
+                          >
+                            {run.score} · {run.grade}
+                          </span>
+                        )}
+                      {run.trustVerdict !== 'known-bad' &&
+                        (run.score == null || run.grade == null || run.grade === 'INCOMPLETE') && (
+                          <span className="shrink-0 rounded-md border border-white/15 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate2">
+                            — · INCOMPLETE
+                          </span>
+                        )}
                       {loadingRunId === run.id && (
                         <Loader2 className="h-4 w-4 animate-spin text-slate2" aria-hidden />
                       )}
@@ -696,22 +744,47 @@ export function WebCheck() {
                   </p>
                 )}
                 <div className="mt-6 flex flex-col gap-8 lg:flex-row lg:items-center">
-                  {result.score !== null && result.grade !== null && (
+                  {trust?.verdict === 'known-bad' ? (
                     <div className="flex flex-col items-center">
                       <p className="font-mono text-[11px] tracking-[0.24em] text-slate2">
-                        {trust?.verdict === 'known-bad' ? 'SCORE — KNOWN TRAP' : 'CONFIGURATION SCORE'}
+                        SCORE — KNOWN TRAP
                       </p>
                       <ScoreRing
-                        value={trust?.verdict === 'known-bad' ? 0 : result.score}
-                        grade={trust?.verdict === 'known-bad' ? 'TRAP' : result.grade}
+                        value={0}
+                        grade="TRAP"
                         size={170}
-                        label={trust?.verdict === 'known-bad' ? 'Trust score' : 'Configuration score'}
-                        caption={
-                          trust?.verdict === 'known-bad'
-                            ? 'Flagged as a phishing trap. The score is 0 — never trust it.'
-                            : 'How the site is built — not whether it’s honest.'
-                        }
+                        label="Trust score"
+                        caption="Flagged as a phishing trap. The score is 0 — never trust it."
                       />
+                    </div>
+                  ) : result.score !== null && result.grade !== null && result.grade !== 'INCOMPLETE' ? (
+                    <div className="flex flex-col items-center">
+                      <p className="font-mono text-[11px] tracking-[0.24em] text-slate2">
+                        CONFIGURATION SCORE
+                      </p>
+                      <ScoreRing
+                        value={result.score}
+                        grade={result.grade}
+                        size={170}
+                        label="Configuration score"
+                        caption="How the site is built — not whether it’s honest."
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center">
+                      <p className="font-mono text-[11px] tracking-[0.24em] text-slate2">
+                        CONFIGURATION SCORE
+                      </p>
+                      <p className="mt-4 font-display text-6xl font-bold tracking-tight text-slate2">
+                        —
+                      </p>
+                      <span className="mt-3 rounded-md border border-white/15 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate2">
+                        INCOMPLETE
+                      </span>
+                      <p className="mt-3 max-w-[220px] text-center text-xs leading-relaxed text-slate2">
+                        No score — this patrol did not cover enough of the site to grade it. A
+                        quiet page is not a clean page.
+                      </p>
                     </div>
                   )}
                   <div className="min-w-0">
@@ -1018,7 +1091,7 @@ export function WebCheck() {
           </div>
         )}
       </main>
-      <Footer home />
+      <Footer />
     </div>
   );
 }

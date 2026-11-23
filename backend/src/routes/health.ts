@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db/db.js';
 import type { JobQueue } from '../queue/queue.js';
@@ -36,10 +38,37 @@ export interface RouteDeps {
   }) => Promise<void>;
 }
 
+/**
+ * Backend version, read from backend/package.json (walked up from this
+ * file, so it resolves in both the src and compiled layouts) instead of
+ * a hardcoded string, so the health endpoints cannot drift from the
+ * release again. Falls back to 0.0.0 when the file cannot be found.
+ */
+export const APP_VERSION: string = (() => {
+  let dir = __dirname;
+  for (let i = 0; i < 6; i++) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+        name?: string;
+        version?: string;
+      };
+      if (pkg.name === 'bugseek-ai-backend' && typeof pkg.version === 'string') {
+        return pkg.version;
+      }
+    } catch {
+      // Not this directory, keep walking up.
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return '0.0.0';
+})();
+
 export async function healthRoutes(app: FastifyInstance, deps: RouteDeps): Promise<void> {
   app.get('/health', async () => ({
     status: 'ok',
-    version: '0.2.0',
+    version: APP_VERSION,
     db: deps.db.kind,
     queue: deps.queue.kind,
     llm: deps.provider.name,

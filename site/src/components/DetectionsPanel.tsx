@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 interface Detection {
   id: string;
@@ -38,29 +38,40 @@ const PATTERN_LABEL: Record<string, string> = {
 export function DetectionsPanel() {
   const [detections, setDetections] = useState<Detection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch('/api/detections?limit=20', { credentials: 'include' });
+      if (!res.ok) {
+        if (res.status === 404) {
+          setError('Detections endpoint unavailable (404).');
+        } else {
+          setError(`Could not load detections (${res.status}).`);
+        }
+        setDetections(null);
+        return;
+      }
+      const data = await res.json();
+      setDetections(Array.isArray(data.detections) ? data.detections : []);
+      setError(null);
+    } catch {
+      setError('Network error while loading detections.');
+      setDetections(null);
+    }
+  }, []);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch('/api/detections?limit=20', { credentials: 'include' });
-        if (!res.ok) {
-          if (res.status === 404) {
-            // Route not registered yet (coordinator wires server.ts),
-            // the panel stays quiet instead of erroring.
-            setDetections([]);
-            return;
-          }
-          setError('Could not load detections.');
-          return;
-        }
-        const data = await res.json();
-        setDetections(Array.isArray(data.detections) ? data.detections : []);
-      } catch {
-        setError('Network error while loading detections.');
-      }
-    }
-    load();
-  }, []);
+    void load();
+    const timer = setInterval(() => void load(), 30_000);
+    return () => clearInterval(timer);
+  }, [load]);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  };
 
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
@@ -74,6 +85,14 @@ export function DetectionsPanel() {
             extension probes verify your defenses from outside.
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={refreshing}
+          className="shrink-0 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-white/5 disabled:opacity-50"
+        >
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
       </div>
 
       {error && <p className="mt-4 text-sm text-red-400">{error}</p>}

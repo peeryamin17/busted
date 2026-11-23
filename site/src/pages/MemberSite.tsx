@@ -142,7 +142,7 @@ export function MemberSite() {
       <div className="relative z-10">
         <CrowdCanvas />
       </div>
-      <Footer home />
+      <Footer />
     </div>
   );
 }

@@ -62,7 +62,7 @@ function CellCard({ c }: { c: Cell }) {
 const PASSIVE_CELLS: Cell[] = [
   {
     icon: Radar,
-    tag: 'PASSIVE · 1 CREDIT',
+    tag: 'PASSIVE · FREE',
     title: 'Passive recon',
     body: 'Reads the room before touching anything. DOM analysis, secrets hiding in JavaScript, security headers graded against OWASP, tech fingerprinting — then a one-click Markdown report.',
     span: 'md:col-span-2',

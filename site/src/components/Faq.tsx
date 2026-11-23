@@ -15,7 +15,7 @@ const FAQS = [
   },
   {
     q: 'What are credits?',
-    a: 'The unit of work. A passive scan costs 1 credit; a full AI swarm run costs 25. Plans refill monthly — Scout is free with 50, Hunter is $29 for 300, Pro is $99 for 1,500. Credits throttle the expensive AI work so the pricing can stay student-shaped.',
+    a: 'The unit of work for hosted AI runs. A passive scan runs locally in your browser and costs nothing; a full AI swarm run costs 25 credits. Plans refill monthly — Scout is free with 50, Hunter is $29 for 300, Pro is $99 for 1,500. Credits throttle the expensive AI work so the pricing can stay student-shaped.',
   },
   {
     q: 'Is my data sent anywhere?',

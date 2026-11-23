@@ -19,7 +19,7 @@ Two schemes (both attach `request.user = { id, email, plan }`):
 
 `GET /health` → `200`
 ```json
-{ "status": "ok", "version": "0.2.0", "db": "memory|postgres", "queue": "memory|bullmq", "llm": "gemini|claude|mock", "time": "2026-10-01T00:00:00.000Z" }
+{ "status": "ok", "version": "0.3.0", "db": "memory|postgres", "queue": "memory|bullmq", "llm": "gemini|claude|mock", "time": "2026-10-01T00:00:00.000Z" }
 ```
 
 ### Auth

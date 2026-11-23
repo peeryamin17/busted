@@ -141,7 +141,7 @@ npm run dev
 Health check:
 ```bash
 curl http://localhost:3000/health
-# Response: {"status":"ok","version":"0.2.0","llm":"gemini"}
+# Response: {"status":"ok","version":"0.3.0","llm":"gemini"}
 ```
 
 ---

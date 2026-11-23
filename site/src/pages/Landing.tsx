@@ -77,7 +77,7 @@ export function Landing() {
         </section>
       </main>
       <div className="relative z-10">
-        <Footer home />
+        <Footer />
       </div>
       {/* past the end of the site: a sealed crate for anyone who kept
           scrolling. Signed-out visitors only, and only once the probe

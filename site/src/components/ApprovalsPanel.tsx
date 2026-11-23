@@ -6,10 +6,11 @@
  * pattern before deciding, so the swarm stops asking about it.
  *
  * Self-fetching: polls GET /api/tasks/:id/approvals every 5s while
- * anything is pending.
+ * anything is pending, or while the last load failed.
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { decideApproval, shouldKeepPolling } from '../lib/approvals';
 
 export type ApprovalKind = 'tool-call' | 'new-target' | 'judge' | 'rule';
 export type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'skipped' | 'expired';
@@ -73,6 +74,7 @@ function detailSummary(approval: ApprovalView): string | null {
 export function ApprovalsPanel({ taskId }: { taskId: string }) {
   const [approvals, setApprovals] = useState<ApprovalView[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
   const [batchActing, setBatchActing] = useState(false);
   const [alwaysAllow, setAlwaysAllow] = useState<Record<string, boolean>>({});
@@ -95,39 +97,25 @@ export function ApprovalsPanel({ taskId }: { taskId: string }) {
 
   const hasPending = approvals?.some((a) => a.status === 'pending') ?? false;
   useEffect(() => {
-    if (!hasPending) return;
+    if (!shouldKeepPolling(hasPending, failed)) return;
     const timer = setInterval(() => void load(), 5000);
     return () => clearInterval(timer);
-  }, [hasPending, load]);
+  }, [hasPending, failed, load]);
 
   const decideOne = async (approval: ApprovalView, decision: 'allow' | 'deny') => {
     setActing(approval.id);
+    setActionError(null);
     try {
-      // "Always allow this kind": store the standing rule first, so the
-      // swarm stops asking about this pattern, the decide below still
-      // records this row's own decision.
-      if (decision === 'allow' && alwaysAllow[approval.id]) {
-        await fetch(`/api/tasks/${taskId}/approvals/rules`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            pattern: patternFor(approval),
-            decision: 'allow',
-            alwaysAllow: true,
-            scope: 'task',
-          }),
-        }).catch(() => undefined);
-      }
-      await fetch(`/api/tasks/${taskId}/approvals/${approval.id}/decide`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision }),
+      await decideApproval({
+        taskId,
+        approvalId: approval.id,
+        decision,
+        alwaysAllow: alwaysAllow[approval.id] ?? false,
+        pattern: patternFor(approval),
       });
       await load();
-    } catch {
-      /* the row keeps its last known state; retry from the panel */
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Decision was not saved.');
     } finally {
       setActing(null);
     }
@@ -137,16 +125,18 @@ export function ApprovalsPanel({ taskId }: { taskId: string }) {
     const pendingIds = (approvals ?? []).filter((a) => a.status === 'pending').map((a) => a.id);
     if (pendingIds.length === 0) return;
     setBatchActing(true);
+    setActionError(null);
     try {
-      await fetch(`/api/tasks/${taskId}/approvals/batch-decide`, {
+      const res = await fetch(`/api/tasks/${taskId}/approvals/batch-decide`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: pendingIds, decision }),
       });
+      if (!res.ok) throw new Error(`Batch decision was not saved (${res.status})`);
       await load();
-    } catch {
-      /* the list refreshes on the next poll; retry from the panel */
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Batch decision was not saved.');
     } finally {
       setBatchActing(false);
     }
@@ -173,7 +163,12 @@ export function ApprovalsPanel({ taskId }: { taskId: string }) {
 
       {failed && (
         <p className="mt-4 text-sm text-zinc-400" role="alert">
-          Couldn&apos;t load approvals just now — they will refresh on the next poll.
+          Couldn&apos;t load approvals just now — retrying every few seconds.
+        </p>
+      )}
+      {actionError && (
+        <p className="mt-4 text-sm text-red-400" role="alert">
+          {actionError}
         </p>
       )}
       {approvals !== null && approvals.length === 0 && !failed && (

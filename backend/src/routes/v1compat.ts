@@ -6,6 +6,7 @@ import { generateApiKey, hashPairingCode, normalizePairingCode } from '../auth/a
 import { redactFindingEvidence, redactText } from '../guardrails/redact.js';
 import { estimateCvss } from '../reports/cvss.js';
 import type { RouteDeps } from './health.js';
+import { APP_VERSION } from './health.js';
 import type { Confidence, Severity } from '../types.js';
 
 /**
@@ -102,7 +103,7 @@ export async function v1CompatRoutes(app: FastifyInstance, deps: RouteDeps): Pro
 
   app.get('/api/v1/health', async () => ({
     status: 'ok',
-    version: '0.2.0',
+    version: APP_VERSION,
     llm: provider.name,
     time: new Date().toISOString(),
   }));
