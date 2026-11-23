@@ -19,11 +19,14 @@ interface NavTab {
   label: string;
   hash?: string;
   connect?: boolean;
+  /** A full client route (e.g. /tasks) instead of a section hash. */
+  page?: string;
 }
 
 /** Everything the mobile brand menu lists — the desktop tabs, in order. */
 const TABS: NavTab[] = [
   { label: 'Connect site', connect: true },
+  { label: 'Tasks', page: '/tasks' },
   ...LINKS.map((l) => ({ label: l.label, hash: l.hash })),
 ];
 
@@ -102,13 +105,19 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
       navigate('/signin');
     } else if (tab.connect) {
       navigate('/app/check');
+    } else if (tab.page) {
+      navigate(tab.page);
     } else if (tab.hash) {
       scrollToHash(tab.hash);
     }
   };
 
   const tabHref = (tab: NavTab) =>
-    variant === 'landing' ? '/signin' : tab.connect ? '/app/check' : (tab.hash ?? '#top');
+    variant === 'landing'
+      ? '/signin'
+      : tab.connect
+        ? '/app/check'
+        : tab.page ?? (tab.hash ?? '#top');
 
   const goSection = (e: MouseEvent, hash: string) => {
     e.preventDefault();

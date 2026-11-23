@@ -5,6 +5,7 @@ import { usePathname } from './lib/router';
 import { Landing } from './pages/Landing';
 import { MemberApp } from './pages/MemberApp';
 import { SignIn } from './pages/SignIn';
+import { TasksPage } from './pages/TasksPage';
 import { WebCheck } from './pages/WebCheck';
 import { Privacy } from './pages/Privacy';
 
@@ -37,6 +38,8 @@ function RedirectTo({ to }: { to: string }) {
  *   /signup      → /signin (one door for new and returning members)
  *   /app         the guarded members' home (the whole main site)
  *   /app/check   the guarded web demo (patrol a site you own)
+ *   /tasks       the task list + exploration-graph detail (Phase B; the
+ *                page itself doors signed-out visitors to /signin)
  *   anything else (old /app/connect, /welcome, …) → /
  */
 export default function App() {
@@ -70,6 +73,7 @@ export default function App() {
   else if (path === '/signup') page = <RedirectTo to="/signin" />;
   else if (path === '/app') page = <MemberApp />;
   else if (path === '/app/check') page = <WebCheck />;
+  else if (path === '/tasks') page = <TasksPage />;
   else if (path === '/privacy') page = <Privacy />;
   else page = <RedirectTo to="/" />;
 
