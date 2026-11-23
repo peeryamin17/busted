@@ -1,0 +1,873 @@
+{
+  "generatedBy": "scripts/extract-payloads.ts",
+  "version": 1,
+  "archive": {
+    "file": "PayloadsAllTheThings-master.zip",
+    "sha256": "c17e169223c4ac010e3dca7e8af6f269da06ddc542eccac856fd3d4f38222fb6",
+    "files": 452,
+    "bytes": 7934472
+  },
+  "license": "MIT — Copyright (c) 2019 Swissky (PayloadsAllTheThings)",
+  "note": "Curated subsets of the archive, not the full archive. Regenerate with: npx tsx scripts/extract-payloads.ts",
+  "packs": [
+    {
+      "id": "business-logic-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/business-logic-01.md",
+      "source": "Business Logic Errors/README.md",
+      "sourceSha256": "7a7db6f29968d37cead314573594e58dba91245bfba9e6ae4e4c95a74bed983c",
+      "sourceBytes": 6237,
+      "sourceLines": 96,
+      "bytes": 6359,
+      "lines": 95,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 1
+    },
+    {
+      "id": "client-side-path-traversal-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/client-side-path-traversal-01.md",
+      "source": "Client Side Path Traversal/README.md",
+      "sourceSha256": "98ed7e265f375a5251e95ba225255697a69c37a533092a820e94ae2d9b4b1e51",
+      "sourceBytes": 5800,
+      "sourceLines": 73,
+      "bytes": 5927,
+      "lines": 72,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 1
+    },
+    {
+      "id": "cors-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/cors-01.md",
+      "source": "CORS Misconfiguration/README.md",
+      "sourceSha256": "7b16be29ad04036c0846cc440de4ec7b962982b4ef7018bdafd3c0143f68e248",
+      "sourceBytes": 10036,
+      "sourceLines": 275,
+      "bytes": 3797,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 3
+    },
+    {
+      "id": "cors-chunk-2",
+      "kind": "playbook-chunk",
+      "file": "playbooks/cors-02.md",
+      "source": "CORS Misconfiguration/README.md",
+      "sourceSha256": "7b16be29ad04036c0846cc440de4ec7b962982b4ef7018bdafd3c0143f68e248",
+      "sourceBytes": 10036,
+      "sourceLines": 275,
+      "bytes": 3428,
+      "lines": 119,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 2,
+      "chunkCount": 3
+    },
+    {
+      "id": "cors-chunk-3",
+      "kind": "playbook-chunk",
+      "file": "playbooks/cors-03.md",
+      "source": "CORS Misconfiguration/README.md",
+      "sourceSha256": "7b16be29ad04036c0846cc440de4ec7b962982b4ef7018bdafd3c0143f68e248",
+      "sourceBytes": 10036,
+      "sourceLines": 275,
+      "bytes": 3176,
+      "lines": 34,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 3,
+      "chunkCount": 3
+    },
+    {
+      "id": "crlf-injection",
+      "kind": "micro-pack",
+      "file": "packs/crlf-injection.txt",
+      "source": "CRLF Injection/Files/crlfinjection.txt",
+      "sourceSha256": "f1a723351cd2a7d271884668d384d10f4f5f088ca9600468802f2fbbf3d6a02f",
+      "sourceBytes": 588,
+      "sourceLines": 18,
+      "bytes": 588,
+      "lines": 17,
+      "budget": {
+        "maxRequestsPerEndpoint": 10,
+        "note": "Ladder cap for this pack: at most 10 requests per endpoint, routed through pinCheck, approvals and the noise governor."
+      }
+    },
+    {
+      "id": "deserialization-sinks",
+      "kind": "signature",
+      "file": "signatures/deserialization-sinks.json",
+      "source": "Insecure Deserialization/Node.md, Insecure Deserialization/Java.md, Insecure Deserialization/PHP.md, Insecure Deserialization/Python.md, Type Juggling/README.md",
+      "sourceSha256": "8f3cfe140e8743e4fe3f55c3c2dd88ee84293779a2f2d13ad04824f8ae8165d2",
+      "sourceBytes": 2313,
+      "sourceLines": 56,
+      "bytes": 5155,
+      "lines": 209,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Deterministic check — no live requests. The scanner reads this data, it never fetches with it."
+      }
+    },
+    {
+      "id": "dom-clobbering-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/dom-clobbering-01.md",
+      "source": "DOM Clobbering/README.md",
+      "sourceSha256": "01c6e092db337007adf9edb029c53687ba16917c1388c16309c0ff3e3c10cb42",
+      "sourceBytes": 4868,
+      "sourceLines": 146,
+      "bytes": 3229,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 2
+    },
+    {
+      "id": "dom-clobbering-chunk-2",
+      "kind": "playbook-chunk",
+      "file": "playbooks/dom-clobbering-02.md",
+      "source": "DOM Clobbering/README.md",
+      "sourceSha256": "01c6e092db337007adf9edb029c53687ba16917c1388c16309c0ff3e3c10cb42",
+      "sourceBytes": 4868,
+      "sourceLines": 146,
+      "bytes": 1869,
+      "lines": 25,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 2,
+      "chunkCount": 2
+    },
+    {
+      "id": "dotdotpwn",
+      "kind": "excluded",
+      "file": null,
+      "source": "Directory Traversal/Intruder/dotdotpwn.txt",
+      "sourceSha256": "314043e8bc04dcb73381cc34caa9405b053cf0f9015c174db3c0c1fca7d1fb3d",
+      "sourceBytes": 1872006,
+      "sourceLines": 21145,
+      "bytes": null,
+      "lines": null,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Not imported."
+      },
+      "excludedReason": "1.87 MB brute-force wordlist. Importing it wholesale would bloat the repo and turn the ladder into noisy brute-forcing. A small curated traversal subset can be added later if a specialist needs it."
+    },
+    {
+      "id": "generic-fuzz",
+      "kind": "micro-pack",
+      "file": "packs/generic-fuzz.txt",
+      "source": "SQL Injection/Intruder/Generic_Fuzz.txt",
+      "sourceSha256": "57dc54806d681efb0e2c990a9688202dab5152a759eba8489f56a87029e403b8",
+      "sourceBytes": 90,
+      "sourceLines": 12,
+      "bytes": 80,
+      "lines": 12,
+      "budget": {
+        "maxRequestsPerEndpoint": 10,
+        "note": "Ladder cap for this pack: at most 10 requests per endpoint, routed through pinCheck, approvals and the noise governor."
+      }
+    },
+    {
+      "id": "graphql-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/graphql-01.md",
+      "source": "GraphQL Injection/README.md",
+      "sourceSha256": "0c1fd369383ad9fbcbcac588b1fffc5e6763a2fb24ad18fc5382e7b2f02e7fbc",
+      "sourceBytes": 22927,
+      "sourceLines": 496,
+      "bytes": 6376,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 5
+    },
+    {
+      "id": "graphql-chunk-2",
+      "kind": "playbook-chunk",
+      "file": "playbooks/graphql-02.md",
+      "source": "GraphQL Injection/README.md",
+      "sourceSha256": "0c1fd369383ad9fbcbcac588b1fffc5e6763a2fb24ad18fc5382e7b2f02e7fbc",
+      "sourceBytes": 22927,
+      "sourceLines": 496,
+      "bytes": 3761,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 2,
+      "chunkCount": 5
+    },
+    {
+      "id": "graphql-chunk-3",
+      "kind": "playbook-chunk",
+      "file": "playbooks/graphql-03.md",
+      "source": "GraphQL Injection/README.md",
+      "sourceSha256": "0c1fd369383ad9fbcbcac588b1fffc5e6763a2fb24ad18fc5382e7b2f02e7fbc",
+      "sourceBytes": 22927,
+      "sourceLines": 496,
+      "bytes": 6402,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 3,
+      "chunkCount": 5
+    },
+    {
+      "id": "graphql-chunk-4",
+      "kind": "playbook-chunk",
+      "file": "playbooks/graphql-04.md",
+      "source": "GraphQL Injection/README.md",
+      "sourceSha256": "0c1fd369383ad9fbcbcac588b1fffc5e6763a2fb24ad18fc5382e7b2f02e7fbc",
+      "sourceBytes": 22927,
+      "sourceLines": 496,
+      "bytes": 4044,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 4,
+      "chunkCount": 5
+    },
+    {
+      "id": "graphql-chunk-5",
+      "kind": "playbook-chunk",
+      "file": "playbooks/graphql-05.md",
+      "source": "GraphQL Injection/README.md",
+      "sourceSha256": "0c1fd369383ad9fbcbcac588b1fffc5e6763a2fb24ad18fc5382e7b2f02e7fbc",
+      "sourceBytes": 22927,
+      "sourceLines": 496,
+      "bytes": 2934,
+      "lines": 15,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 5,
+      "chunkCount": 5
+    },
+    {
+      "id": "idor-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/idor-01.md",
+      "source": "Insecure Direct Object References/README.md",
+      "sourceSha256": "b30662eb9a7a201c2eb15e320e777269c365f37ca793de5a39ecc758f4f01150",
+      "sourceBytes": 7428,
+      "sourceLines": 130,
+      "bytes": 5558,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 2
+    },
+    {
+      "id": "idor-chunk-2",
+      "kind": "playbook-chunk",
+      "file": "playbooks/idor-02.md",
+      "source": "Insecure Direct Object References/README.md",
+      "sourceSha256": "b30662eb9a7a201c2eb15e320e777269c365f37ca793de5a39ecc758f4f01150",
+      "sourceBytes": 7428,
+      "sourceLines": 130,
+      "bytes": 2138,
+      "lines": 9,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 2,
+      "chunkCount": 2
+    },
+    {
+      "id": "jwt-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/jwt-01.md",
+      "source": "JSON Web Token/README.md",
+      "sourceSha256": "72a9a3a755682c462d324f564c0181466fcb1253c8352157c0b894e84bfcb2eb",
+      "sourceBytes": 28374,
+      "sourceLines": 542,
+      "bytes": 7265,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 5
+    },
+    {
+      "id": "jwt-chunk-2",
+      "kind": "playbook-chunk",
+      "file": "playbooks/jwt-02.md",
+      "source": "JSON Web Token/README.md",
+      "sourceSha256": "72a9a3a755682c462d324f564c0181466fcb1253c8352157c0b894e84bfcb2eb",
+      "sourceBytes": 28374,
+      "sourceLines": 542,
+      "bytes": 5677,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 2,
+      "chunkCount": 5
+    },
+    {
+      "id": "jwt-chunk-3",
+      "kind": "playbook-chunk",
+      "file": "playbooks/jwt-03.md",
+      "source": "JSON Web Token/README.md",
+      "sourceSha256": "72a9a3a755682c462d324f564c0181466fcb1253c8352157c0b894e84bfcb2eb",
+      "sourceBytes": 28374,
+      "sourceLines": 542,
+      "bytes": 5460,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 3,
+      "chunkCount": 5
+    },
+    {
+      "id": "jwt-chunk-4",
+      "kind": "playbook-chunk",
+      "file": "playbooks/jwt-04.md",
+      "source": "JSON Web Token/README.md",
+      "sourceSha256": "72a9a3a755682c462d324f564c0181466fcb1253c8352157c0b894e84bfcb2eb",
+      "sourceBytes": 28374,
+      "sourceLines": 542,
+      "bytes": 4773,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 4,
+      "chunkCount": 5
+    },
+    {
+      "id": "jwt-chunk-5",
+      "kind": "playbook-chunk",
+      "file": "playbooks/jwt-05.md",
+      "source": "JSON Web Token/README.md",
+      "sourceSha256": "72a9a3a755682c462d324f564c0181466fcb1253c8352157c0b894e84bfcb2eb",
+      "sourceBytes": 28374,
+      "sourceLines": 542,
+      "bytes": 5774,
+      "lines": 61,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 5,
+      "chunkCount": 5
+    },
+    {
+      "id": "mass-assignment-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/mass-assignment-01.md",
+      "source": "Mass Assignment/README.md",
+      "sourceSha256": "11350bc21519f91a0df19b2a743e02306cbbc3274e088a5f375bfee2ecc79251",
+      "sourceBytes": 2263,
+      "sourceLines": 40,
+      "bytes": 2379,
+      "lines": 39,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 1
+    },
+    {
+      "id": "nosql",
+      "kind": "micro-pack",
+      "file": "packs/nosql.txt",
+      "source": "NoSQL Injection/Intruder/NoSQL.txt",
+      "sourceSha256": "ba5994a56478bf3bbb8622c60f8a8ee0d79173e575346d1e1010c1e8f00f5431",
+      "sourceBytes": 696,
+      "sourceLines": 27,
+      "bytes": 696,
+      "lines": 26,
+      "budget": {
+        "maxRequestsPerEndpoint": 10,
+        "note": "Ladder cap for this pack: at most 10 requests per endpoint, routed through pinCheck, approvals and the noise governor."
+      }
+    },
+    {
+      "id": "oauth-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/oauth-01.md",
+      "source": "OAuth Misconfiguration/README.md",
+      "sourceSha256": "5f440f52e4d05a3c980c0189c3ecd3b0dd320b79e1fe6fdf14d8d44cb646c827",
+      "sourceBytes": 5398,
+      "sourceLines": 82,
+      "bytes": 5521,
+      "lines": 81,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 1
+    },
+    {
+      "id": "open-redirect",
+      "kind": "micro-pack",
+      "file": "packs/open-redirect.txt",
+      "source": "Open Redirect/Intruder/open_redirect_wordlist.txt",
+      "sourceSha256": "749ae61dcace2d0815d4512a27e93b28e1ed8d417819e8143fe0e4f7dc1eb19a",
+      "sourceBytes": 864,
+      "sourceLines": 18,
+      "bytes": 865,
+      "lines": 18,
+      "budget": {
+        "maxRequestsPerEndpoint": 25,
+        "note": "Ladder cap for this pack: at most 25 requests per endpoint, routed through pinCheck, approvals and the noise governor."
+      }
+    },
+    {
+      "id": "param-miner-headers",
+      "kind": "micro-pack",
+      "file": "packs/param-miner-headers.txt",
+      "source": "Web Cache Deception/Intruders/param_miner_lowercase_headers.txt",
+      "sourceSha256": "02f3e059824c48225583e0b360c69eae3a51e3b216ca760d52488d4a9d7440d8",
+      "sourceBytes": 17088,
+      "sourceLines": 1128,
+      "bytes": 17064,
+      "lines": 1125,
+      "budget": {
+        "maxRequestsPerEndpoint": 50,
+        "note": "Ladder cap for this pack: at most 50 requests per endpoint, routed through pinCheck, approvals and the noise governor."
+      }
+    },
+    {
+      "id": "prototype-pollution-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/prototype-pollution-01.md",
+      "source": "Prototype Pollution/README.md",
+      "sourceSha256": "93d6a3bc7c4db3e6ae430933ecb71547992a4b5c2daf77fd38fd68a4da82b3ef",
+      "sourceBytes": 10223,
+      "sourceLines": 192,
+      "bytes": 4608,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 2
+    },
+    {
+      "id": "prototype-pollution-chunk-2",
+      "kind": "playbook-chunk",
+      "file": "playbooks/prototype-pollution-02.md",
+      "source": "Prototype Pollution/README.md",
+      "sourceSha256": "93d6a3bc7c4db3e6ae430933ecb71547992a4b5c2daf77fd38fd68a4da82b3ef",
+      "sourceBytes": 10223,
+      "sourceLines": 192,
+      "bytes": 5855,
+      "lines": 71,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 2,
+      "chunkCount": 2
+    },
+    {
+      "id": "request-smuggling-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/request-smuggling-01.md",
+      "source": "Request Smuggling/README.md",
+      "sourceSha256": "93eedac9212197a385d3cc78092d2e7ce8749c8883e600f6eccbadccb14304c5",
+      "sourceBytes": 8154,
+      "sourceLines": 182,
+      "bytes": 4247,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 2
+    },
+    {
+      "id": "request-smuggling-chunk-2",
+      "kind": "playbook-chunk",
+      "file": "playbooks/request-smuggling-02.md",
+      "source": "Request Smuggling/README.md",
+      "sourceSha256": "93eedac9212197a385d3cc78092d2e7ce8749c8883e600f6eccbadccb14304c5",
+      "sourceBytes": 8154,
+      "sourceLines": 182,
+      "bytes": 4143,
+      "lines": 61,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 2,
+      "chunkCount": 2
+    },
+    {
+      "id": "reverse-proxy-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/reverse-proxy-01.md",
+      "source": "Reverse Proxy Misconfigurations/README.md",
+      "sourceSha256": "4b115b6ec779894ff2077ae19f85f78f69008a61e31f3ce734361af9289249fe",
+      "sourceBytes": 6994,
+      "sourceLines": 166,
+      "bytes": 4810,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 2
+    },
+    {
+      "id": "reverse-proxy-chunk-2",
+      "kind": "playbook-chunk",
+      "file": "playbooks/reverse-proxy-02.md",
+      "source": "Reverse Proxy Misconfigurations/README.md",
+      "sourceSha256": "4b115b6ec779894ff2077ae19f85f78f69008a61e31f3ce734361af9289249fe",
+      "sourceBytes": 6994,
+      "sourceLines": 166,
+      "bytes": 2448,
+      "lines": 45,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 2,
+      "chunkCount": 2
+    },
+    {
+      "id": "scm-exposure",
+      "kind": "signature",
+      "file": "signatures/scm-exposure.json",
+      "source": "Insecure Source Code Management/Git.md, Insecure Source Code Management/Subversion.md, Insecure Source Code Management/Mercurial.md, Insecure Source Code Management/Bazaar.md",
+      "sourceSha256": "06a5b707e327a211722aae8474e143c7bdbd7e42f9e24d010c9a8c57c7001b1e",
+      "sourceBytes": 8443,
+      "sourceLines": 250,
+      "bytes": 5076,
+      "lines": 171,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Deterministic check — no live requests. The scanner reads this data, it never fetches with it."
+      }
+    },
+    {
+      "id": "secrets",
+      "kind": "signature",
+      "file": "signatures/secrets.json",
+      "source": "API Key Leaks/README.md, API Key Leaks/IIS-Machine-Keys.md, API Key Leaks/Files/MachineKeys.txt",
+      "sourceSha256": "380e3a93f463cbd24786b8c6ea2fcbd1620cb3a45ca29c6c80072dffc825b2ec",
+      "sourceBytes": 5693,
+      "sourceLines": 109,
+      "bytes": 1995,
+      "lines": 64,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Deterministic check — no live requests. The scanner reads this data, it never fetches with it."
+      }
+    },
+    {
+      "id": "springboot-actuator",
+      "kind": "micro-pack",
+      "file": "packs/springboot-actuator.txt",
+      "source": "Insecure Management Interface/Intruder/springboot_actuator.txt",
+      "sourceSha256": "6f7a9fe3f334d04ad031ce93c035a68b4a856a075a0bc241303019a3aab9ca15",
+      "sourceBytes": 703,
+      "sourceLines": 52,
+      "bytes": 704,
+      "lines": 52,
+      "budget": {
+        "maxRequestsPerEndpoint": 25,
+        "note": "Ladder cap for this pack: at most 25 requests per endpoint, routed through pinCheck, approvals and the noise governor."
+      }
+    },
+    {
+      "id": "sqli-polyglots",
+      "kind": "micro-pack",
+      "file": "packs/sqli-polyglots.txt",
+      "source": "SQL Injection/Intruder/SQLi_Polyglots.txt",
+      "sourceSha256": "06891d333220a7094ff6623a3d03224738c672fc3977b6d4a9f8de91c77c4bdf",
+      "sourceBytes": 348,
+      "sourceLines": 3,
+      "bytes": 348,
+      "lines": 2,
+      "budget": {
+        "maxRequestsPerEndpoint": 10,
+        "note": "Ladder cap for this pack: at most 10 requests per endpoint, routed through pinCheck, approvals and the noise governor."
+      }
+    },
+    {
+      "id": "ssrf-cloud-instances-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/ssrf-cloud-instances-01.md",
+      "source": "Server Side Request Forgery/SSRF-Cloud-Instances.md",
+      "sourceSha256": "f6b20e634d4ae9864a356146b2b5d66a5f17ac690c359fc4fdeb506976db8c17",
+      "sourceBytes": 11978,
+      "sourceLines": 334,
+      "bytes": 5058,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 3
+    },
+    {
+      "id": "ssrf-cloud-instances-chunk-2",
+      "kind": "playbook-chunk",
+      "file": "playbooks/ssrf-cloud-instances-02.md",
+      "source": "Server Side Request Forgery/SSRF-Cloud-Instances.md",
+      "sourceSha256": "f6b20e634d4ae9864a356146b2b5d66a5f17ac690c359fc4fdeb506976db8c17",
+      "sourceBytes": 11978,
+      "sourceLines": 334,
+      "bytes": 4414,
+      "lines": 119,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 2,
+      "chunkCount": 3
+    },
+    {
+      "id": "ssrf-cloud-instances-chunk-3",
+      "kind": "playbook-chunk",
+      "file": "playbooks/ssrf-cloud-instances-03.md",
+      "source": "Server Side Request Forgery/SSRF-Cloud-Instances.md",
+      "sourceSha256": "f6b20e634d4ae9864a356146b2b5d66a5f17ac690c359fc4fdeb506976db8c17",
+      "sourceBytes": 11978,
+      "sourceLines": 334,
+      "bytes": 2931,
+      "lines": 93,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 3,
+      "chunkCount": 3
+    },
+    {
+      "id": "ssti-fuzz",
+      "kind": "micro-pack",
+      "file": "packs/ssti-fuzz.txt",
+      "source": "Server Side Template Injection/Intruder/ssti.fuzz",
+      "sourceSha256": "c79d8cf64202da8333e50d7ae14ade1100e13f25676323846372b189fbb7d138",
+      "sourceBytes": 7822,
+      "sourceLines": 107,
+      "bytes": 7822,
+      "lines": 107,
+      "budget": {
+        "maxRequestsPerEndpoint": 25,
+        "note": "Ladder cap for this pack: at most 25 requests per endpoint, routed through pinCheck, approvals and the noise governor."
+      }
+    },
+    {
+      "id": "web-cache-deception-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/web-cache-deception-01.md",
+      "source": "Web Cache Deception/README.md",
+      "sourceSha256": "c140312d14ec74b56ba45a2c04d86c9cfaba457262b72c0fdc1f8c2bc7bbbec3",
+      "sourceBytes": 8574,
+      "sourceLines": 152,
+      "bytes": 5501,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 2
+    },
+    {
+      "id": "web-cache-deception-chunk-2",
+      "kind": "playbook-chunk",
+      "file": "playbooks/web-cache-deception-02.md",
+      "source": "Web Cache Deception/README.md",
+      "sourceSha256": "c140312d14ec74b56ba45a2c04d86c9cfaba457262b72c0fdc1f8c2bc7bbbec3",
+      "sourceBytes": 8574,
+      "sourceLines": 152,
+      "bytes": 3313,
+      "lines": 31,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 2,
+      "chunkCount": 2
+    },
+    {
+      "id": "xs-leak-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/xs-leak-01.md",
+      "source": "XS-Leak/README.md",
+      "sourceSha256": "039e482146fabf43a63039a7d542250c58e83da731c9815aa6200b749c1aea7d",
+      "sourceBytes": 10636,
+      "sourceLines": 130,
+      "bytes": 9201,
+      "lines": 119,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 2
+    },
+    {
+      "id": "xs-leak-chunk-2",
+      "kind": "playbook-chunk",
+      "file": "playbooks/xs-leak-02.md",
+      "source": "XS-Leak/README.md",
+      "sourceSha256": "039e482146fabf43a63039a7d542250c58e83da731c9815aa6200b749c1aea7d",
+      "sourceBytes": 10636,
+      "sourceLines": 130,
+      "bytes": 1650,
+      "lines": 9,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 2,
+      "chunkCount": 2
+    },
+    {
+      "id": "xss-angular-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/xss-angular-01.md",
+      "source": "XSS Injection/5 - XSS in Angular.md",
+      "sourceSha256": "7ca2092189240095a7b1235ee3d82fa515a2efe82d8185df81d4b524d9c23b32",
+      "sourceBytes": 11148,
+      "sourceLines": 342,
+      "bytes": 3344,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 3
+    },
+    {
+      "id": "xss-angular-chunk-2",
+      "kind": "playbook-chunk",
+      "file": "playbooks/xss-angular-02.md",
+      "source": "XSS Injection/5 - XSS in Angular.md",
+      "sourceSha256": "7ca2092189240095a7b1235ee3d82fa515a2efe82d8185df81d4b524d9c23b32",
+      "sourceBytes": 11148,
+      "sourceLines": 342,
+      "bytes": 3967,
+      "lines": 120,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 2,
+      "chunkCount": 3
+    },
+    {
+      "id": "xss-angular-chunk-3",
+      "kind": "playbook-chunk",
+      "file": "playbooks/xss-angular-03.md",
+      "source": "XSS Injection/5 - XSS in Angular.md",
+      "sourceSha256": "7ca2092189240095a7b1235ee3d82fa515a2efe82d8185df81d4b524d9c23b32",
+      "sourceBytes": 11148,
+      "sourceLines": 342,
+      "bytes": 4215,
+      "lines": 101,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 3,
+      "chunkCount": 3
+    },
+    {
+      "id": "xss-csp-bypass-chunk-1",
+      "kind": "playbook-chunk",
+      "file": "playbooks/xss-csp-bypass-01.md",
+      "source": "XSS Injection/4 - CSP Bypass.md",
+      "sourceSha256": "8c8b411bf02615f4b63f59800a2c7082bd54ce2cb60400b988bf24b1f143b558",
+      "sourceBytes": 7006,
+      "sourceLines": 180,
+      "bytes": 4201,
+      "lines": 119,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 1,
+      "chunkCount": 2
+    },
+    {
+      "id": "xss-csp-bypass-chunk-2",
+      "kind": "playbook-chunk",
+      "file": "playbooks/xss-csp-bypass-02.md",
+      "source": "XSS Injection/4 - CSP Bypass.md",
+      "sourceSha256": "8c8b411bf02615f4b63f59800a2c7082bd54ce2cb60400b988bf24b1f143b558",
+      "sourceBytes": 7006,
+      "sourceLines": 180,
+      "bytes": 3048,
+      "lines": 59,
+      "budget": {
+        "maxRequestsPerEndpoint": null,
+        "note": "Retrieval only — playbook text for the skills layer, never a live request."
+      },
+      "chunkIndex": 2,
+      "chunkCount": 2
+    },
+    {
+      "id": "xss-polyglot",
+      "kind": "micro-pack",
+      "file": "packs/xss-polyglot.md",
+      "source": "XSS Injection/2 - XSS Polyglot.md",
+      "sourceSha256": "e41979c882cc807edb05464575894e87c410ab7444facd45d35accc2bda9dcb1",
+      "sourceBytes": 5013,
+      "sourceLines": 87,
+      "bytes": 5014,
+      "lines": 87,
+      "budget": {
+        "maxRequestsPerEndpoint": 10,
+        "note": "Ladder cap for this pack: at most 10 requests per endpoint, routed through pinCheck, approvals and the noise governor."
+      }
+    }
+  ]
+}

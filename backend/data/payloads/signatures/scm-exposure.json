@@ -1,0 +1,171 @@
+{
+  "note": "URL paths to probe for exposed version-control metadata. verbatim paths appear word-for-word in the source doc; derived ones are marked and explained.",
+  "paths": [
+    {
+      "path": ".bzr",
+      "system": "bzr",
+      "source": "Insecure Source Code Management/Bazaar.md",
+      "verbatim": false,
+      "note": "Bare repo directory; the doc only shows paths fetched beneath it."
+    },
+    {
+      "path": ".bzr/README",
+      "system": "bzr",
+      "source": "Insecure Source Code Management/Bazaar.md",
+      "verbatim": false,
+      "note": "Path fetched by bzr_dumper in the doc; served under .bzr/ on an exposed repo."
+    },
+    {
+      "path": ".bzr/branch/branch.conf",
+      "system": "bzr",
+      "source": "Insecure Source Code Management/Bazaar.md",
+      "verbatim": false,
+      "note": "Path fetched by bzr_dumper in the doc; served under .bzr/ on an exposed repo."
+    },
+    {
+      "path": ".bzr/branch/format",
+      "system": "bzr",
+      "source": "Insecure Source Code Management/Bazaar.md",
+      "verbatim": false,
+      "note": "Path fetched by bzr_dumper in the doc; served under .bzr/ on an exposed repo."
+    },
+    {
+      "path": ".bzr/branch/last-revision",
+      "system": "bzr",
+      "source": "Insecure Source Code Management/Bazaar.md",
+      "verbatim": false,
+      "note": "Path fetched by bzr_dumper in the doc; served under .bzr/ on an exposed repo."
+    },
+    {
+      "path": ".bzr/branch/tag",
+      "system": "bzr",
+      "source": "Insecure Source Code Management/Bazaar.md",
+      "verbatim": false,
+      "note": "Path fetched by bzr_dumper in the doc; served under .bzr/ on an exposed repo."
+    },
+    {
+      "path": ".bzr/checkout/dirstate",
+      "system": "bzr",
+      "source": "Insecure Source Code Management/Bazaar.md",
+      "verbatim": false,
+      "note": "Path fetched by bzr_dumper in the doc; served under .bzr/ on an exposed repo."
+    },
+    {
+      "path": ".bzr/checkout/views",
+      "system": "bzr",
+      "source": "Insecure Source Code Management/Bazaar.md",
+      "verbatim": false,
+      "note": "Path fetched by bzr_dumper in the doc; served under .bzr/ on an exposed repo."
+    },
+    {
+      "path": ".bzr/repository/pack-names",
+      "system": "bzr",
+      "source": "Insecure Source Code Management/Bazaar.md",
+      "verbatim": false,
+      "note": "Path fetched by bzr_dumper in the doc; served under .bzr/ on an exposed repo."
+    },
+    {
+      "path": ".git",
+      "system": "git",
+      "source": "Insecure Source Code Management/Git.md",
+      "verbatim": true
+    },
+    {
+      "path": ".git/HEAD",
+      "system": "git",
+      "source": "Insecure Source Code Management/Git.md",
+      "verbatim": true
+    },
+    {
+      "path": ".git/config",
+      "system": "git",
+      "source": "Insecure Source Code Management/Git.md",
+      "verbatim": true
+    },
+    {
+      "path": ".git/index",
+      "system": "git",
+      "source": "Insecure Source Code Management/Git.md",
+      "verbatim": true
+    },
+    {
+      "path": ".git/logs/HEAD",
+      "system": "git",
+      "source": "Insecure Source Code Management/Git.md",
+      "verbatim": true
+    },
+    {
+      "path": ".git/object",
+      "system": "git",
+      "source": "Insecure Source Code Management/Git.md",
+      "verbatim": true
+    },
+    {
+      "path": ".git/objects",
+      "system": "git",
+      "source": "Insecure Source Code Management/Git.md",
+      "verbatim": true
+    },
+    {
+      "path": "/.git",
+      "system": "git",
+      "source": "Insecure Source Code Management/Git.md",
+      "verbatim": true
+    },
+    {
+      "path": "/.git/index",
+      "system": "git",
+      "source": "Insecure Source Code Management/Git.md",
+      "verbatim": true
+    },
+    {
+      "path": "/.git/objects",
+      "system": "git",
+      "source": "Insecure Source Code Management/Git.md",
+      "verbatim": true
+    },
+    {
+      "path": ".hg",
+      "system": "hg",
+      "source": "Insecure Source Code Management/Mercurial.md",
+      "verbatim": false,
+      "note": "No probe path is stated in the doc; .hg is the directory its rip-hg.pl tool targets."
+    },
+    {
+      "path": ".svn",
+      "system": "svn",
+      "source": "Insecure Source Code Management/Subversion.md",
+      "verbatim": true
+    },
+    {
+      "path": "/.svn",
+      "system": "svn",
+      "source": "Insecure Source Code Management/Subversion.md",
+      "verbatim": true
+    },
+    {
+      "path": "/.svn/pristine",
+      "system": "svn",
+      "source": "Insecure Source Code Management/Subversion.md",
+      "verbatim": true
+    },
+    {
+      "path": "/.svn/text-base",
+      "system": "svn",
+      "source": "Insecure Source Code Management/Subversion.md",
+      "verbatim": true
+    },
+    {
+      "path": "/.svn/text-base/wp-config.php.svn-base",
+      "system": "svn",
+      "source": "Insecure Source Code Management/Subversion.md",
+      "verbatim": true
+    },
+    {
+      "path": "/.svn/wc.db",
+      "system": "svn",
+      "source": "Insecure Source Code Management/Subversion.md",
+      "verbatim": true
+    }
+  ]
+}

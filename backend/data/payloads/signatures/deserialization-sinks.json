@@ -1,0 +1,209 @@
+{
+  "note": "Unsafe deserialization sinks and loose-comparison operators named in the source docs. Data only — the static analyzer wires these in later.",
+  "sinks": [
+    {
+      "name": "\"AC ED 00 05\"",
+      "kind": "marker",
+      "language": "java",
+      "source": "Insecure Deserialization/Java.md"
+    },
+    {
+      "name": "\"H4sIAAAAAAAAAJ\"",
+      "kind": "marker",
+      "language": "java",
+      "source": "Insecure Deserialization/Java.md"
+    },
+    {
+      "name": "\"rO0\"",
+      "kind": "marker",
+      "language": "java",
+      "source": "Insecure Deserialization/Java.md"
+    },
+    {
+      "name": "Serializable",
+      "kind": "library",
+      "language": "java",
+      "source": "Insecure Deserialization/Java.md"
+    },
+    {
+      "name": "application/x-java-serialized-object",
+      "kind": "marker",
+      "language": "java",
+      "source": "Insecure Deserialization/Java.md"
+    },
+    {
+      "name": "funcster",
+      "kind": "library",
+      "language": "node",
+      "source": "Insecure Deserialization/Node.md"
+    },
+    {
+      "name": "node-serialize",
+      "kind": "library",
+      "language": "node",
+      "source": "Insecure Deserialization/Node.md"
+    },
+    {
+      "name": "serialize-to-js",
+      "kind": "library",
+      "language": "node",
+      "source": "Insecure Deserialization/Node.md"
+    },
+    {
+      "name": "unserialize()",
+      "kind": "function",
+      "language": "node",
+      "source": "Insecure Deserialization/Node.md"
+    },
+    {
+      "name": "!=",
+      "kind": "operator",
+      "language": "php",
+      "source": "Type Juggling/README.md"
+    },
+    {
+      "name": "!==",
+      "kind": "operator",
+      "language": "php",
+      "source": "Type Juggling/README.md"
+    },
+    {
+      "name": "==",
+      "kind": "operator",
+      "language": "php",
+      "source": "Type Juggling/README.md"
+    },
+    {
+      "name": "===",
+      "kind": "operator",
+      "language": "php",
+      "source": "Type Juggling/README.md"
+    },
+    {
+      "name": "__destruct()",
+      "kind": "magic-method",
+      "language": "php",
+      "source": "Insecure Deserialization/PHP.md"
+    },
+    {
+      "name": "__get()",
+      "kind": "magic-method",
+      "language": "php",
+      "source": "Insecure Deserialization/PHP.md"
+    },
+    {
+      "name": "__get(string $name)",
+      "kind": "magic-method",
+      "language": "php",
+      "source": "Insecure Deserialization/PHP.md"
+    },
+    {
+      "name": "__set()",
+      "kind": "magic-method",
+      "language": "php",
+      "source": "Insecure Deserialization/PHP.md"
+    },
+    {
+      "name": "__set(string $name, mixed $value)",
+      "kind": "magic-method",
+      "language": "php",
+      "source": "Insecure Deserialization/PHP.md"
+    },
+    {
+      "name": "__set_state()",
+      "kind": "magic-method",
+      "language": "php",
+      "source": "Insecure Deserialization/PHP.md"
+    },
+    {
+      "name": "__set_state(array $properties)",
+      "kind": "magic-method",
+      "language": "php",
+      "source": "Insecure Deserialization/PHP.md"
+    },
+    {
+      "name": "__toString()",
+      "kind": "magic-method",
+      "language": "php",
+      "source": "Insecure Deserialization/PHP.md"
+    },
+    {
+      "name": "__unserialize()",
+      "kind": "magic-method",
+      "language": "php",
+      "source": "Insecure Deserialization/PHP.md"
+    },
+    {
+      "name": "__unserialize(array $data)",
+      "kind": "magic-method",
+      "language": "php",
+      "source": "Insecure Deserialization/PHP.md"
+    },
+    {
+      "name": "__wakeup()",
+      "kind": "magic-method",
+      "language": "php",
+      "source": "Insecure Deserialization/PHP.md"
+    },
+    {
+      "name": "md5()",
+      "kind": "function",
+      "language": "php",
+      "source": "Type Juggling/README.md"
+    },
+    {
+      "name": "sha1()",
+      "kind": "function",
+      "language": "php",
+      "source": "Type Juggling/README.md"
+    },
+    {
+      "name": "strcmp()",
+      "kind": "function",
+      "language": "php",
+      "source": "Type Juggling/README.md"
+    },
+    {
+      "name": "unserialize()",
+      "kind": "function",
+      "language": "php",
+      "source": "Insecure Deserialization/PHP.md"
+    },
+    {
+      "name": "_pickle.loads",
+      "kind": "library",
+      "language": "python",
+      "source": "Insecure Deserialization/Python.md"
+    },
+    {
+      "name": "cPickle",
+      "kind": "library",
+      "language": "python",
+      "source": "Insecure Deserialization/Python.md"
+    },
+    {
+      "name": "cPickle.loads",
+      "kind": "library",
+      "language": "python",
+      "source": "Insecure Deserialization/Python.md"
+    },
+    {
+      "name": "jsonpickle.decode",
+      "kind": "library",
+      "language": "python",
+      "source": "Insecure Deserialization/Python.md"
+    },
+    {
+      "name": "pickle.loads",
+      "kind": "library",
+      "language": "python",
+      "source": "Insecure Deserialization/Python.md"
+    },
+    {
+      "name": "yaml.load(input, Loader=yaml.UnsafeLoader)",
+      "kind": "library",
+      "language": "python",
+      "source": "Insecure Deserialization/Python.md"
+    }
+  ]
+}
