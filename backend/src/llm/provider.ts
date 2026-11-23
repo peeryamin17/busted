@@ -22,14 +22,20 @@ export interface LLMCompletionRequest {
    *   classification) → Flash-class model.
    * - 'reasoning': complex analysis (reflection, severity judgment,
    *   honeypot adjudication, chaining) → Pro-class model.
+   * - 'code': code-focused calls (SAST taint review, snippet analysis) →
+   *   the provider's code-capable model, falling back to reasoning.
    * Providers without tiering support may ignore this field.
    */
-  tier?: 'routine' | 'reasoning';
+  tier?: 'routine' | 'reasoning' | 'code';
 }
 
 export interface LLMUsage {
   inputTokens: number;
   outputTokens: number;
+  /** Tokens served from the provider's prompt cache (if reported). */
+  cacheReadTokens?: number;
+  /** Tokens written to the provider's prompt cache (if reported). */
+  cacheWriteTokens?: number;
 }
 
 export interface LLMCompletion {

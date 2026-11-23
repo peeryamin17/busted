@@ -46,7 +46,7 @@ export async function setBackendBaseUrl(url: string | null): Promise<void> {
 
 /** Backend API key (bs_…), stored by the user in extension settings. Sent as x-api-key. */
 const API_KEY_STORAGE_KEY = 'bugseek:apiKey';
-/** User's own Gemini API key (AIza…), stored locally in the extension for direct BYOK scans. */
+/** User's own AI provider key (Gemini AIza… or DashScope sk-…), stored locally for direct BYOK scans. The provider pick decides which header it is sent as. */
 const GEMINI_API_KEY_STORAGE_KEY = 'bugseek:geminiApiKey';
 
 export async function getBackendApiKey(): Promise<string | null> {
@@ -87,6 +87,42 @@ export async function setGeminiApiKey(key: string | null): Promise<void> {
   }
 }
 
+/** Provider the user picked for their own key (gemini / qwen / ollama), stored by the popup. */
+const AI_PROVIDER_STORAGE_KEY = 'bugseek:aiProvider';
+const AI_BASE_URL_STORAGE_KEY = 'bugseek:aiBaseUrl';
+
+async function getStoredAiProvider(): Promise<{ provider: string; baseUrl: string | null }> {
+  try {
+    const stored = await chrome.storage.local.get([AI_PROVIDER_STORAGE_KEY, AI_BASE_URL_STORAGE_KEY]);
+    const provider = stored[AI_PROVIDER_STORAGE_KEY];
+    const baseUrl = stored[AI_BASE_URL_STORAGE_KEY];
+    return {
+      provider: typeof provider === 'string' && provider.length > 0 ? provider : 'gemini',
+      baseUrl: typeof baseUrl === 'string' && baseUrl.length > 0 ? baseUrl : null,
+    };
+  } catch {
+    return { provider: 'gemini', baseUrl: null };
+  }
+}
+
+/**
+ * Headers carrying the user's own (BYOK) key. The key lives in the one
+ * local slot whatever the provider is; the provider pick decides which
+ * header name the backend sees, so a DashScope key is never mistaken for
+ * a Gemini key (and vice versa). Qwen also carries its base URL when the
+ * user picked a non-default region, the backend re-validates it against
+ * the DashScope allowlist.
+ */
+async function getByokHeaders(): Promise<Record<string, string>> {
+  const key = await getGeminiApiKey();
+  if (!key) return {};
+  const { provider, baseUrl } = await getStoredAiProvider();
+  if (provider === 'qwen') {
+    return { 'x-qwen-api-key': key, ...(baseUrl ? { 'x-qwen-base-url': baseUrl } : {}) };
+  }
+  return { 'x-gemini-api-key': key };
+}
+
 async function fetchJson<T>(
   path: string,
   init: RequestInit,
@@ -97,14 +133,14 @@ async function fetchJson<T>(
   try {
     const baseUrl = await getBackendBaseUrl();
     const apiKey = await getBackendApiKey();
-    const geminiKey = await getGeminiApiKey();
+    const byokHeaders = await getByokHeaders();
     const res = await fetch(`${baseUrl}${path}`, {
       ...init,
       signal: ctrl.signal,
       headers: {
         'content-type': 'application/json',
         ...(apiKey ? { 'x-api-key': apiKey } : {}),
-        ...(geminiKey ? { 'x-gemini-api-key': geminiKey } : {}),
+        ...byokHeaders,
         ...(init.headers ?? {}),
       },
     });
@@ -162,8 +198,15 @@ export async function getBackendAccount(): Promise<BackendAccount | null> {
   const geminiKey = await getGeminiApiKey();
   if (geminiKey) {
     const hint = geminiKey.length > 8 ? `${geminiKey.slice(0, 4)}••••${geminiKey.slice(-4)}` : '••••••••';
+    const { provider } = await getStoredAiProvider();
+    const label =
+      provider === 'qwen'
+        ? `Qwen AI (${hint})`
+        : provider === 'ollama'
+          ? 'Ollama (local)'
+          : `Gemini AI (${hint})`;
     return {
-      email: `Gemini AI (${hint})`,
+      email: label,
       plan: 'enterprise',
       operator: true,
     };
@@ -324,12 +367,12 @@ export async function runSwarmScan(
 ): Promise<SwarmOutcome> {
   const baseUrl = await getBackendBaseUrl();
   const apiKey = await getBackendApiKey();
-  const geminiKey = await getGeminiApiKey();
+  const byokHeaders = await getByokHeaders();
 
   const authHeaders: Record<string, string> = {
     'content-type': 'application/json',
     ...(apiKey ? { 'x-api-key': apiKey, authorization: `Bearer ${apiKey}` } : {}),
-    ...(geminiKey ? { 'x-gemini-api-key': geminiKey } : {}),
+    ...byokHeaders,
   };
 
   // 1. Wake Render up if sleeping (retry once if cold-starting)
@@ -438,14 +481,14 @@ async function fetchJsonOrThrow<T>(
   const baseUrl = await getBackendBaseUrl();
   try {
     const apiKey = await getBackendApiKey();
-    const geminiKey = await getGeminiApiKey();
+    const byokHeaders = await getByokHeaders();
     res = await fetch(`${baseUrl}${path}`, {
       ...init,
       signal: ctrl.signal,
       headers: {
         'content-type': 'application/json',
         ...(apiKey ? { 'x-api-key': apiKey } : {}),
-        ...(geminiKey ? { 'x-gemini-api-key': geminiKey } : {}),
+        ...byokHeaders,
         ...(init.headers ?? {}),
       },
     });

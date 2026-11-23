@@ -126,14 +126,17 @@ export class GeminiProvider implements LLMProvider {
   /**
    * Determine prioritized list of candidate models for the requested tier.
    * Guarantees all candidates are valid text-generation models.
+   * Tier 'code' has no separate Gemini pool, it maps onto the reasoning
+   * pool (the strongest general models handle code review too).
    */
-  getCandidateModels(tier: 'routine' | 'reasoning', available: string[]): string[] {
-    const active = tier === 'reasoning' ? this.activeReasoningModel : this.activeRoutineModel;
+  getCandidateModels(tier: 'routine' | 'reasoning' | 'code', available: string[]): string[] {
+    const effectiveTier: 'routine' | 'reasoning' = tier === 'reasoning' || tier === 'code' ? 'reasoning' : 'routine';
+    const active = effectiveTier === 'reasoning' ? this.activeReasoningModel : this.activeRoutineModel;
     if (active && isTextGenerationModel(active)) {
       return [active];
     }
 
-    let configured = tier === 'reasoning' ? this.reasoningModel : this.routineModel;
+    let configured = effectiveTier === 'reasoning' ? this.reasoningModel : this.routineModel;
     // Normalize legacy or nonexistent model strings
     if (configured.includes('3.8-flash') || configured.includes('3.5-flash')) {
       configured = 'gemini-2.0-flash';
@@ -142,7 +145,7 @@ export class GeminiProvider implements LLMProvider {
     }
 
     const priorityPool =
-      tier === 'reasoning'
+      effectiveTier === 'reasoning'
         ? [
             configured,
             'gemini-2.5-pro',
@@ -187,7 +190,7 @@ export class GeminiProvider implements LLMProvider {
         }
       }
       // 2. Any available models matching the tier's preferred keyword ('flash' or 'pro')
-      const keyword = tier === 'reasoning' ? 'pro' : 'flash';
+      const keyword = effectiveTier === 'reasoning' ? 'pro' : 'flash';
       for (const m of safeAvailable) {
         if (m.includes(keyword) && !candidates.includes(m) && isTextGenerationModel(m)) {
           candidates.push(m);
@@ -207,7 +210,9 @@ export class GeminiProvider implements LLMProvider {
   }
 
   async complete(req: LLMCompletionRequest): Promise<LLMCompletion> {
-    const tier = req.tier ?? 'routine';
+    // Tier 'code' shares the reasoning pool (see getCandidateModels), so
+    // normalize it here to keep the active-model lock-in consistent.
+    const tier: 'routine' | 'reasoning' = req.tier === 'reasoning' || req.tier === 'code' ? 'reasoning' : 'routine';
     const system = req.messages
       .filter((m) => m.role === 'system')
       .map((m) => m.content)

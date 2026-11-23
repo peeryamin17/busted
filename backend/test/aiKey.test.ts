@@ -155,6 +155,126 @@ async function main() {
     directHeaderSwarm.statusCode === 200 || directHeaderSwarm.statusCode === 202,
   );
 
+  // --- BYOK provider picker: Qwen + Ollama ---------------------------------
+  // Unknown provider → 400 naming the provider
+  const badProvider = await app.inject({
+    method: 'POST',
+    url: '/api/me/ai-key',
+    headers: { cookie },
+    payload: { apiKey: 'mock-qwen-key-1234567890', provider: 'anthropic' },
+  });
+  check('unknown provider → 400', badProvider.statusCode === 400);
+
+  // Qwen with a mock key + Beijing region → 200, baseUrl stored
+  const qwenSave = await app.inject({
+    method: 'POST',
+    url: '/api/me/ai-key',
+    headers: { cookie },
+    payload: { apiKey: 'mock-qwen-key-1234567890', provider: 'qwen', region: 'cn' },
+  });
+  check('qwen mock key save → 200', qwenSave.statusCode === 200, qwenSave.body);
+  const qwenBody = JSON.parse(qwenSave.body);
+  check('qwen save provider is qwen', qwenBody.provider === 'qwen');
+  check(
+    'qwen save baseUrl is Beijing endpoint',
+    qwenBody.baseUrl === 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    qwenBody.baseUrl,
+  );
+  check('qwen save verified is true', qwenBody.verified === true);
+  const qwenGet = JSON.parse(
+    (
+      await app.inject({ method: 'GET', url: '/api/me/ai-key', headers: { cookie } })
+    ).body,
+  );
+  check('GET after qwen save reports region cn', qwenGet.region === 'cn');
+  check('GET after qwen save reports baseUrl', qwenGet.baseUrl === qwenBody.baseUrl);
+  check(
+    'qwen decrypted key matches',
+    (await getUserDecryptedAiKey(db, user.id)) === 'mock-qwen-key-1234567890',
+  );
+
+  // Qwen with a non-aliyuncs custom URL → 400 (SSRF guard)
+  const qwenEvil = await app.inject({
+    method: 'POST',
+    url: '/api/me/ai-key',
+    headers: { cookie },
+    payload: {
+      apiKey: 'mock-qwen-key-1234567890',
+      provider: 'qwen',
+      region: 'custom',
+      baseUrl: 'https://evil.example.com/compatible-mode/v1',
+    },
+  });
+  check('qwen custom URL off allowlist → 400', qwenEvil.statusCode === 400, qwenEvil.body);
+
+  // Qwen with an http (non-https) custom URL → 400
+  const qwenHttp = await app.inject({
+    method: 'POST',
+    url: '/api/me/ai-key',
+    headers: { cookie },
+    payload: {
+      apiKey: 'mock-qwen-key-1234567890',
+      provider: 'qwen',
+      region: 'custom',
+      baseUrl: 'http://dashscope.aliyuncs.com/compatible-mode/v1',
+    },
+  });
+  check('qwen custom URL http → 400', qwenHttp.statusCode === 400);
+
+  // Qwen with a valid custom workspace URL → 200
+  const qwenCustom = await app.inject({
+    method: 'POST',
+    url: '/api/me/ai-key',
+    headers: { cookie },
+    payload: {
+      apiKey: 'mock-qwen-key-1234567890',
+      provider: 'qwen',
+      region: 'custom',
+      baseUrl: 'https://my-workspace.dashscope.aliyuncs.com/compatible-mode/v1',
+    },
+  });
+  check('qwen valid custom URL → 200', qwenCustom.statusCode === 200, qwenCustom.body);
+  check(
+    'qwen custom save reports region custom',
+    JSON.parse(qwenCustom.body).region === 'custom',
+  );
+
+  // Ollama: no key needed, stored unverified, hint 'local'
+  const ollamaSave = await app.inject({
+    method: 'POST',
+    url: '/api/me/ai-key',
+    headers: { cookie },
+    payload: { provider: 'ollama' },
+  });
+  check('ollama save without key → 200', ollamaSave.statusCode === 200, ollamaSave.body);
+  const ollamaBody = JSON.parse(ollamaSave.body);
+  check('ollama save verified is false', ollamaBody.verified === false);
+  check('ollama save hint is local', ollamaBody.hint === 'local');
+  const ollamaGet = JSON.parse(
+    (
+      await app.inject({ method: 'GET', url: '/api/me/ai-key', headers: { cookie } })
+    ).body,
+  );
+  check('GET after ollama save provider is ollama', ollamaGet.provider === 'ollama');
+  check('GET after ollama save verified is false', ollamaGet.verified === false);
+  check(
+    'ollama decrypted key is null (no key to use)',
+    (await getUserDecryptedAiKey(db, user.id)) === null,
+  );
+
+  // Gemini still works after the provider changes (regression)
+  const geminiAgain = await app.inject({
+    method: 'POST',
+    url: '/api/me/ai-key',
+    headers: { cookie },
+    payload: { apiKey: 'AIzaTestValidKey1234567890', provider: 'gemini' },
+  });
+  check('gemini save after qwen/ollama → 200', geminiAgain.statusCode === 200);
+  check(
+    'gemini save clears baseUrl',
+    JSON.parse(geminiAgain.body).baseUrl === null,
+  );
+
   // DELETE key
   const delRes = await app.inject({
     method: 'DELETE',

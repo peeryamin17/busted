@@ -425,6 +425,55 @@ button:disabled {
   color: var(--text);
   cursor: pointer;
 }
+.backend-key-row select {
+  flex: 1;
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  min-width: 0;
+}
+.backend-key-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: -6px 0 12px;
+}
+.backend-key-sub input {
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  min-width: 0;
+}
+.backend-key-note {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0;
+}
+.backend-key-note a {
+  color: var(--text);
+}
+.backend-key-checkrow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.backend-key-checkrow button {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
 
 .backend-account {
   font-size: 11px;

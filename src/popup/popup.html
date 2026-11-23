@@ -172,8 +172,56 @@
 
         <div id="backend-status" class="backend-badge backend-unknown">Backend: checking…</div>
         <div class="backend-key-row">
-          <label for="backend-api-key" class="label">Gemini API Key / Account Link</label>
-          <input id="backend-api-key" type="password" placeholder="Paste Gemini key (AIza...) or link code" autocomplete="off" spellcheck="false" />
+          <label for="backend-api-provider" class="label">AI provider</label>
+          <select id="backend-api-provider" aria-label="AI provider">
+            <option value="gemini">Gemini</option>
+            <option value="qwen" selected>Qwen — Recommended</option>
+            <option value="ollama">Ollama (local)</option>
+          </select>
+        </div>
+        <div id="backend-key-qwen" class="backend-key-sub">
+          <div class="backend-key-row">
+            <label for="backend-qwen-region" class="label">Region</label>
+            <select id="backend-qwen-region" aria-label="Qwen region">
+              <option value="intl" selected>International (default)</option>
+              <option value="cn">Beijing</option>
+              <option value="custom">Custom workspace URL</option>
+            </select>
+          </div>
+          <input
+            id="backend-qwen-custom-url"
+            type="url"
+            placeholder="https://your-workspace.dashscope.aliyuncs.com/compatible-mode/v1"
+            autocomplete="off"
+            spellcheck="false"
+            hidden
+          />
+          <p class="backend-key-note">
+            Your key is a DashScope API key from Alibaba Cloud Model Studio.
+            Usage is billed to your own Alibaba Cloud account.
+            <a
+              href="https://www.alibabacloud.com/help/en/model-studio/model-pricing"
+              target="_blank"
+              rel="noreferrer"
+              >See DashScope pricing</a
+            >. A key from one region fails in another — check the region
+            first if saving fails.
+          </p>
+        </div>
+        <div id="backend-key-ollama" class="backend-key-sub" hidden>
+          <p class="backend-key-note">
+            Ollama runs models on your own machine — no key, no cloud bill.
+            It only works with a locally-run backend: the hosted BugSeek
+            backend cannot reach your localhost.
+          </p>
+          <div class="backend-key-checkrow">
+            <button id="backend-ollama-check" type="button">Check local Ollama</button>
+            <span id="backend-ollama-status" class="backend-key-note"></span>
+          </div>
+        </div>
+        <div class="backend-key-row">
+          <label for="backend-api-key" class="label">API Key / Account Link</label>
+          <input id="backend-api-key" type="password" placeholder="Paste DashScope key (sk-...) or link code" autocomplete="off" spellcheck="false" />
           <button id="backend-api-key-save" type="button">Save</button>
         </div>
         <div id="backend-account" class="backend-account" hidden></div>

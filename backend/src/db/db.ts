@@ -79,10 +79,17 @@ export interface Database {
   getUserByEmail(email: string): Promise<UserRecord | null>;
   getUserById(id: string): Promise<UserRecord | null>;
   setUserPlan(userId: string, plan: PlanTier): Promise<void>;
-  setAiKey(userId: string, encryptedKey: string, provider: string, hint: string): Promise<void>;
+  setAiKey(
+    userId: string,
+    encryptedKey: string,
+    provider: string,
+    hint: string,
+    baseUrl?: string | null,
+  ): Promise<void>;
   getAiKey(userId: string): Promise<{
     encryptedAiKey?: string;
     aiProvider?: string;
+    aiBaseUrl?: string;
     aiKeyHint?: string;
     aiKeyUpdatedAt?: string;
   } | null>;
@@ -173,6 +180,25 @@ export interface Database {
   /** One detection, only when it belongs to the user. */
   getDetection(userId: string, id: string): Promise<DetectionRecord | null>;
 
+  /**
+   * Persist one LLM call's token accounting (provider-native counts).
+   * Accounting must never break a scan, callers wrap this in a
+   * no-throw helper (see auth/usage.ts).
+   */
+  insertLlmUsage(entry: Omit<LlmUsageRecord, 'id' | 'createdAt'>): Promise<LlmUsageRecord>;
+  /** A user's LLM usage rows, newest first. */
+  listLlmUsage(userId: string | null, limit: number): Promise<LlmUsageRecord[]>;
+  /**
+   * Persist one (already redacted, size-bounded) wire trace for a call.
+   * Enforces the retention cap on insert: at most 8 traces per user,
+   * oldest deleted first.
+   */
+  insertLlmWireTrace(
+    trace: Omit<LlmWireTraceRecord, 'id' | 'createdAt'>,
+  ): Promise<LlmWireTraceRecord>;
+  /** A user's wire traces, newest first. */
+  listLlmWireTraces(userId: string | null, limit: number): Promise<LlmWireTraceRecord[]>;
+
   close(): Promise<void>;
 }
 
@@ -187,6 +213,35 @@ export interface WebCheckSummary {
   trustVerdict: string | null;
   requesterIp: string | null;
   requesterGeo: RequesterOrigin | null;
+  createdAt: string;
+}
+
+/**
+ * One LLM call's token accounting, in provider-native token counts.
+ * Cost is tracked in tokens only, no price tables live here.
+ */
+export interface LlmUsageRecord {
+  id: string;
+  userId: string | null;
+  provider: string;
+  model: string;
+  tier?: 'routine' | 'reasoning' | 'code';
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  latencyMs?: number | null;
+  status: 'ok' | 'error';
+  createdAt: string;
+}
+
+/** One opt-in wire trace: redacted request/response bodies for one call. */
+export interface LlmWireTraceRecord {
+  id: string;
+  llmUsageId: string;
+  userId: string | null;
+  requestBody?: string | null;
+  responseBody?: string | null;
   createdAt: string;
 }
 
@@ -209,6 +264,8 @@ export class MemoryDatabase implements Database {
   private waitlist = new Set<string>(); // normalised emails
   private webChecks: WebCheckRecord[] = [];
   private detections: DetectionRecord[] = [];
+  private llmUsage: LlmUsageRecord[] = [];
+  private llmWireTraces: LlmWireTraceRecord[] = [];
 
   async createUser(email: string, passwordHash: string): Promise<UserRecord> {
     const normalized = email.trim().toLowerCase();
@@ -338,11 +395,18 @@ export class MemoryDatabase implements Database {
     if (u) u.plan = plan;
   }
 
-  async setAiKey(userId: string, encryptedKey: string, provider: string, hint: string): Promise<void> {
+  async setAiKey(
+    userId: string,
+    encryptedKey: string,
+    provider: string,
+    hint: string,
+    baseUrl?: string | null,
+  ): Promise<void> {
     const u = this.users.get(userId);
     if (!u) return;
     u.encryptedAiKey = encryptedKey;
     u.aiProvider = provider;
+    u.aiBaseUrl = baseUrl ?? undefined;
     u.aiKeyHint = hint;
     u.aiKeyUpdatedAt = nowIso();
   }
@@ -350,6 +414,7 @@ export class MemoryDatabase implements Database {
   async getAiKey(userId: string): Promise<{
     encryptedAiKey?: string;
     aiProvider?: string;
+    aiBaseUrl?: string;
     aiKeyHint?: string;
     aiKeyUpdatedAt?: string;
   } | null> {
@@ -358,6 +423,7 @@ export class MemoryDatabase implements Database {
     return {
       encryptedAiKey: u.encryptedAiKey,
       aiProvider: u.aiProvider ?? 'gemini',
+      aiBaseUrl: u.aiBaseUrl,
       aiKeyHint: u.aiKeyHint,
       aiKeyUpdatedAt: u.aiKeyUpdatedAt,
     };
@@ -367,6 +433,7 @@ export class MemoryDatabase implements Database {
     const u = this.users.get(userId);
     if (!u) return;
     delete u.encryptedAiKey;
+    delete u.aiBaseUrl;
     delete u.aiKeyHint;
     delete u.aiKeyUpdatedAt;
   }
@@ -625,6 +692,49 @@ export class MemoryDatabase implements Database {
     return rec ? { ...rec } : null;
   }
 
+  async insertLlmUsage(
+    entry: Omit<LlmUsageRecord, 'id' | 'createdAt'>,
+  ): Promise<LlmUsageRecord> {
+    const rec: LlmUsageRecord = { ...entry, id: randomUUID(), createdAt: nowIso() };
+    this.llmUsage.push(rec);
+    return { ...rec };
+  }
+
+  async listLlmUsage(userId: string | null, limit: number): Promise<LlmUsageRecord[]> {
+    return this.llmUsage
+      .filter((r) => r.userId === userId)
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .slice(0, Math.max(1, Math.min(500, limit)))
+      .map((r) => ({ ...r }));
+  }
+
+  async insertLlmWireTrace(
+    trace: Omit<LlmWireTraceRecord, 'id' | 'createdAt'>,
+  ): Promise<LlmWireTraceRecord> {
+    const rec: LlmWireTraceRecord = { ...trace, id: randomUUID(), createdAt: nowIso() };
+    this.llmWireTraces.push(rec);
+    // Retention cap: at most 8 traces per user, drop the oldest first.
+    const own = this.llmWireTraces.filter((t) => t.userId === trace.userId);
+    for (let i = 0; i < own.length - 8; i++) {
+      const oldest = own[i];
+      if (!oldest) break;
+      const at = this.llmWireTraces.indexOf(oldest);
+      if (at >= 0) this.llmWireTraces.splice(at, 1);
+    }
+    return { ...rec };
+  }
+
+  async listLlmWireTraces(
+    userId: string | null,
+    limit: number,
+  ): Promise<LlmWireTraceRecord[]> {
+    return this.llmWireTraces
+      .filter((t) => t.userId === userId)
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .slice(0, Math.max(1, Math.min(500, limit)))
+      .map((t) => ({ ...t }));
+  }
+
   async close(): Promise<void> {
     // nothing to release
   }
@@ -724,6 +834,7 @@ export class PostgresDatabase implements Database {
       lastLoginAt: row['last_login_at'] ? (row['last_login_at'] as Date).toISOString() : undefined,
       encryptedAiKey: (row['encrypted_ai_key'] as string) ?? undefined,
       aiProvider: (row['ai_provider'] as string) ?? undefined,
+      aiBaseUrl: (row['ai_base_url'] as string) ?? undefined,
       aiKeyHint: (row['ai_key_hint'] as string) ?? undefined,
       aiKeyUpdatedAt: row['ai_key_updated_at'] ? (row['ai_key_updated_at'] as Date).toISOString() : undefined,
     };
@@ -913,26 +1024,34 @@ export class PostgresDatabase implements Database {
     await this.pool.query(`UPDATE users SET plan = $2 WHERE id = $1`, [userId, plan]);
   }
 
-  async setAiKey(userId: string, encryptedKey: string, provider: string, hint: string): Promise<void> {
+  async setAiKey(
+    userId: string,
+    encryptedKey: string,
+    provider: string,
+    hint: string,
+    baseUrl?: string | null,
+  ): Promise<void> {
     await this.pool.query(
       `UPDATE users
        SET encrypted_ai_key = $1,
            ai_provider = $2,
            ai_key_hint = $3,
+           ai_base_url = $5,
            ai_key_updated_at = NOW()
        WHERE id = $4`,
-      [encryptedKey, provider, hint, userId]
+      [encryptedKey, provider, hint, userId, baseUrl ?? null]
     );
   }
 
   async getAiKey(userId: string): Promise<{
     encryptedAiKey?: string;
     aiProvider?: string;
+    aiBaseUrl?: string;
     aiKeyHint?: string;
     aiKeyUpdatedAt?: string;
   } | null> {
     const { rows } = await this.pool.query(
-      `SELECT encrypted_ai_key, ai_provider, ai_key_hint, ai_key_updated_at
+      `SELECT encrypted_ai_key, ai_provider, ai_base_url, ai_key_hint, ai_key_updated_at
        FROM users WHERE id = $1`,
       [userId]
     );
@@ -941,6 +1060,7 @@ export class PostgresDatabase implements Database {
     return {
       encryptedAiKey: (row['encrypted_ai_key'] as string) ?? undefined,
       aiProvider: (row['ai_provider'] as string) ?? 'gemini',
+      aiBaseUrl: (row['ai_base_url'] as string) ?? undefined,
       aiKeyHint: (row['ai_key_hint'] as string) ?? undefined,
       aiKeyUpdatedAt: row['ai_key_updated_at'] ? (row['ai_key_updated_at'] as Date).toISOString() : undefined,
     };
@@ -950,6 +1070,7 @@ export class PostgresDatabase implements Database {
     await this.pool.query(
       `UPDATE users
        SET encrypted_ai_key = NULL,
+           ai_base_url = NULL,
            ai_key_hint = NULL,
            ai_key_updated_at = NULL
        WHERE id = $1`,
@@ -1403,6 +1524,105 @@ export class PostgresDatabase implements Database {
       [userId, id],
     );
     return rows[0] ? this.toDetection(rows[0]) : null;
+  }
+
+  private toLlmUsage(row: Record<string, unknown>): LlmUsageRecord {
+    return {
+      id: row['id'] as string,
+      userId: (row['user_id'] as string) ?? null,
+      provider: row['provider'] as string,
+      model: row['model'] as string,
+      tier: (row['tier'] as LlmUsageRecord['tier']) ?? undefined,
+      inputTokens: Number(row['input_tokens'] ?? 0),
+      outputTokens: Number(row['output_tokens'] ?? 0),
+      cacheReadTokens: Number(row['cache_read_tokens'] ?? 0),
+      cacheWriteTokens: Number(row['cache_write_tokens'] ?? 0),
+      latencyMs: row['latency_ms'] != null ? Number(row['latency_ms']) : undefined,
+      status: row['status'] as LlmUsageRecord['status'],
+      createdAt: (row['created_at'] as Date).toISOString(),
+    };
+  }
+
+  private toLlmWireTrace(row: Record<string, unknown>): LlmWireTraceRecord {
+    return {
+      id: row['id'] as string,
+      llmUsageId: row['llm_usage_id'] as string,
+      userId: (row['user_id'] as string) ?? null,
+      requestBody: (row['request_body'] as string) ?? undefined,
+      responseBody: (row['response_body'] as string) ?? undefined,
+      createdAt: (row['created_at'] as Date).toISOString(),
+    };
+  }
+
+  async insertLlmUsage(
+    entry: Omit<LlmUsageRecord, 'id' | 'createdAt'>,
+  ): Promise<LlmUsageRecord> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO llm_usage
+         (user_id, provider, model, tier, input_tokens, output_tokens,
+          cache_read_tokens, cache_write_tokens, latency_ms, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [
+        entry.userId,
+        entry.provider,
+        entry.model,
+        entry.tier ?? null,
+        entry.inputTokens,
+        entry.outputTokens,
+        entry.cacheReadTokens,
+        entry.cacheWriteTokens,
+        entry.latencyMs ?? null,
+        entry.status,
+      ],
+    );
+    return this.toLlmUsage(rows[0]);
+  }
+
+  async listLlmUsage(userId: string | null, limit: number): Promise<LlmUsageRecord[]> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM llm_usage
+       WHERE user_id IS NOT DISTINCT FROM $1
+       ORDER BY created_at DESC LIMIT $2`,
+      [userId, Math.max(1, Math.min(500, limit))],
+    );
+    return rows.map((r: Record<string, unknown>) => this.toLlmUsage(r));
+  }
+
+  async insertLlmWireTrace(
+    trace: Omit<LlmWireTraceRecord, 'id' | 'createdAt'>,
+  ): Promise<LlmWireTraceRecord> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO llm_wire_traces (llm_usage_id, user_id, request_body, response_body)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [trace.llmUsageId, trace.userId, trace.requestBody ?? null, trace.responseBody ?? null],
+    );
+    // Retention cap: at most 8 traces per user, drop the oldest first.
+    // (8 mirrors LLM_WIRE_TRACE_MAX_ATTEMPTS in auth/usage.ts.)
+    await this.pool.query(
+      `DELETE FROM llm_wire_traces
+       WHERE user_id IS NOT DISTINCT FROM $1
+         AND id NOT IN (
+           SELECT id FROM llm_wire_traces
+           WHERE user_id IS NOT DISTINCT FROM $1
+           ORDER BY created_at DESC, id DESC
+           LIMIT 8
+         )`,
+      [trace.userId],
+    );
+    return this.toLlmWireTrace(rows[0]);
+  }
+
+  async listLlmWireTraces(
+    userId: string | null,
+    limit: number,
+  ): Promise<LlmWireTraceRecord[]> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM llm_wire_traces
+       WHERE user_id IS NOT DISTINCT FROM $1
+       ORDER BY created_at DESC LIMIT $2`,
+      [userId, Math.max(1, Math.min(500, limit))],
+    );
+    return rows.map((r: Record<string, unknown>) => this.toLlmWireTrace(r));
   }
 
   async close(): Promise<void> {

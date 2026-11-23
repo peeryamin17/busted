@@ -39,12 +39,17 @@ export interface AppConfig {
   postLoginRedirect: string;
   databaseUrl?: string;
   redisUrl?: string;
-  llmProvider: 'mock' | 'claude' | 'gemini';
+  llmProvider: 'mock' | 'claude' | 'gemini' | 'qwen';
   anthropicApiKey?: string;
   anthropicModel: string;
   geminiApiKey?: string;
   geminiRoutineModel: string;
   geminiReasoningModel: string;
+  qwenApiKey?: string;
+  qwenBaseUrl: string;
+  qwenRoutineModel: string;
+  qwenReasoningModel: string;
+  qwenCodeModel: string;
   agentMaxActions: number;
   agentMaxDurationMs: number;
   agentRequestsPerSecond: number;
@@ -81,8 +86,15 @@ function loadConfig(): AppConfig {
   const googleRedirectUri = process.env['GOOGLE_REDIRECT_URI'] || undefined;
 
   const llmProviderRaw = str('LLM_PROVIDER', 'gemini').toLowerCase();
-  if (llmProviderRaw !== 'mock' && llmProviderRaw !== 'claude' && llmProviderRaw !== 'gemini') {
-    throw new Error(`Unsupported LLM_PROVIDER=${llmProviderRaw} (expected "mock", "claude", or "gemini")`);
+  if (
+    llmProviderRaw !== 'mock' &&
+    llmProviderRaw !== 'claude' &&
+    llmProviderRaw !== 'gemini' &&
+    llmProviderRaw !== 'qwen'
+  ) {
+    throw new Error(
+      `Unsupported LLM_PROVIDER=${llmProviderRaw} (expected "mock", "claude", "gemini", or "qwen")`
+    );
   }
   const anthropicApiKey = process.env['ANTHROPIC_API_KEY'] || undefined;
   if (llmProviderRaw === 'claude' && !anthropicApiKey) {
@@ -138,6 +150,14 @@ function loadConfig(): AppConfig {
     geminiApiKey: process.env['GEMINI_API_KEY'] || undefined,
     geminiRoutineModel: str('GEMINI_ROUTINE_MODEL', 'gemini-2.0-flash'),
     geminiReasoningModel: str('GEMINI_REASONING_MODEL', 'gemini-2.0-flash'),
+    // Qwen (Alibaba DashScope, OpenAI-compatible). Base URL selects the
+    // region, a key issued for one region returns 401 on another's URL.
+    // Default is the international endpoint.
+    qwenApiKey: process.env['QWEN_API_KEY'] || undefined,
+    qwenBaseUrl: str('QWEN_BASE_URL', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'),
+    qwenRoutineModel: str('QWEN_ROUTINE_MODEL', 'qwen3.8-flash'),
+    qwenReasoningModel: str('QWEN_REASONING_MODEL', 'qwen3.7-plus'),
+    qwenCodeModel: str('QWEN_CODE_MODEL', 'qwen3.7-plus'),
     agentMaxActions: num('AGENT_MAX_ACTIONS', 40),
     agentMaxDurationMs: num('AGENT_MAX_DURATION_MIN', 15) * 60 * 1000,
     agentRequestsPerSecond: num('AGENT_REQUESTS_PER_SECOND', 2),

@@ -213,6 +213,8 @@ export interface UserRecord {
   encryptedAiKey?: string;
   /** AI provider (e.g. 'gemini'). */
   aiProvider?: string;
+  /** Provider-specific base URL (e.g. the DashScope region endpoint for Qwen). */
+  aiBaseUrl?: string;
   /** Safe masked hint for UI display. */
   aiKeyHint?: string;
   /** Timestamp when AI key was last updated. */

@@ -31,6 +31,7 @@ import {
   checkBackendStatus,
   getBackendAccount,
   getBackendApiKey,
+  getBackendBaseUrl,
   getGeminiApiKey,
   getEnginesStatus,
   importFindingsReport,
@@ -533,7 +534,7 @@ async function startSwarmScan(): Promise<void> {
   const apiKey = await getBackendApiKey();
   const geminiKey = await getGeminiApiKey();
   if (!apiKey && !geminiKey) {
-    showError('Paste your Gemini API key (AIza...) in the field above to unlock the AI Swarm.');
+    showError('Paste your AI provider key in the field above to unlock the AI Swarm.');
     document.getElementById('backend-api-key')?.focus();
     return;
   }
@@ -873,7 +874,7 @@ async function startEnginesRun(): Promise<void> {
   const apiKey = await getBackendApiKey();
   const geminiKey = await getGeminiApiKey();
   if (!apiKey && !geminiKey) {
-    showError('Paste your Gemini API key (AIza...) in the field above to unlock the AI Swarm.');
+    showError('Paste your AI provider key in the field above to unlock the AI Swarm.');
     document.getElementById('backend-api-key')?.focus();
     return;
   }
@@ -1320,48 +1321,232 @@ async function refreshBackendBadge(): Promise<void> {
 }
 
 /** Backend API-key row: stored locally, sent as x-api-key or x-gemini-api-key on backend calls.
-    Accepts a user's Gemini API key (AIza...), a bs_ key directly, or a one-time link code. */
+    Accepts a user's AI provider key (Gemini AIza... or Qwen/DashScope sk-...),
+    a bs_ key directly, or a one-time link code. Ollama needs no key, it runs
+    on the user's own machine. */
+type AiProviderChoice = 'gemini' | 'qwen' | 'ollama';
+type QwenRegionChoice = 'intl' | 'cn' | 'custom';
+
+const AI_PROVIDER_STORAGE_KEY = 'bugseek:aiProvider';
+const AI_BASE_URL_STORAGE_KEY = 'bugseek:aiBaseUrl';
+
+/** DashScope OpenAI-compatible base URLs, by region. Mirrors the backend. */
+const QWEN_BASE_URLS: Record<'intl' | 'cn', string> = {
+  intl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+  cn: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+};
+
+/**
+ * Resolve the DashScope base URL for a Qwen key. Mirrors the server-side
+ * allowlist in backend/src/routes/aiKey.ts, the popup never fetches a
+ * custom URL that fails this check.
+ */
+function resolveQwenBaseUrl(
+  region: string,
+  customUrl: string | undefined,
+): { baseUrl: string; region: QwenRegionChoice } | { error: string } {
+  if (region === 'intl' || region === 'cn') {
+    return { baseUrl: QWEN_BASE_URLS[region], region };
+  }
+  if (region !== 'custom') {
+    return { error: `Unknown Qwen region "${region}".` };
+  }
+  const raw = (customUrl ?? '').trim().replace(/\/+$/, '');
+  if (!raw) return { error: 'Enter your custom DashScope workspace URL for Qwen.' };
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return { error: 'That Qwen workspace URL does not look like a valid URL.' };
+  }
+  if (
+    url.protocol !== 'https:' ||
+    url.username !== '' ||
+    url.password !== '' ||
+    (url.port !== '' && url.port !== '443') ||
+    !url.hostname.endsWith('.aliyuncs.com') ||
+    url.pathname !== '/compatible-mode/v1'
+  ) {
+    return {
+      error: 'Custom Qwen URL must be an https://*.aliyuncs.com/compatible-mode/v1 endpoint.',
+    };
+  }
+  return { baseUrl: url.toString().replace(/\/+$/, ''), region: 'custom' };
+}
+
+async function getStoredAiProvider(): Promise<{
+  provider: AiProviderChoice;
+  baseUrl: string | null;
+}> {
+  try {
+    const stored = await chrome.storage.local.get([
+      AI_PROVIDER_STORAGE_KEY,
+      AI_BASE_URL_STORAGE_KEY,
+    ]);
+    const provider = stored[AI_PROVIDER_STORAGE_KEY];
+    const baseUrl = stored[AI_BASE_URL_STORAGE_KEY];
+    return {
+      provider:
+        provider === 'gemini' || provider === 'qwen' || provider === 'ollama'
+          ? provider
+          : 'qwen',
+      baseUrl: typeof baseUrl === 'string' ? baseUrl : null,
+    };
+  } catch {
+    return { provider: 'qwen', baseUrl: null };
+  }
+}
+
+async function setStoredAiProvider(
+  provider: AiProviderChoice,
+  baseUrl: string | null,
+): Promise<void> {
+  try {
+    if (baseUrl) {
+      await chrome.storage.local.set({
+        [AI_PROVIDER_STORAGE_KEY]: provider,
+        [AI_BASE_URL_STORAGE_KEY]: baseUrl,
+      });
+    } else {
+      await chrome.storage.local.set({ [AI_PROVIDER_STORAGE_KEY]: provider });
+      await chrome.storage.local.remove(AI_BASE_URL_STORAGE_KEY);
+    }
+  } catch {
+    /* storage unavailable, the key itself is what unlocks scans */
+  }
+}
+
+/** Client-side Ollama reachability check (popup only, the server must never fetch localhost). */
+async function checkOllamaReachable(): Promise<boolean> {
+  try {
+    const res = await fetch('http://127.0.0.1:11434/api/tags', {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Best-effort sync of the popup's BYOK choice to the account record via
+ * POST /api/me/ai-key, the same endpoint the website uses. Only attempted
+ * when the browser is linked with a bs_ key; a failure never blocks the
+ * local save. Returns an error string, or null on success / when not linked.
+ */
+async function syncAiKeyToBackend(
+  apiKey: string,
+  provider: AiProviderChoice,
+  region?: QwenRegionChoice,
+  baseUrl?: string | null,
+): Promise<string | null> {
+  const bsKey = await getBackendApiKey();
+  if (!bsKey) return null;
+  try {
+    const base = await getBackendBaseUrl();
+    const res = await fetch(`${base}/api/me/ai-key`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': bsKey },
+      body: JSON.stringify({
+        apiKey,
+        provider,
+        ...(provider === 'qwen' ? { region, baseUrl } : {}),
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.ok) return null;
+    const body = (await res.json().catch(() => ({}))) as { error?: unknown };
+    return typeof body?.error === 'string'
+      ? body.error
+      : `Account sync failed (HTTP ${res.status}).`;
+  } catch {
+    return 'Backend unreachable — key saved locally only.';
+  }
+}
+
 async function initBackendKeyRow(): Promise<void> {
   const input = document.getElementById('backend-api-key') as HTMLInputElement | null;
   const save = document.getElementById('backend-api-key-save') as HTMLButtonElement | null;
   if (!input || !save) return;
+  const providerSelect = document.getElementById(
+    'backend-api-provider',
+  ) as HTMLSelectElement | null;
+  const qwenBlock = document.getElementById('backend-key-qwen') as HTMLElement | null;
+  const qwenRegion = document.getElementById('backend-qwen-region') as HTMLSelectElement | null;
+  const qwenCustomUrl = document.getElementById(
+    'backend-qwen-custom-url',
+  ) as HTMLInputElement | null;
+  const ollamaBlock = document.getElementById('backend-key-ollama') as HTMLElement | null;
+  const ollamaCheckBtn = document.getElementById(
+    'backend-ollama-check',
+  ) as HTMLButtonElement | null;
+  const ollamaStatus = document.getElementById('backend-ollama-status') as HTMLElement | null;
+
+  let ollamaReachable: boolean | null = null;
+
+  const stored = await getStoredAiProvider();
+  let provider: AiProviderChoice = stored.provider;
+  if (providerSelect) providerSelect.value = provider;
+  if (qwenRegion && stored.baseUrl) {
+    if (stored.baseUrl === QWEN_BASE_URLS.intl) qwenRegion.value = 'intl';
+    else if (stored.baseUrl === QWEN_BASE_URLS.cn) qwenRegion.value = 'cn';
+    else {
+      qwenRegion.value = 'custom';
+      if (qwenCustomUrl) qwenCustomUrl.value = stored.baseUrl;
+    }
+  }
+
+  function refreshProviderUi(): void {
+    if (!input) return;
+    provider = (providerSelect?.value ?? 'qwen') as AiProviderChoice;
+    if (qwenBlock) qwenBlock.hidden = provider !== 'qwen';
+    if (ollamaBlock) ollamaBlock.hidden = provider !== 'ollama';
+    if (qwenCustomUrl) {
+      qwenCustomUrl.hidden = provider !== 'qwen' || qwenRegion?.value !== 'custom';
+    }
+    input.placeholder =
+      provider === 'gemini'
+        ? 'Paste Gemini key (AIza...) or link code'
+        : provider === 'qwen'
+          ? 'Paste DashScope key (sk-...) or link code'
+          : 'No key needed — Ollama runs on your machine';
+  }
+  providerSelect?.addEventListener('change', () => {
+    refreshProviderUi();
+    hideError();
+  });
+  qwenRegion?.addEventListener('change', refreshProviderUi);
+  ollamaCheckBtn?.addEventListener('click', () => {
+    void (async () => {
+      if (!ollamaCheckBtn || !ollamaStatus) return;
+      ollamaCheckBtn.disabled = true;
+      ollamaStatus.textContent = 'Checking…';
+      ollamaReachable = await checkOllamaReachable();
+      ollamaStatus.textContent = ollamaReachable
+        ? 'Ollama is reachable on this machine.'
+        : 'Ollama is not reachable — start it, then check again.';
+      ollamaCheckBtn.disabled = false;
+    })();
+  });
+  refreshProviderUi();
+
   const hasKey = (await getBackendApiKey()) || (await getGeminiApiKey());
   input.value = hasKey ? '••••••••' : '';
-  input.placeholder = 'Paste Gemini key (AIza...) or link code';
+
   const doSave = async () => {
     const v = input.value.trim();
-    if (v === '••••••••') return; // unchanged placeholder
     input.setCustomValidity('');
-    if (!v) {
-      // Cleared: unlink this browser.
-      await setBackendApiKey(null);
-      await setGeminiApiKey(null);
-      linkedAccount = null;
-      operatorAccount = null;
-      accountError = null;
-      renderLinkedAccount();
-      await refreshAuthzState();
-      setStatus('Key removed.');
-      return;
-    }
-    // Direct Gemini API Key (AIza...)
-    if (v.startsWith('AIza') || (v.length > 32 && !v.startsWith('bs_'))) {
+
+    // Ollama needs no key: saving with an empty key field records the
+    // provider choice. A pasted bs_ key or link code still falls through
+    // to the normal paths below.
+    if (provider === 'ollama' && (v === '' || v === '••••••••')) {
       save.disabled = true;
-      input.value = 'Verifying Gemini key…';
       try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(v)}`,
-          { method: 'GET', signal: AbortSignal.timeout(8000) }
-        ).catch(() => null);
-        // If Google explicitly rejected the key with 400/403, warn the user
-        if (res && !res.ok) {
-          const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-          throw new Error(body?.error?.message || `Google rejected this key (HTTP ${res.status}).`);
-        }
-        await setGeminiApiKey(v);
-        input.value = '••••••••';
-        const hint = `${v.slice(0, 4)}••••${v.slice(-4)}`;
-        linkedAccount = { email: `Gemini AI (${hint})`, plan: 'enterprise', operator: true };
+        await setStoredAiProvider('ollama', null);
+        const hint = 'local';
+        linkedAccount = { email: `Ollama (${hint})`, plan: 'enterprise', operator: true };
         operatorAccount = linkedAccount;
         accountError = null;
         renderLinkedAccount();
@@ -1369,17 +1554,32 @@ async function initBackendKeyRow(): Promise<void> {
         void refreshEnginesStatus();
         await initOperatorUnlock();
         await refreshAuthzState();
-        setStatus('Gemini API key verified & saved! AI Swarm unlocked.');
+        const syncErr = await syncAiKeyToBackend('', 'ollama');
+        const warn =
+          ollamaReachable === false
+            ? ' Warning: Ollama is not reachable on this machine right now — start it before running local AI scans.'
+            : '';
+        const syncNote = syncErr ? ` (Note: ${syncErr})` : '';
+        setStatus(`Ollama saved as your local provider.${warn}${syncNote}`);
         hideError();
-      } catch (err) {
-        input.value = v;
-        const msg = err instanceof Error ? err.message : 'Invalid Gemini API key';
-        input.setCustomValidity(msg);
-        input.reportValidity();
-        showError(msg);
       } finally {
         save.disabled = false;
       }
+      return;
+    }
+
+    if (v === '••••••••') return; // unchanged placeholder
+    if (!v) {
+      // Cleared: unlink this browser.
+      await setBackendApiKey(null);
+      await setGeminiApiKey(null);
+      await setStoredAiProvider('qwen', null);
+      linkedAccount = null;
+      operatorAccount = null;
+      accountError = null;
+      renderLinkedAccount();
+      await refreshAuthzState();
+      setStatus('Key removed.');
       return;
     }
     if (v.startsWith('bs_')) {
@@ -1391,6 +1591,101 @@ async function initBackendKeyRow(): Promise<void> {
         await initOperatorUnlock();
         await refreshAuthzState();
       })();
+      return;
+    }
+    // Direct AI provider key: a recognised prefix, or a long value (legacy
+    // Gemini treatment). The prefix wins over the picker. Anything shorter
+    // falls through to the link-code path below.
+    if (v.startsWith('AIza') || v.startsWith('sk-') || v.length > 32) {
+      const keyProvider: 'gemini' | 'qwen' = v.startsWith('sk-')
+        ? 'qwen'
+        : v.startsWith('AIza') || provider !== 'qwen'
+          ? 'gemini'
+          : 'qwen';
+      const label = keyProvider === 'qwen' ? 'Qwen' : 'Gemini';
+
+      save.disabled = true;
+      input.value = `Verifying ${label} key…`;
+      try {
+        if (keyProvider === 'qwen') {
+          const region = (qwenRegion?.value ?? 'intl') as QwenRegionChoice;
+          const resolved = resolveQwenBaseUrl(region, qwenCustomUrl?.value);
+          if ('error' in resolved) throw new Error(resolved.error);
+          const res = await fetch(`${resolved.baseUrl}/models`, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${v}` },
+            signal: AbortSignal.timeout(8000),
+          }).catch(() => null);
+          // DashScope explicitly rejecting the key with 401 often means the
+          // key belongs to another region, say so.
+          if (res && !res.ok) {
+            const body = (await res.json().catch(() => ({}))) as {
+              error?: { message?: string } | string;
+            };
+            const detail =
+              typeof body?.error === 'string'
+                ? body.error
+                : body?.error?.message || `Qwen rejected this key (HTTP ${res.status}).`;
+            throw new Error(
+              res.status === 401
+                ? `${detail} Check the key and the region: a DashScope key only works in the region it was created for.`
+                : detail,
+            );
+          }
+          await setGeminiApiKey(v);
+          await setStoredAiProvider('qwen', resolved.baseUrl);
+          input.value = '••••••••';
+          const hint = `${v.slice(0, 4)}••••${v.slice(-4)}`;
+          linkedAccount = { email: `Qwen AI (${hint})`, plan: 'enterprise', operator: true };
+          operatorAccount = linkedAccount;
+          accountError = null;
+          renderLinkedAccount();
+          void refreshBackendBadge();
+          void refreshEnginesStatus();
+          await initOperatorUnlock();
+          await refreshAuthzState();
+          const syncErr = await syncAiKeyToBackend(v, 'qwen', resolved.region, resolved.baseUrl);
+          setStatus(
+            `Qwen API key verified & saved! AI Swarm unlocked.${syncErr ? ` (Note: ${syncErr})` : ''}`,
+          );
+          hideError();
+        } else {
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(v)}`,
+            { method: 'GET', signal: AbortSignal.timeout(8000) }
+          ).catch(() => null);
+          // If Google explicitly rejected the key with 400/403, warn the user
+          if (res && !res.ok) {
+            const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+            throw new Error(body?.error?.message || `Google rejected this key (HTTP ${res.status}).`);
+          }
+          await setGeminiApiKey(v);
+          await setStoredAiProvider('gemini', null);
+          input.value = '••••••••';
+          const hint = `${v.slice(0, 4)}••••${v.slice(-4)}`;
+          linkedAccount = { email: `Gemini AI (${hint})`, plan: 'enterprise', operator: true };
+          operatorAccount = linkedAccount;
+          accountError = null;
+          renderLinkedAccount();
+          void refreshBackendBadge();
+          void refreshEnginesStatus();
+          await initOperatorUnlock();
+          await refreshAuthzState();
+          const syncErr = await syncAiKeyToBackend(v, 'gemini');
+          setStatus(
+            `Gemini API key verified & saved! AI Swarm unlocked.${syncErr ? ` (Note: ${syncErr})` : ''}`,
+          );
+          hideError();
+        }
+      } catch (err) {
+        input.value = v;
+        const msg = err instanceof Error ? err.message : `Invalid ${label} API key`;
+        input.setCustomValidity(msg);
+        input.reportValidity();
+        showError(msg);
+      } finally {
+        save.disabled = false;
+      }
       return;
     }
     // Anything else is a one-time link code from the website.

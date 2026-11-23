@@ -9,9 +9,11 @@ import { redactFindingEvidence } from '../guardrails/redact.js';
 import { estimateCvss } from '../reports/cvss.js';
 import { securityScore } from '../reports/score.js';
 import { suggestFixes } from '../reports/remediation.js';
-import { createLLMProvider } from '../llm/index.js';
+import { createLLMProvider, createProviderForUser } from '../llm/index.js';
+import { FailoverProvider } from '../llm/qwen.js';
+import { GeminiProvider } from '../llm/gemini.js';
 import { config } from '../config.js';
-import { getUserDecryptedAiKey } from './aiKey.js';
+import { getUserDecryptedAiKey, resolveQwenBaseUrl } from './aiKey.js';
 import type { RouteDeps } from './health.js';
 import { runMultiAgentScan } from '../multiagent/orchestrator.js';
 import { BugSeekOSDK } from '../ontology/osdk.js';
@@ -88,13 +90,41 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
         ? request.headers['x-gemini-api-key'].trim()
         : undefined;
 
+    const headerQwenKey =
+      typeof request.headers['x-qwen-api-key'] === 'string' &&
+      request.headers['x-qwen-api-key'].trim().length >= 16
+        ? request.headers['x-qwen-api-key'].trim()
+        : undefined;
+
     const userKey = headerGeminiKey || (await getUserDecryptedAiKey(db, user.id));
-    const hasByok = Boolean(userKey);
+    // The stored BYOK key's provider (ai_provider column) decides whether
+    // the decrypted key is a Gemini key or a DashScope (Qwen) key. A
+    // per-request x-qwen-api-key header wins over the stored key.
+    const storedAiKey = await db.getAiKey(user.id).catch(() => null);
+    const storedProvider = storedAiKey?.aiProvider ?? 'gemini';
+    const qwenKey =
+      headerQwenKey ?? (!headerGeminiKey && storedProvider === 'qwen' ? userKey : undefined);
+    // The popup sends the Qwen base URL (region / workspace) alongside a
+    // local Qwen key. It is re-validated against the DashScope allowlist;
+    // a bad value is ignored with a warning (the provider then fails fast
+    // and failover decides) rather than killing the scan.
+    const headerQwenBaseUrl =
+      typeof request.headers['x-qwen-base-url'] === 'string' &&
+      request.headers['x-qwen-base-url'].trim().length > 0
+        ? request.headers['x-qwen-base-url'].trim()
+        : undefined;
+    let qwenBaseUrl = storedAiKey?.aiBaseUrl ?? undefined;
+    if (headerQwenBaseUrl) {
+      const resolved = resolveQwenBaseUrl('custom', headerQwenBaseUrl);
+      if ('baseUrl' in resolved) qwenBaseUrl = resolved.baseUrl;
+      else app.log.warn(`[swarm] ignoring invalid x-qwen-base-url header: ${resolved.error}`);
+    }
+    const hasByok = Boolean(userKey || headerQwenKey);
 
     // 1. Feature gating: swarm = active testing → Hunter+ or BYOK AI key.
     if (!isOp && !hasByok && !quota.activeTesting) {
       return reply.status(403).send({
-        error: 'Active testing requires the Hunter plan or higher, or a connected Gemini API key (BYOK)',
+        error: 'Active testing requires the Hunter plan or higher, or a connected AI provider key (BYOK)',
       });
     }
 
@@ -151,9 +181,20 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       await db.recordUsage(user.id, 'scan', creditCost, scan.id);
     }
 
-    const provider = userKey
-      ? createLLMProvider(userKey)
-      : (deps.provider ?? createLLMProvider(config.geminiApiKey));
+    let provider;
+    if (qwenKey) {
+      // BYOK Qwen is the primary provider; a DashScope failure (wrong
+      // region 401, 429, timeout, 5xx) falls through to the server Gemini
+      // key when one is configured, so the swarm survives a provider outage.
+      const qwen = createProviderForUser('qwen', qwenKey, qwenBaseUrl);
+      provider = config.geminiApiKey
+        ? new FailoverProvider([qwen, new GeminiProvider(config.geminiApiKey)])
+        : qwen;
+    } else if (userKey) {
+      provider = createLLMProvider(userKey);
+    } else {
+      provider = deps.provider ?? createLLMProvider();
+    }
 
     // Ingest SurfaceSnapshot into immutable ontology graph + evidence blobs if Postgres pool is available
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
