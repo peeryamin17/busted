@@ -3,7 +3,7 @@ import {
   guardedFetch,
   type ToolExecutionContext,
 } from '../agent/tools.js';
-import { redactText } from '../guardrails/redact.js';
+import { redactHeaders, redactText } from '../guardrails/redact.js';
 import type {
   DepthEvidence,
   DepthImpact,
@@ -78,6 +78,13 @@ export interface DepthProbeResponse {
   headers?: Record<string, string>;
   /** Raw body (capped). The ladder excerpts/redacts before storing. */
   body: string;
+  /**
+   * Top-level JSON field names observed in the body, in observed order
+   * (values never recorded, names only). Populated by the live prober
+   * for JSON responses; callers use it to build proof records for
+   * IDOR/GraphQL shape receipts.
+   */
+  shape?: string[];
   error?: string;
 }
 
@@ -95,13 +102,23 @@ export interface LadderOptions {
    */
   allowNeighborShapeProbe?: boolean;
   /**
-   * Called with every probe response (label, URL, raw capped body) so the
-   * caller can snapshot the proof and run the verbatim-receipt check
-   * (Phase B proof gate). The hook never affects the ladder outcome: a
-   * throwing hook is swallowed, and the body handed over is the raw probe
-   * response — the caller redacts before persisting anything.
+   * Called with every probe response so the caller can snapshot the proof
+   * and run the verbatim-receipt check. The hook
+   * receives the raw capped body (the caller redacts before persisting
+   * anything) plus the response status, the REDACTED response headers
+   * (cookie/authorization values already masked) and, for JSON
+   * responses, the observed top-level field names as `shape`, so the
+   * caller can build proof records for header/shape receipts. The hook
+   * never affects the ladder outcome: a throwing hook is swallowed.
    */
-  onProbe?: (probe: { label: string; url: string; body: string }) => void;
+  onProbe?: (probe: {
+    label: string;
+    url: string;
+    body: string;
+    status?: number;
+    headers?: Record<string, string>;
+    shape?: string[];
+  }) => void;
   now?: () => string;
 }
 
@@ -159,7 +176,15 @@ export function createDepthProber(ctx: ToolExecutionContext): DepthProber {
       res.headers.forEach((v, k) => {
         headers[k.toLowerCase()] = v;
       });
-      return { ok: res.status < 500, status: res.status, headers, body: await readCapped(res) };
+      const body = await readCapped(res);
+      const shape = jsonFieldNames(body) ?? undefined;
+      return {
+        ok: res.status < 500,
+        status: res.status,
+        headers: redactHeaders(headers),
+        body,
+        ...(shape ? { shape } : {}),
+      };
     } catch (e) {
       return { ok: false, body: '', error: (e as Error).message.slice(0, 200) };
     }
@@ -218,8 +243,8 @@ function excerptAround(body: string, token: string, radius = 80): string {
   return redactText(snippet, 300);
 }
 
-/** JSON field names only — values are never recorded, by design. */
-function jsonFieldNames(body: string): string[] | null {
+/** JSON field names only, values are never recorded, by design. Exported so callers (retester) can derive a probe's shape from its body. */
+export function jsonFieldNames(body: string): string[] | null {
   try {
     const parsed: unknown = JSON.parse(body);
     const obj = Array.isArray(parsed) ? parsed[0] : parsed;
@@ -436,13 +461,16 @@ async function runIdor(
   }
   const n1Fields = n1.ok && n1.status === 200 ? jsonFieldNames(n1.body) : null;
   if (!n1Fields || !sameShape(baseFields, n1Fields)) return 'unproven';
+  // The field list is quoted so the receipt check has a verbatim anchor:
+  // the list comes from the claimed record's response and must appear
+  // verbatim in the neighbour's proof record (its FIELDS line).
   state.evidence.push({
     rung: 'confirm',
     kind: 'idor-neighbor-shape',
     request: `GET ${new URL(replaceId(id + 1)).pathname} (neighbour of ${id})`,
     observed:
       `HTTP 200 with the same JSON field names as the claimed record ` +
-      `(${baseFields.join(', ')}); values never recorded. Body length ${n1.body.length} bytes.`,
+      `("${baseFields.join(', ')}"); values never recorded. Body length ${n1.body.length} bytes.`,
     status: 200,
   });
   // Escalate: a second, farther neighbour (id-1, else id+10) matches too.
@@ -462,7 +490,7 @@ async function runIdor(
       kind: 'idor-second-neighbor-shape',
       request: `GET ${new URL(replaceId(secondId)).pathname} (second neighbour of ${id})`,
       observed:
-        `HTTP 200 with the same JSON field names (${baseFields.join(', ')}); values never recorded. ` +
+        `HTTP 200 with the same JSON field names ("${baseFields.join(', ')}"); values never recorded. ` +
         `Cross-record reach proven by shape, not by reading data.`,
       status: 200,
     });
@@ -569,7 +597,10 @@ async function runGraphql(
     rung: 'confirm',
     kind: 'graphql-readonly-query',
     request: `POST ${url.pathname} { __typename } (read-only query)`,
-    observed: `HTTP ${res.status}: GraphQL endpoint returned data for a read-only query. No mutation was sent.`,
+    // The "__typename" key is quoted so the receipt check has a verbatim
+    // anchor: it appears in the recorded response body ("data" envelope
+    // carrying "__typename"), which is what this rung proved.
+    observed: `HTTP ${res.status}: GraphQL endpoint returned data for a read-only query ("__typename" present in the response). No mutation was sent.`,
     status: res.status,
   });
   // Escalate: read-only introspection returns the schema.
@@ -602,7 +633,10 @@ async function runGraphql(
       rung: 'escalate',
       kind: 'graphql-introspection',
       request: `POST ${url.pathname} { __schema { queryType mutationType } } (read-only introspection)`,
-      observed: `HTTP ${esc.status}: introspection returned the schema. Schema contents not recorded (only that introspection succeeded).`,
+      // Same verbatim anchor as the confirm rung: "__schema" is the key
+      // the introspection response carried, and it appears verbatim in
+      // the recorded response body.
+      observed: `HTTP ${esc.status}: introspection returned the schema ("__schema" present in the response). Schema contents not recorded (only that introspection succeeded).`,
       status: esc.status,
     });
     return 'escalated';
@@ -646,7 +680,20 @@ export async function validateFindingWithLadder(
     const res = await prober(req);
     if (opts.onProbe) {
       try {
-        opts.onProbe({ label: req.label, url: req.url, body: res.body });
+        // Surface everything the caller needs for a proof record: the
+        // status, the redacted headers (re-redacted here so a custom
+        // prober that did not redact cannot leak cookie/auth values into
+        // the hook), and the observed JSON field names (the prober's own
+        // shape when it supplies one, else derived from the body).
+        const shape = res.shape ?? jsonFieldNames(res.body) ?? undefined;
+        opts.onProbe({
+          label: req.label,
+          url: req.url,
+          body: res.body,
+          ...(res.status !== undefined ? { status: res.status } : {}),
+          ...(res.headers ? { headers: redactHeaders(res.headers) } : {}),
+          ...(shape ? { shape } : {}),
+        });
       } catch {
         // A snapshot hook must never fail the ladder.
       }

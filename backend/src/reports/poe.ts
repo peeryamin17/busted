@@ -142,25 +142,124 @@ export interface ReceiptResult {
 }
 
 /**
- * The receipt check: pass iff at least one quote appears VERBATIM (exact
- * substring) in at least one proof body. An empty quotes list always
- * fails — there is no receipt without a quote to match.
+ * One bound proof observation: a single probe response, as the receipt
+ * check searches it. `body` is the (redacted) response body; `status` and
+ * `headers` carry what the body alone cannot prove (a CORS echo lives in
+ * `access-control-allow-origin`, not in the body); `shape` is the list of
+ * top-level JSON field names observed in the response, in observed order
+ * (for IDOR/GraphQL: the exact field names of the returned object,
+ * values are never recorded, only the names).
+ *
+ * Headers stored here must already be redacted (see
+ * guardrails/redact.ts `redactHeaders`): the receipt check renders them
+ * verbatim into the canonical proof text.
  */
-export function receiptCheck(
+export interface ProofRecord {
+  label: string;
+  url: string;
+  status?: number;
+  headers?: Record<string, string>;
+  body: string;
+  shape?: string[];
+}
+
+/**
+ * The single canonical rendering of a proof record, the ONLY surface the
+ * receipt check searches. Deterministic: header lines are sorted by
+ * (lowercased) name, so the same record always renders the same text.
+ * Shape renders as one `FIELDS` line (omitted when no field names were
+ * observed).
+ */
+export function canonicalProofText(record: ProofRecord): string {
+  const lines: string[] = [];
+  if (record.status !== undefined) lines.push(`STATUS ${record.status}`);
+  const headers = record.headers ?? {};
+  for (const name of Object.keys(headers).sort()) {
+    lines.push(`HEADER ${name.toLowerCase()}: ${headers[name]}`);
+  }
+  lines.push(record.body);
+  if (record.shape && record.shape.length > 0) {
+    // Comma-space join: the field list renders exactly as the ladder
+    // records it in evidence prose ("id, name, email"), so a quoted
+    // field list from evidence can receipt against this line verbatim.
+    lines.push(`FIELDS ${record.shape.join(', ')}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * The receipt check over proof records: pass iff at least one quote
+ * appears VERBATIM (exact substring) in at least one record's canonical
+ * proof text. Same rules as the body-only check, an empty quotes list
+ * or an empty records list always fails; there is no receipt without a
+ * quote to match or proof to match it against.
+ */
+export function receiptCheckRecords(
   quotes: string[],
-  proofBodies: string[],
+  records: ProofRecord[],
 ): ReceiptResult {
-  if (quotes.length === 0 || proofBodies.length === 0) {
+  if (quotes.length === 0 || records.length === 0) {
     return { pass: false };
   }
   for (const quote of quotes) {
-    for (const body of proofBodies) {
-      if (body.includes(quote)) {
+    for (const record of records) {
+      if (canonicalProofText(record).includes(quote)) {
         return { pass: true, matchedQuote: quote };
       }
     }
   }
   return { pass: false };
+}
+
+/**
+ * The receipt check: pass iff at least one quote appears VERBATIM (exact
+ * substring) in at least one proof body. An empty quotes list always
+ * fails, there is no receipt without a quote to match. This is the
+ * body-only special case of `receiptCheckRecords`: a body with no
+ * status, headers or shape renders as just the body, so the two checks
+ * agree exactly.
+ */
+export function receiptCheck(
+  quotes: string[],
+  proofBodies: string[],
+): ReceiptResult {
+  return receiptCheckRecords(
+    quotes,
+    proofBodies.map((body) => ({ label: '', url: '', body })),
+  );
+}
+
+export interface ShapeReceiptResult {
+  pass: boolean;
+  matchedFields: string[];
+}
+
+/**
+ * The shape receipt: pass iff EVERY expected field name appears EXACTLY
+ * (case-sensitive, whole-field equality, not a substring, not a prefix)
+ * in at least one record's `shape` list. A record with field
+ * `identity` does NOT satisfy an expected field `id`. An empty expected
+ * list always fails, a shape receipt needs a field set to check.
+ *
+ * This is the receipt for IDOR (a neighbour record's field names) and
+ * GraphQL (schema field names): the "quote" is the field set, and the
+ * check is exact membership, not fuzzy matching.
+ */
+export function shapeReceiptCheck(
+  expectedFields: string[],
+  records: ProofRecord[],
+): ShapeReceiptResult {
+  const observed = new Set<string>();
+  for (const record of records) {
+    for (const field of record.shape ?? []) observed.add(field);
+  }
+  const matchedFields = expectedFields.filter((f) => observed.has(f));
+  return {
+    pass:
+      expectedFields.length > 0 &&
+      matchedFields.length === expectedFields.length,
+    matchedFields,
+  };
 }
 
 export interface VerifiedResult {
@@ -174,22 +273,30 @@ export interface VerifiedResult {
  * A finding is "verified" only when ALL three hold:
  *   1. POE >= 3 (cross-context proof, the ladder's escalated depth with
  *      a data/second-context evidence kind),
- *   2. the receipt check passes (a verbatim evidence quote appears in a
- *      bound proof body),
+ *   2. the receipt check passes (a verbatim evidence quote appears in
+ *      bound proof),
  *   3. the ladder itself marked the finding 'verified'.
  *
  * `proofBodies` are the bodies of the bound proof/verification evidence
  * snapshots for this finding (see evidence/snapshots.ts), the live text
- * the quote must appear in verbatim.
+ * the quote must appear in verbatim. When `proofRecords` is supplied,
+ * the receipt is checked against the records' canonical proof text
+ * instead (headers + shape included, the only surface that can prove a
+ * CORS echo or an IDOR/GraphQL field set); when omitted, behaviour is
+ * exactly the body-only check.
  */
 export function isVerified(
   finding: { verification?: FindingVerification },
   proofBodies: string[],
+  proofRecords?: ProofRecord[],
 ): VerifiedResult {
   const { poe, rationale } = assignPoe(finding);
   const v = finding.verification;
   const quotes = v ? extractQuotes(v.evidence) : [];
-  const receipt = receiptCheck(quotes, proofBodies);
+  const receipt =
+    proofRecords !== undefined
+      ? receiptCheckRecords(quotes, proofRecords)
+      : receiptCheck(quotes, proofBodies);
   const statusOk = v?.status === 'verified';
 
   if (poe >= 3 && receipt.pass && statusOk) {
@@ -199,7 +306,10 @@ export function isVerified(
       receipt: true,
       reason:
         `Verified: POE ${poe} — ${rationale} Receipt check passed on quote ` +
-        `"${receipt.matchedQuote}".`,
+        `"${receipt.matchedQuote}"` +
+        (proofRecords !== undefined
+          ? ' in a bound proof record.'
+          : ' in a bound proof body.'),
     };
   }
   const failures: string[] = [];
@@ -208,7 +318,78 @@ export function isVerified(
     failures.push(
       quotes.length === 0
         ? 'no evidence quote of 8+ characters to check a receipt against'
-        : 'no evidence quote appears verbatim in any bound proof body',
+        : proofRecords !== undefined
+          ? 'no evidence quote appears verbatim in any bound proof record'
+          : 'no evidence quote appears verbatim in any bound proof body',
+    );
+  }
+  if (!statusOk) {
+    failures.push(
+      v
+        ? `ladder status is '${v.status}', not 'verified'`
+        : 'no ladder verification recorded',
+    );
+  }
+  return {
+    verified: false,
+    poe,
+    receipt: receipt.pass,
+    reason: `Not verified: ${failures.join('; ')}.`,
+  };
+}
+
+/**
+ * The records version of `isVerified`: POE ≥ 3 AND a verbatim quote in a
+ * bound proof record AND ladder status 'verified', plus, when
+ * `expectedFields` is given, the shape receipt must ALSO pass (every
+ * expected field name exactly present in some record's shape). The
+ * reason names which surface passed, so a held-as-hint finding says
+ * exactly what was missing.
+ */
+export function verifyWithRecords(
+  finding: { verification?: FindingVerification },
+  records: ProofRecord[],
+  expectedFields?: string[],
+): VerifiedResult {
+  const { poe, rationale } = assignPoe(finding);
+  const v = finding.verification;
+  const quotes = v ? extractQuotes(v.evidence) : [];
+  const receipt = receiptCheckRecords(quotes, records);
+  const shape =
+    expectedFields !== undefined
+      ? shapeReceiptCheck(expectedFields, records)
+      : null;
+  const statusOk = v?.status === 'verified';
+
+  if (poe >= 3 && receipt.pass && (shape === null || shape.pass) && statusOk) {
+    const surfaces = [`verbatim quote "${receipt.matchedQuote}" in a bound proof record`];
+    if (shape !== null) {
+      surfaces.push(`shape receipt for fields ${shape.matchedFields.join(', ')}`);
+    }
+    return {
+      verified: true,
+      poe,
+      receipt: true,
+      reason:
+        `Verified: POE ${poe} — ${rationale} Receipt passed on ` +
+        `${surfaces.join(' and ')}.`,
+    };
+  }
+  const failures: string[] = [];
+  if (poe < 3) failures.push(`POE ${poe} is below 3 (${rationale})`);
+  if (!receipt.pass) {
+    failures.push(
+      quotes.length === 0
+        ? 'no evidence quote of 8+ characters to check a receipt against'
+        : 'no evidence quote appears verbatim in any bound proof record',
+    );
+  }
+  if (shape !== null && !shape.pass) {
+    const missing = (expectedFields ?? []).filter(
+      (f) => !shape.matchedFields.includes(f),
+    );
+    failures.push(
+      `shape receipt failed: expected field(s) ${missing.join(', ')} not observed exactly in any bound proof record`,
     );
   }
   if (!statusOk) {

@@ -126,7 +126,12 @@ export async function retestRoutes(app: FastifyInstance, deps: RetestRouteDeps):
         return reply.status(500).send({ error: (err as Error).message });
       }
 
-      const verification = applyRetestVerdict(finding, result);
+      const verification = applyRetestVerdict(
+        finding,
+        result,
+        result.proofBodies,
+        result.proofRecords,
+      );
       await db.recordRetest({
         taskId: id,
         findingId: finding.id,

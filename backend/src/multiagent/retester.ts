@@ -1,11 +1,20 @@
 import {
   classifyFinding,
   isLadderTestable,
+  jsonFieldNames,
   untestedVerification,
   validateFindingWithLadder,
   type DepthProber,
   type LadderFindingInput,
 } from './depthLadder.js';
+import { redactHeaders, redactText } from '../guardrails/redact.js';
+import {
+  assignPoe,
+  extractQuotes,
+  receiptCheck,
+  receiptCheckRecords,
+  type ProofRecord,
+} from '../reports/poe.js';
 import type {
   DepthEvidence,
   DepthLevel,
@@ -29,7 +38,10 @@ import type {
  *
  * Verdicts:
  * - 'reproduced', the fresh canary reproduces the proof. Upgrades a hint
- *   to verified.
+ *   to verified, but only when the re-run passes the same proof gate as
+ *   the head (POE ≥ 3 + a verbatim receipt in bound proof, see
+ *   `applyRetestVerdict`): a reproduction that cannot clear the gate is
+ *   held as a hint, exactly as the head holds it.
  * - 'fixed', positive evidence the proof no longer reproduces: the ladder
  *   ran cleanly to completion and the canary no longer reflects / the
  *   neighbour is no longer reachable / the read-only query returns no data,
@@ -63,6 +75,18 @@ export interface RetestResult {
   evidence: DepthEvidence[];
   /** The fresh canary the retest ran with (ours, safe to show). */
   canaryToken?: string;
+  /**
+   * The (redacted) bodies of every probe the re-run sent, baseline first
+   *, the proof the receipt check searches. Empty when the retest could
+   * not run.
+   */
+  proofBodies?: string[];
+  /**
+   * One proof record per probe the re-run sent (status, redacted headers,
+   * redacted body, observed field names), the canonical surface for
+   * header/shape receipts. Empty when the retest could not run.
+   */
+  proofRecords?: ProofRecord[];
   testedAt: string; // ISO
   method: typeof RETEST_METHOD;
 }
@@ -269,11 +293,36 @@ export async function retestFinding(input: {
   const { finding, targetUrl, prober } = input;
   const now = input.now ?? (() => new Date().toISOString());
   const testedAt = now();
+  // Proof collected from every probe the re-run sends (baseline + ladder
+  // rungs), mirroring head.ts's onProbe pattern: the redacted body of
+  // each probe, plus one proof record per probe (status, redacted
+  // headers, observed JSON field names) so the verdict gate can check
+  // header/shape receipts as well as body receipts. The wrapper only
+  // records, it never changes what the ladder sends or receives.
+  const proofBodies: string[] = [];
+  const proofRecords: ProofRecord[] = [];
+  const tracingProber: DepthProber = async (req) => {
+    const res = await prober(req);
+    const redactedBody = redactText(res.body, 200_000);
+    proofBodies.push(redactedBody);
+    const shape = res.shape ?? jsonFieldNames(res.body) ?? undefined;
+    proofRecords.push({
+      label: req.label,
+      url: req.url,
+      ...(res.status !== undefined ? { status: res.status } : {}),
+      ...(res.headers ? { headers: redactHeaders(res.headers) } : {}),
+      body: redactedBody,
+      ...(shape ? { shape } : {}),
+    });
+    return res;
+  };
   const inconclusive = (reason: string, evidence: DepthEvidence[] = []): RetestResult => ({
     findingId: finding.id,
     verdict: 'inconclusive',
     impactSummary: `Retest inconclusive: ${reason}`,
     evidence,
+    proofBodies: [...proofBodies],
+    proofRecords: [...proofRecords],
     testedAt,
     method: RETEST_METHOD,
   });
@@ -294,7 +343,7 @@ export async function retestFinding(input: {
     // 1. Baseline: is the endpoint still there at all, and reachable? A
     // retest that cannot reach the target cannot say anything, least of
     // all that the finding is fixed.
-    const baseline = await probeBaseline(url, kind, prober);
+    const baseline = await probeBaseline(url, kind, tracingProber);
     if (baseline.outcome === 'unreachable') {
       return inconclusive(
         'the target could not be reached — an unreachable target is not evidence of a fix.',
@@ -321,7 +370,7 @@ export async function retestFinding(input: {
     }
 
     // 2. Re-run the finding's own proof with a fresh canary.
-    const ladder = await validateFindingWithLadder(finding, prober, { targetUrl, now });
+    const ladder = await validateFindingWithLadder(finding, tracingProber, { targetUrl, now });
     const evidence = [baseline.evidence, ...ladder.evidence];
     if (ladder.status === 'verified') {
       return {
@@ -331,6 +380,8 @@ export async function retestFinding(input: {
         impactSummary: `Retest reproduced the finding with a fresh benign canary. ${ladder.impactSummary}`,
         evidence,
         canaryToken: ladder.canaryToken,
+        proofBodies: [...proofBodies],
+        proofRecords: [...proofRecords],
         testedAt,
         method: RETEST_METHOD,
       };
@@ -369,6 +420,8 @@ export async function retestFinding(input: {
       impactSummary: `Retest: the proof no longer reproduces.${goneNote} The finding was verified before and the same benign-canary proof now fails, so it is treated as fixed.`,
       evidence,
       canaryToken: ladder.canaryToken,
+      proofBodies: [...proofBodies],
+      proofRecords: [...proofRecords],
       testedAt,
       method: RETEST_METHOD,
     };
@@ -384,21 +437,39 @@ export async function retestFinding(input: {
  * Apply a retest verdict to a finding's verification. Pure function, no
  * I/O, no persistence; the route persists the returned object.
  *
- * - 'reproduced' → { status: 'verified', depth: the retest's depth }.
- *   Upgrades a hint to verified; re-confirms an already-verified finding.
+ * - 'reproduced' → the SAME proof gate as the head (Phase 4.6): POE ≥ 3
+ *   (computed on the would-be verification) AND a verbatim receipt in
+ *   bound proof. Quotes are the retest evidence's quotes plus the fresh
+ *   canary itself; the receipt runs over proof records when supplied
+ *   (headers + shape included), else over proof bodies. Proof comes
+ *   from `proofBodies`/`proofRecords` when passed explicitly, else from
+ *   the same fields on `result` (populated by `retestFinding`). When
+ *   both hold → { status: 'verified', depth: the retest's depth }.
+ *   When either fails, the finding is HELD AS A HINT, status 'hint',
+ *   depth kept, and the impactSummary appended with the failing
+ *   condition ('Held as a hint by the proof gate:...'), so a re-run
+ *   that reproduces only weakly can never re-verify a finding on its
+ *   own say-so. The returned verification records the POE and whether
+ *   the receipt passed (`poe`, `receiptChecked`).
  * - 'fixed' → { status: 'fixed', depth: 'unproven', impact: 'not-measured' }.
- *   Moves the finding to fixed. 'fixed' is a NEW status value alongside
- *   'verified'/'hint': reports must treat it as RESOLVED, not as a hint —
- *   a 'fixed' finding must not appear under "Hints (unverified)" (see
- *   reports/verification.ts: `hintFindings` currently treats anything that
- *   is not 'verified' as a hint, so it needs a 'fixed' exclusion when
- *   `types.ts` gains the status).
+ *   Moves the finding to fixed. 'fixed' is positive evidence of
+ *   non-reproduction and needs no receipt, so the gate does not run
+ *   here. 'fixed' is a NEW status value alongside 'verified'/'hint':
+ *   reports must treat it as RESOLVED, not as a hint, a 'fixed'
+ *   finding must not appear under "Hints (unverified)" (see
+ *   reports/verification.ts: `hintFindings` currently treats anything
+ *   that is not 'verified' as a hint, so it needs a 'fixed' exclusion).
  * - 'inconclusive' → the finding's existing verification, unchanged (same
  *   object). A retest that could not run must never downgrade or upgrade a
  *   finding. If the finding had no verification at all, a hint stating the
  *   retest was inconclusive is returned instead.
  */
-export function applyRetestVerdict(finding: Finding, result: RetestResult): RetestVerification {
+export function applyRetestVerdict(
+  finding: Finding,
+  result: RetestResult,
+  proofBodies?: string[],
+  proofRecords?: ProofRecord[],
+): RetestVerification {
   if (result.verdict === 'inconclusive') {
     if (finding.verification) return finding.verification;
     return untestedVerification(
@@ -408,7 +479,7 @@ export function applyRetestVerdict(finding: Finding, result: RetestResult): Rete
   }
   if (result.verdict === 'reproduced') {
     const depth = result.depth ?? 'confirmed';
-    return {
+    const wouldBe: FindingVerification = {
       status: 'verified',
       depth,
       impact: depth === 'escalated' ? 'cross-context' : 'single-context',
@@ -417,6 +488,41 @@ export function applyRetestVerdict(finding: Finding, result: RetestResult): Rete
       evidence: result.evidence,
       testedAt: result.testedAt,
       method: RETEST_METHOD,
+    };
+    const quotes = [
+      ...extractQuotes(result.evidence),
+      ...(result.canaryToken ? [result.canaryToken] : []),
+    ];
+    const records = proofRecords ?? result.proofRecords;
+    const bodies = proofBodies ?? result.proofBodies ?? [];
+    const receipt =
+      records !== undefined
+        ? receiptCheckRecords(quotes, records)
+        : receiptCheck(quotes, bodies);
+    const { poe } = assignPoe({ verification: wouldBe });
+    if (poe >= 3 && receipt.pass) {
+      return { ...wouldBe, poe, receiptChecked: true };
+    }
+    const failures: string[] = [];
+    if (poe < 3) {
+      failures.push(`POE ${poe} is below 3 (verified needs POE 3+)`);
+    }
+    if (!receipt.pass) {
+      failures.push(
+        quotes.length === 0
+          ? 'no evidence quote of 8+ characters to check a receipt against'
+          : records !== undefined
+            ? 'no evidence quote appears verbatim in any bound proof record'
+            : 'no evidence quote appears verbatim in any bound proof body',
+      );
+    }
+    return {
+      ...wouldBe,
+      status: 'hint',
+      poe,
+      receiptChecked: receipt.pass,
+      impactSummary:
+        `${result.impactSummary} Held as a hint by the proof gate: ${failures.join('; ')}.`,
     };
   }
   // 'fixed'

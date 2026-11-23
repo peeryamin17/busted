@@ -7,9 +7,14 @@
 import {
   DATA_ESCALATION_KINDS,
   assignPoe,
+  canonicalProofText,
   extractQuotes,
   isVerified,
   receiptCheck,
+  receiptCheckRecords,
+  shapeReceiptCheck,
+  verifyWithRecords,
+  type ProofRecord,
 } from '../src/reports/poe.js';
 import type { FindingVerification } from '../src/types.js';
 
@@ -208,6 +213,103 @@ async function main() {
 
     const none = isVerified({}, proofBodies);
     check('isVerified: no verification → NOT verified, poe 0', none.verified === false && none.poe === 0, none);
+  }
+
+  // ── 9. Header/shape receipts ──
+  {
+    const corsRecord: ProofRecord = {
+      label: 'cors-confirm',
+      url: 'http://127.0.0.1:9/api/me',
+      status: 200,
+      // Inserted out of order on purpose: the canonical text must sort them.
+      headers: {
+        'access-control-allow-origin': 'https://canary-bs0123456789abcdef.bugseek-test.invalid',
+        'access-control-allow-credentials': 'true',
+      },
+      body: '{"user":"data"}',
+    };
+    const origin = 'https://canary-bs0123456789abcdef.bugseek-test.invalid';
+    const headerReceipt = receiptCheckRecords([origin], [corsRecord]);
+    check('receipt(records): quote in a header line → pass',
+      headerReceipt.pass && headerReceipt.matchedQuote === origin, headerReceipt);
+    check('receipt(bodies): same quote NOT in any body → fail',
+      receiptCheck([origin], [corsRecord.body]).pass === false);
+    check('receipt(records): quote in neither header nor body → fail',
+      receiptCheckRecords(['https://canary-bs0000000000000000.bugseek-test.invalid'], [corsRecord]).pass === false);
+    check('receipt(records): empty records → fail', receiptCheckRecords([origin], []).pass === false);
+    check('receipt(records): empty quotes → fail', receiptCheckRecords([], [corsRecord]).pass === false);
+
+    // canonicalProofText is deterministic and header-sorted.
+    const textA = canonicalProofText(corsRecord);
+    const textB = canonicalProofText({ ...corsRecord, headers: { ...corsRecord.headers } });
+    check('canonical: same record → same text', textA === textB, textA);
+    check('canonical: header lines sorted by name',
+      textA.indexOf('HEADER access-control-allow-credentials') < textA.indexOf('HEADER access-control-allow-origin'), textA);
+    check('canonical: status line first, body present',
+      textA.startsWith('STATUS 200') && textA.includes('{"user":"data"}'), textA);
+
+    // Shape receipt: exact field-name membership, no substrings.
+    const idorRecord: ProofRecord = {
+      label: 'idor-confirm',
+      url: 'http://127.0.0.1:9/api/users/43',
+      status: 200,
+      body: '{"id":43,"name":"x","email":"y"}',
+      shape: ['id', 'name', 'email'],
+    };
+    check('shape: exact field set → pass',
+      shapeReceiptCheck(['id', 'name', 'email'], [idorRecord]).pass === true);
+    check('canonical: FIELDS line renders the shape comma-space joined',
+      canonicalProofText(idorRecord).includes('FIELDS id, name, email'),
+      canonicalProofText(idorRecord));
+    // The quoted field list receipts verbatim against the FIELDS line:
+    // the quote comes from ladder evidence, the line from the live record.
+    check('receipt(records): quoted field list matches the FIELDS line',
+      receiptCheckRecords(['id, name, email'], [idorRecord]).pass === true);
+    check('shape: missing field → fail',
+      shapeReceiptCheck(['id', 'name', 'role'], [idorRecord]).pass === false);
+    check('shape: substring field name does NOT count',
+      shapeReceiptCheck(['id'], [{ ...idorRecord, shape: ['identity', 'name'] }]).pass === false);
+    check('shape: case-sensitive field name',
+      shapeReceiptCheck(['ID'], [idorRecord]).pass === false);
+    check('shape: empty expected list → fail',
+      shapeReceiptCheck([], [idorRecord]).pass === false);
+    check('shape: matchedFields lists the exact matches',
+      shapeReceiptCheck(['id', 'role'], [idorRecord]).matchedFields.join(',') === 'id');
+
+    // verifyWithRecords: quote receipt + optional shape receipt.
+    const gqlVerified = verification({
+      status: 'verified',
+      depth: 'escalated',
+      impact: 'cross-context',
+      evidence: [
+        { rung: 'confirm', kind: 'graphql-readonly-query', request: 'POST /graphql { __typename }', observed: 'returned data' },
+        { rung: 'escalate', kind: 'graphql-introspection', request: 'POST /graphql { __schema }', observed: 'introspection returned the schema, type "QueryRootType" present' },
+      ],
+    });
+    const gqlRecord: ProofRecord = {
+      label: 'graphql-escalate',
+      url: 'http://127.0.0.1:9/graphql',
+      status: 200,
+      body: '{"data":{"__schema":{"queryType":{"name":"QueryRootType"}}}}',
+      shape: ['data'],
+    };
+    const withRecords = verifyWithRecords({ verification: gqlVerified }, [gqlRecord]);
+    check('verifyWithRecords: poe 3 + quote in record → verified',
+      withRecords.verified === true && withRecords.poe === 3, withRecords);
+    const withShape = verifyWithRecords({ verification: gqlVerified }, [gqlRecord], ['data']);
+    check('verifyWithRecords: + matching shape → verified', withShape.verified === true, withShape);
+    const shapeMiss = verifyWithRecords({ verification: gqlVerified }, [gqlRecord], ['data', '__schema']);
+    check('verifyWithRecords: shape miss → NOT verified, reason names the field',
+      shapeMiss.verified === false && shapeMiss.reason.includes('__schema'), shapeMiss);
+    const headerOnly = verifyWithRecords({ verification: gqlVerified }, [corsRecord]);
+    check('verifyWithRecords: quote in neither header nor body → NOT verified',
+      headerOnly.verified === false, headerOnly);
+    const bodyOnlyStillWorks = verifyWithRecords(
+      { verification: gqlVerified },
+      [{ label: 'graphql-escalate', url: 'http://127.0.0.1:9/graphql', body: '{"data":{"__schema":{"queryType":{"name":"QueryRootType"}}}}' }],
+    );
+    check('verifyWithRecords: body-only record → verified (headers/shape optional)',
+      bodyOnlyStillWorks.verified === true, bodyOnlyStillWorks);
   }
 
   if (failures > 0) { console.error(`${failures} poe test(s) failed`); process.exit(1); }
