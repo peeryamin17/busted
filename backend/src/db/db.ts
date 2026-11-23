@@ -18,6 +18,21 @@ import type { RetestVerification } from '../multiagent/retester.js';
 import type { RequesterOrigin, WebCheckRecord, WebFinding, WebInfo } from '../webcheck/types.js';
 import type { DetectionRecord } from '../detection/types.js';
 
+export interface UserAiKeyRow {
+  providerId: string;
+  encryptedKey: string;
+  keyHint: string;
+  baseUrl: string;
+  verifiedAt: string;
+}
+
+export interface UserLlmRouting {
+  workerProvider: string;
+  workerModel: string | null;
+  reasoningProvider: string;
+  reasoningModel: string | null;
+}
+
 export interface CreateScanInput {
   userId: string;
   targetUrl: string;
@@ -97,6 +112,24 @@ export interface Database {
     aiKeyUpdatedAt?: string;
   } | null>;
   deleteAiKey(userId: string): Promise<void>;
+
+  /** One encrypted BYOK key per (user, provider) (migration 034). */
+  listUserAiKeys(userId: string): Promise<UserAiKeyRow[]>;
+  upsertUserAiKey(
+    userId: string,
+    row: {
+      providerId: string;
+      encryptedKey: string;
+      keyHint: string;
+      baseUrl: string;
+      verifiedAt: string;
+    },
+  ): Promise<void>;
+  /** True when a row existed and was removed. */
+  deleteUserAiKey(userId: string, providerId: string): Promise<boolean>;
+  /** Worker/reasoning tier routing (migration 034); null when never set. */
+  getUserLlmRouting(userId: string): Promise<UserLlmRouting | null>;
+  setUserLlmRouting(userId: string, routing: UserLlmRouting): Promise<void>;
 
   /** Create a website session; only the token's SHA-256 hash is passed in/stored. */
   createSession(userId: string, tokenHash: string, expiresAtIso: string): Promise<SessionRecord>;
@@ -312,6 +345,8 @@ export class MemoryDatabase implements Database {
   private detections: DetectionRecord[] = [];
   private llmUsage: LlmUsageRecord[] = [];
   private llmWireTraces: LlmWireTraceRecord[] = [];
+  private userAiKeys = new Map<string, Map<string, UserAiKeyRow>>();
+  private userLlmRouting = new Map<string, UserLlmRouting>();
 
   async createUser(email: string, passwordHash: string): Promise<UserRecord> {
     const normalized = email.trim().toLowerCase();
@@ -482,6 +517,45 @@ export class MemoryDatabase implements Database {
     delete u.aiBaseUrl;
     delete u.aiKeyHint;
     delete u.aiKeyUpdatedAt;
+  }
+
+  async listUserAiKeys(userId: string): Promise<UserAiKeyRow[]> {
+    const byProvider = this.userAiKeys.get(userId);
+    if (!byProvider) return [];
+    return [...byProvider.values()]
+      .sort((a, b) => a.providerId.localeCompare(b.providerId))
+      .map((r) => ({ ...r }));
+  }
+
+  async upsertUserAiKey(
+    userId: string,
+    row: {
+      providerId: string;
+      encryptedKey: string;
+      keyHint: string;
+      baseUrl: string;
+      verifiedAt: string;
+    },
+  ): Promise<void> {
+    let byProvider = this.userAiKeys.get(userId);
+    if (!byProvider) {
+      byProvider = new Map();
+      this.userAiKeys.set(userId, byProvider);
+    }
+    byProvider.set(row.providerId, { ...row });
+  }
+
+  async deleteUserAiKey(userId: string, providerId: string): Promise<boolean> {
+    return this.userAiKeys.get(userId)?.delete(providerId) ?? false;
+  }
+
+  async getUserLlmRouting(userId: string): Promise<UserLlmRouting | null> {
+    const row = this.userLlmRouting.get(userId);
+    return row ? { ...row } : null;
+  }
+
+  async setUserLlmRouting(userId: string, routing: UserLlmRouting): Promise<void> {
+    this.userLlmRouting.set(userId, { ...routing });
   }
 
   async createApiKey(
@@ -1168,6 +1242,82 @@ export class PostgresDatabase implements Database {
            ai_key_updated_at = NULL
        WHERE id = $1`,
       [userId]
+    );
+  }
+
+  async listUserAiKeys(userId: string): Promise<UserAiKeyRow[]> {
+    const { rows } = await this.pool.query(
+      `SELECT provider_id, encrypted_key, key_hint, base_url, verified_at
+       FROM user_ai_keys WHERE user_id = $1 ORDER BY provider_id`,
+      [userId]
+    );
+    return rows.map((row: Record<string, unknown>) => ({
+      providerId: row['provider_id'] as string,
+      encryptedKey: row['encrypted_key'] as string,
+      keyHint: row['key_hint'] as string,
+      baseUrl: row['base_url'] as string,
+      verifiedAt: (row['verified_at'] as Date).toISOString(),
+    }));
+  }
+
+  async upsertUserAiKey(
+    userId: string,
+    row: {
+      providerId: string;
+      encryptedKey: string;
+      keyHint: string;
+      baseUrl: string;
+      verifiedAt: string;
+    },
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO user_ai_keys (user_id, provider_id, encrypted_key, key_hint, base_url, verified_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (user_id, provider_id) DO UPDATE
+       SET encrypted_key = EXCLUDED.encrypted_key,
+           key_hint = EXCLUDED.key_hint,
+           base_url = EXCLUDED.base_url,
+           verified_at = EXCLUDED.verified_at,
+           updated_at = NOW()`,
+      [userId, row.providerId, row.encryptedKey, row.keyHint, row.baseUrl, row.verifiedAt]
+    );
+  }
+
+  async deleteUserAiKey(userId: string, providerId: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `DELETE FROM user_ai_keys WHERE user_id = $1 AND provider_id = $2`,
+      [userId, providerId]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async getUserLlmRouting(userId: string): Promise<UserLlmRouting | null> {
+    const { rows } = await this.pool.query(
+      `SELECT worker_provider, worker_model, reasoning_provider, reasoning_model
+       FROM user_llm_routing WHERE user_id = $1`,
+      [userId]
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      workerProvider: row['worker_provider'] as string,
+      workerModel: (row['worker_model'] as string | null) ?? null,
+      reasoningProvider: row['reasoning_provider'] as string,
+      reasoningModel: (row['reasoning_model'] as string | null) ?? null,
+    };
+  }
+
+  async setUserLlmRouting(userId: string, routing: UserLlmRouting): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO user_llm_routing (user_id, worker_provider, worker_model, reasoning_provider, reasoning_model)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id) DO UPDATE
+       SET worker_provider = EXCLUDED.worker_provider,
+           worker_model = EXCLUDED.worker_model,
+           reasoning_provider = EXCLUDED.reasoning_provider,
+           reasoning_model = EXCLUDED.reasoning_model,
+           updated_at = NOW()`,
+      [userId, routing.workerProvider, routing.workerModel, routing.reasoningProvider, routing.reasoningModel]
     );
   }
 

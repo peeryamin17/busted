@@ -1,0 +1,110 @@
+export type ProviderId =
+  | 'gemini'
+  | 'claude'
+  | 'qwen'
+  | 'kimi'
+  | 'glm'
+  | 'deepseek'
+  | 'openrouter'
+  | 'ollama';
+
+export type ModelTier = 'worker' | 'reasoning';
+
+export interface ProviderSpec {
+  id: ProviderId;
+  label: string;
+  protocol: 'openai_compat' | 'gemini' | 'anthropic';
+  mode: 'hosted' | 'local';
+  defaultBaseUrl: string;
+  allowedBaseUrlPatterns: RegExp[];
+  defaultModels: Record<ModelTier, string>;
+}
+
+export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
+  gemini: {
+    id: 'gemini',
+    label: 'Google Gemini',
+    protocol: 'gemini',
+    mode: 'hosted',
+    defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    allowedBaseUrlPatterns: [/^https:\/\/generativelanguage\.googleapis\.com\/v1beta$/],
+    defaultModels: { worker: 'gemini-2.5-flash', reasoning: 'gemini-2.5-pro' },
+  },
+  claude: {
+    id: 'claude',
+    label: 'Anthropic Claude',
+    protocol: 'anthropic',
+    mode: 'hosted',
+    defaultBaseUrl: 'https://api.anthropic.com/v1',
+    allowedBaseUrlPatterns: [/^https:\/\/api\.anthropic\.com\/v1$/],
+    defaultModels: { worker: 'claude-haiku-4-5', reasoning: 'claude-sonnet-4-5' },
+  },
+  qwen: {
+    id: 'qwen',
+    label: 'Qwen (DashScope)',
+    protocol: 'openai_compat',
+    mode: 'hosted',
+    defaultBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    allowedBaseUrlPatterns: [/^https:\/\/[a-z0-9-]+\.aliyuncs\.com\/compatible-mode\/v1$/],
+    defaultModels: { worker: 'qwen-plus', reasoning: 'qwen-max' },
+  },
+  kimi: {
+    id: 'kimi',
+    label: 'Kimi (Moonshot)',
+    protocol: 'openai_compat',
+    mode: 'hosted',
+    defaultBaseUrl: 'https://api.moonshot.ai/v1',
+    allowedBaseUrlPatterns: [/^https:\/\/api\.moonshot\.(ai|cn)\/v1$/],
+    defaultModels: { worker: 'moonshot-v1-32k', reasoning: 'kimi-k2-0711-preview' },
+  },
+  glm: {
+    id: 'glm',
+    label: 'GLM (Zhipu)',
+    protocol: 'openai_compat',
+    mode: 'hosted',
+    defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    allowedBaseUrlPatterns: [/^https:\/\/open\.bigmodel\.cn\/api\/paas\/v4$/],
+    defaultModels: { worker: 'glm-4-air', reasoning: 'glm-4-plus' },
+  },
+  deepseek: {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    protocol: 'openai_compat',
+    mode: 'hosted',
+    defaultBaseUrl: 'https://api.deepseek.com/v1',
+    allowedBaseUrlPatterns: [/^https:\/\/api\.deepseek\.com(\/v1)?$/],
+    defaultModels: { worker: 'deepseek-chat', reasoning: 'deepseek-reasoner' },
+  },
+  openrouter: {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    protocol: 'openai_compat',
+    mode: 'hosted',
+    defaultBaseUrl: 'https://openrouter.ai/api/v1',
+    allowedBaseUrlPatterns: [/^https:\/\/openrouter\.ai\/api\/v1$/],
+    defaultModels: { worker: 'deepseek/deepseek-chat', reasoning: 'anthropic/claude-sonnet-4.5' },
+  },
+  ollama: {
+    id: 'ollama',
+    label: 'Ollama (Local)',
+    protocol: 'openai_compat',
+    mode: 'local',
+    defaultBaseUrl: 'http://127.0.0.1:11434/v1',
+    allowedBaseUrlPatterns: [/^http:\/\/(127\.0\.0\.1|localhost):11434(\/v1)?$/],
+    defaultModels: { worker: 'qwen2.5:14b', reasoning: 'deepseek-r1:14b' },
+  },
+};
+
+export function isProviderId(value: string): value is ProviderId {
+  return value in PROVIDER_REGISTRY;
+}
+
+export function validateProviderBaseUrl(providerId: ProviderId, url?: string): string {
+  const spec = PROVIDER_REGISTRY[providerId];
+  const candidate = (url?.trim() || spec.defaultBaseUrl).replace(/\/$/, '');
+  const ok = spec.allowedBaseUrlPatterns.some((re) => re.test(candidate));
+  if (!ok) {
+    throw new Error(`Disallowed base URL for provider ${providerId}`);
+  }
+  return candidate;
+}

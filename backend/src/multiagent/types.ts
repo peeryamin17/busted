@@ -124,6 +124,13 @@ export interface WorkerReport {
   errors: string[];
   durationMs: number;
   notes: string[];
+  /** One entry per LLM call: provider, model, exact finite token counts. */
+  llmProviders?: Array<{
+    providerId: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+  }>;
 }
 
 export interface MultiAgentLimits {

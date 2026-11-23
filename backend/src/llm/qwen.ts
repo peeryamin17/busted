@@ -269,7 +269,7 @@ export class QwenProvider implements LLMProvider {
           this.activeRoutineModel = model;
         }
 
-        return this.parseResponse(data);
+        return this.parseResponse(data, model);
       } catch (err: any) {
         lastError = err;
         const status = err?.status;
@@ -308,7 +308,7 @@ export class QwenProvider implements LLMProvider {
     throw lastError ?? new Error(`All candidate Qwen models failed for tier "${tier}"`);
   }
 
-  private parseResponse(data: any): LLMCompletion {
+  private parseResponse(data: any, model?: string): LLMCompletion {
     const choice = data?.choices?.[0];
     const text = choice?.message?.content;
     if (!text || typeof text !== 'string') {
@@ -320,13 +320,16 @@ export class QwenProvider implements LLMProvider {
     const inTokens = Number(usage.prompt_tokens ?? 0);
     const outTokens = Number(usage.completion_tokens ?? 0);
     const cachedTokens = Number(usage.prompt_tokens_details?.cached_tokens ?? NaN);
-    return makeCompletion(text, {
+    const completion = makeCompletion(text, {
       inputTokens: Number.isFinite(inTokens) ? inTokens : 0,
       outputTokens: Number.isFinite(outTokens) ? outTokens : 0,
       ...(Number.isFinite(cachedTokens) && cachedTokens > 0
         ? { cacheReadTokens: cachedTokens }
         : {}),
     });
+    completion.providerId = 'qwen';
+    if (model) completion.model = model;
+    return completion;
   }
 
   /**
@@ -363,14 +366,33 @@ export class QwenProvider implements LLMProvider {
         return (await res.json()) as any;
       }
       const rawPayload = await res.text().catch(() => '');
-      // Never surface the raw provider body: it can echo key material
-      // or request details. Same treatment as Gemini (key= stripped,
-      // then the shared redactor scrubs secret shapes and truncates).
-      const sanitizedPayload = redactText(
-        rawPayload.replace(/([?&]key=)[^&"'\s]+/gi, '$1REDACTED'),
-        300,
+      // Only the structured error message is surfaced, redacted and
+      // short. The raw body stays out of the error: it can echo key
+      // material or request details.
+      let detail = '';
+      try {
+        const parsed = JSON.parse(rawPayload) as { error?: { message?: unknown } | string };
+        detail =
+          typeof parsed?.error === 'string'
+            ? parsed.error
+            : typeof parsed?.error?.message === 'string'
+              ? parsed.error.message
+              : '';
+      } catch {
+        detail = '';
+      }
+      const clean = redactText(detail.replace(/([?&]key=)[^&"'\s]+/gi, '$1REDACTED'), 140);
+      const code =
+        res.status === 429
+          ? 'rate_limited'
+          : res.status === 401 || res.status === 403
+            ? 'invalid_key'
+            : res.status === 404
+              ? 'model_not_found'
+              : 'provider_error';
+      const err = new Error(
+        clean ? `Qwen API error ${res.status}: ${clean}` : `Qwen API error ${res.status}: ${code}`,
       );
-      const err = new Error(`Qwen API error ${res.status}: ${sanitizedPayload}`);
       (err as any).status = res.status;
       lastError = err;
       if (res.status !== 429 && res.status < 500) break; // non-transient, don't retry

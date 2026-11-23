@@ -1,5 +1,27 @@
+import { createHash } from 'node:crypto';
 import { config } from '../config.js';
 import { makeCompletion, type LLMCompletion, type LLMCompletionRequest, type LLMProvider } from './provider.js';
+import { finiteInt, safeErrorCode } from './openaiCompat.js';
+
+const MODEL_CACHE_TTL_MS = 15 * 60_000;
+const CASCADE_TIMEOUT_MS = 45_000;
+
+/** Provider error bodies are never surfaced raw: only the structured message field, redacted and short. */
+export function sanitizedGeminiError(status: number, rawBody: string): Error {
+  let detail = '';
+  try {
+    const parsed = JSON.parse(rawBody) as { error?: { message?: unknown } };
+    if (typeof parsed?.error?.message === 'string') detail = parsed.error.message;
+  } catch {
+    detail = '';
+  }
+  const clean = detail.replace(/([?&]key=)[^&"'\s]+/gi, '$1REDACTED').slice(0, 140);
+  const err = new Error(
+    clean ? `Gemini API error ${status}: ${clean}` : `Gemini API error ${status}: ${safeErrorCode(status)}`,
+  );
+  (err as unknown as { status: number }).status = status;
+  return err;
+}
 
 /**
  * Patterns matching specialized non-text models (TTS, audio-only, embeddings,
@@ -63,7 +85,7 @@ export class GeminiProvider implements LLMProvider {
   private readonly routineModel: string;
   private readonly reasoningModel: string;
 
-  private static cachedModels = new Map<string, string[]>();
+  private static cachedModels = new Map<string, { models: string[]; expiresAt: number }>();
   private activeRoutineModel?: string;
   private activeReasoningModel?: string;
 
@@ -88,9 +110,16 @@ export class GeminiProvider implements LLMProvider {
    * Dynamically query ModelService.ListModels for this API key to discover which
    * models support `generateContent` for text. Result is cached in memory per API key.
    */
+  /** Cache key is a hash of the key, never the key itself, and entries expire after 15 minutes. */
+  private cacheKey(): string {
+    return createHash('sha256').update(this.apiKey).digest('hex');
+  }
+
   async getAvailableModels(): Promise<string[]> {
-    const cached = GeminiProvider.cachedModels.get(this.apiKey);
-    if (cached && cached.length > 0) return cached;
+    const key = this.cacheKey();
+    const cached = GeminiProvider.cachedModels.get(key);
+    if (cached && cached.expiresAt > Date.now() && cached.models.length > 0) return cached.models;
+    if (cached) GeminiProvider.cachedModels.delete(key);
 
     try {
       const url = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -114,7 +143,7 @@ export class GeminiProvider implements LLMProvider {
           .map((m: any) => m.name.replace(/^models\//, ''));
 
         if (models.length > 0) {
-          GeminiProvider.cachedModels.set(this.apiKey, models);
+          GeminiProvider.cachedModels.set(key, { models, expiresAt: Date.now() + MODEL_CACHE_TTL_MS });
           return models;
         }
       }
@@ -246,15 +275,25 @@ export class GeminiProvider implements LLMProvider {
     const available = await this.getAvailableModels();
     const candidates = this.getCandidateModels(tier, available);
 
+    // One shared controller caps the whole cascade under 45s; every
+    // attempt shares its signal, so a hung model cannot outlive the
+    // worker timeout by stacking per-attempt timeouts.
+    const controller = new AbortController();
+    const cascadeTimer = setTimeout(() => controller.abort(), CASCADE_TIMEOUT_MS);
     let lastError: any = null;
+    try {
     for (const model of candidates) {
+      if (controller.signal.aborted) {
+        lastError = new Error('Gemini cascade timed out after 45s');
+        break;
+      }
       // Try v1beta first, then v1 if 404/incompatible
       const versions = ['v1beta', 'v1'];
       for (const ver of versions) {
         const url = `https://generativelanguage.googleapis.com/${ver}/models/${encodeURIComponent(model)}:generateContent`;
         const attemptStarted = Date.now();
         try {
-          const data = await this.postWithRetry(url, body);
+          const data = await this.postWithRetry(url, body, controller.signal);
 
           // Success! Remember this working model for future calls
           if (tier === 'reasoning') {
@@ -263,7 +302,7 @@ export class GeminiProvider implements LLMProvider {
             this.activeRoutineModel = model;
           }
 
-          return this.parseResponse(data);
+          return this.parseResponse(data, model);
         } catch (err: any) {
           lastError = err;
           const status = err?.status;
@@ -299,9 +338,12 @@ export class GeminiProvider implements LLMProvider {
     }
 
     throw lastError ?? new Error(`All candidate Gemini models failed for tier "${tier}"`);
+    } finally {
+      clearTimeout(cascadeTimer);
+    }
   }
 
-  private parseResponse(data: any): LLMCompletion {
+  private parseResponse(data: any, model?: string): LLMCompletion {
     const blockReason = data?.promptFeedback?.blockReason;
     if (blockReason) {
       throw new Error(`Gemini request blocked (safety): ${blockReason}`);
@@ -322,23 +364,33 @@ export class GeminiProvider implements LLMProvider {
         `Gemini returned an empty response (finishReason: ${candidate.finishReason ?? 'unknown'})`
       );
     }
-    const inTokens = Number(data?.usageMetadata?.promptTokenCount ?? 0);
-    const outTokens = Number(data?.usageMetadata?.candidatesTokenCount ?? 0);
-    return makeCompletion(text, {
-      inputTokens: Number.isFinite(inTokens) ? inTokens : 0,
-      outputTokens: Number.isFinite(outTokens) ? outTokens : 0,
+    const inTokens = finiteInt(data?.usageMetadata?.promptTokenCount);
+    const outTokens = finiteInt(data?.usageMetadata?.candidatesTokenCount);
+    const completion = makeCompletion(text, {
+      inputTokens: inTokens,
+      outputTokens: outTokens,
     });
+    completion.providerId = 'gemini';
+    if (model) completion.model = model;
+    return completion;
   }
 
   /**
    * POST with one retry on transient statuses (429 / 5xx), exponential backoff.
    * Keeps paid calls minimal: at most 2 attempts per completion.
    */
-  private async postWithRetry(url: string, body: Record<string, unknown>): Promise<any> {
+  private async postWithRetry(
+    url: string,
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<any> {
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (attempt > 0) {
         await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+      }
+      if (signal?.aborted) {
+        throw new DOMException('The operation timed out.', 'TimeoutError');
       }
       let res: Response;
       try {
@@ -349,7 +401,7 @@ export class GeminiProvider implements LLMProvider {
             'x-goog-api-key': this.apiKey,
           },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(30_000),
+          signal: signal ?? AbortSignal.timeout(30_000),
         });
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
@@ -364,9 +416,7 @@ export class GeminiProvider implements LLMProvider {
         return (await res.json()) as any;
       }
       const rawPayload = await res.text().catch(() => '');
-      const sanitizedPayload = rawPayload.replace(/([?&]key=)[^&"'\s]+/gi, '$1REDACTED');
-      const err = new Error(`Gemini API error ${res.status}: ${sanitizedPayload.slice(0, 300)}`);
-      (err as any).status = res.status;
+      const err = sanitizedGeminiError(res.status, rawPayload);
       lastError = err;
       if (res.status !== 429 && res.status < 500) break; // non-transient, don't retry
     }

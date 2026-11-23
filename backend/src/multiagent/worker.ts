@@ -106,17 +106,31 @@ export async function runWorker(
     errors: [],
     durationMs: 0,
     notes: [],
+    llmProviders: [],
   };
   const emit = ctx.onEvent;
   const event = (kind: 'worker_progress' | 'guardrail', message: string, data?: unknown) =>
     emit?.({ kind, message, data });
 
-  const spend = (input?: number, output?: number): boolean => {
+  const spend = (
+    input?: number,
+    output?: number,
+    providerId?: string,
+    model?: string,
+  ): boolean => {
     const inCount = Number.isFinite(input) ? Number(input) : 0;
     const outCount = Number.isFinite(output) ? Number(output) : 0;
     report.llmCalls += 1;
     report.tokensUsed.input += inCount;
     report.tokensUsed.output += outCount;
+    if (providerId) {
+      report.llmProviders?.push({
+        providerId,
+        model: model ?? '',
+        inputTokens: inCount,
+        outputTokens: outCount,
+      });
+    }
     ctx.tokenBudget.input += inCount;
     ctx.tokenBudget.output += outCount;
     if (ctx.tokenBudget.input + ctx.tokenBudget.output > ctx.tokenBudget.max) {
@@ -172,7 +186,7 @@ export async function runWorker(
       temperature: 0.2,
       tier: 'routine',
     });
-    if (!spend(completion.usage?.inputTokens, completion.usage?.outputTokens)) {
+    if (!spend(completion.usage?.inputTokens, completion.usage?.outputTokens, completion.providerId, completion.model)) {
       report.durationMs = Date.now() - started;
       return report;
     }
@@ -304,7 +318,7 @@ export async function runWorker(
         temperature: 0.1,
         tier: 'routine',
       });
-      if (!spend(triageCompletion.usage.inputTokens, triageCompletion.usage.outputTokens)) break;
+      if (!spend(triageCompletion.usage.inputTokens, triageCompletion.usage.outputTokens, triageCompletion.providerId, triageCompletion.model)) break;
       triage = triageCompletion.parseJson<Triage>();
     } catch (err) {
       report.errors.push(`triage failed for "${test.name}": ${(err as Error).message}`);
@@ -334,7 +348,7 @@ export async function runWorker(
         temperature: 0.1,
         tier: 'reasoning',
       });
-      if (!spend(verdictCompletion.usage.inputTokens, verdictCompletion.usage.outputTokens)) break;
+      if (!spend(verdictCompletion.usage.inputTokens, verdictCompletion.usage.outputTokens, verdictCompletion.providerId, verdictCompletion.model)) break;
       const raw = verdictCompletion.parseJson<Partial<Verdict>>();
       const verdict: Verdict = {
         verdict: ['finding', 'honeypot', 'no-finding'].includes(String(raw.verdict))

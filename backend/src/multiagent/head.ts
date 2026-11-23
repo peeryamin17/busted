@@ -508,7 +508,7 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
         ],
         maxTokens: 600,
         temperature: 0.2,
-        tier: 'routine',
+        tier: 'reasoning',
       });
       if (!spend(planCompletion.usage.inputTokens, planCompletion.usage.outputTokens)) {
         throw new Error('token budget exhausted during head planning');

@@ -1,5 +1,7 @@
 import { config } from '../config.js';
 import { makeCompletion, type LLMCompletion, type LLMCompletionRequest, type LLMProvider } from './provider.js';
+import { finiteInt, safeErrorCode } from './openaiCompat.js';
+import { PROVIDER_REGISTRY } from './registry.js';
 
 /**
  * Claude (Anthropic Messages API) implementation.
@@ -10,18 +12,27 @@ import { makeCompletion, type LLMCompletion, type LLMCompletionRequest, type LLM
 export class ClaudeProvider implements LLMProvider {
   readonly name = 'claude';
   private readonly apiKey: string;
-  private readonly model: string;
+  private readonly workerModel: string;
+  private readonly reasoningModel: string;
 
-  constructor(apiKey?: string, model?: string) {
+  constructor(apiKey?: string, reasoningModel?: string, workerModel?: string) {
     const key = apiKey ?? config.anthropicApiKey;
     if (!key) {
       throw new Error('ANTHROPIC_API_KEY is required for the Claude provider');
     }
     this.apiKey = key;
-    this.model = model ?? config.anthropicModel;
+    this.reasoningModel = (reasoningModel ?? config.anthropicModel).trim();
+    this.workerModel =
+      (workerModel ?? PROVIDER_REGISTRY.claude.defaultModels.worker).trim();
+  }
+
+  modelForTier(tier: 'worker' | 'reasoning'): string {
+    return tier === 'reasoning' ? this.reasoningModel : this.workerModel;
   }
 
   async complete(req: LLMCompletionRequest): Promise<LLMCompletion> {
+    const tier = req.tier === 'reasoning' || req.tier === 'code' ? 'reasoning' : 'worker';
+    const model = this.modelForTier(tier);
     const system = req.messages
       .filter((m) => m.role === 'system')
       .map((m) => m.content)
@@ -30,37 +41,60 @@ export class ClaudeProvider implements LLMProvider {
       .filter((m) => m.role !== 'system')
       .map((m) => ({ role: m.role, content: m.content }));
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': this.apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: this.model,
-        max_tokens: req.maxTokens ?? 2000,
-        temperature: req.temperature ?? 0.2,
-        system: system || undefined,
-        messages,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': this.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: req.maxTokens ?? 2000,
+          temperature: req.temperature ?? 0.2,
+          system: system || undefined,
+          messages,
+        }),
+        signal: req.signal ?? AbortSignal.timeout(45_000),
+      });
+    } catch (err) {
+      throw err instanceof Error ? err : new Error(String(err));
+    }
 
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Anthropic API error ${res.status}: ${body.slice(0, 300)}`);
+      const raw = await res.text().catch(() => '');
+      let detail = '';
+      try {
+        const parsed = JSON.parse(raw) as { error?: { message?: unknown } };
+        if (typeof parsed?.error?.message === 'string') detail = parsed.error.message;
+      } catch {
+        detail = '';
+      }
+      const clean = detail.slice(0, 140);
+      const err = new Error(
+        clean
+          ? `Anthropic API error ${res.status}: ${clean}`
+          : `Anthropic API error ${res.status}: ${safeErrorCode(res.status)}`,
+      );
+      (err as unknown as { status: number }).status = res.status;
+      throw err;
     }
     const data = (await res.json()) as {
       content: Array<{ type: string; text?: string }>;
-      usage: { input_tokens: number; output_tokens: number };
+      usage: { input_tokens: unknown; output_tokens: unknown };
     };
     const text = data.content
       .filter((b) => b.type === 'text' && b.text)
       .map((b) => b.text as string)
       .join('');
-    return makeCompletion(text, {
-      inputTokens: data.usage.input_tokens,
-      outputTokens: data.usage.output_tokens,
+    const completion = makeCompletion(text, {
+      inputTokens: finiteInt(data.usage.input_tokens),
+      outputTokens: finiteInt(data.usage.output_tokens),
     });
+    completion.providerId = 'claude';
+    completion.model = model;
+    return completion;
   }
 }

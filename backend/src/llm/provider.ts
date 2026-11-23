@@ -16,6 +16,8 @@ export interface LLMCompletionRequest {
   messages: LLMMessage[];
   maxTokens?: number;
   temperature?: number;
+  /** Caller-supplied abort signal; providers fall back to a 45s timeout. */
+  signal?: AbortSignal;
   /**
    * Routing hint for tiered model strategy (cost control):
    * - 'routine': high-volume, low-complexity calls (test planning, simple
@@ -41,6 +43,10 @@ export interface LLMUsage {
 export interface LLMCompletion {
   text: string;
   usage: LLMUsage;
+  /** Provider that served the call, when the provider knows it. */
+  providerId?: string;
+  /** Model that served the call, when the provider knows it. */
+  model?: string;
   /** Parse the completion as JSON; throws a descriptive error on failure. */
   parseJson<T>(): T;
 }

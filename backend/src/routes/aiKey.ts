@@ -1,8 +1,15 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { encryptSecret, decryptSecret, maskApiKey } from '../lib/crypto.js';
-import type { Database } from '../db/db.js';
+import type { Database, UserLlmRouting } from '../db/db.js';
 import type { RouteDeps } from './health.js';
 import { buildAuthenticate, requireUser } from '../middleware/auth.js';
+import { getBackendRuntime } from './health.js';
+import {
+  PROVIDER_REGISTRY,
+  isProviderId,
+  validateProviderBaseUrl,
+  type ProviderId,
+} from '../llm/registry.js';
 
 export type AiProvider = 'gemini' | 'qwen' | 'ollama';
 
@@ -128,6 +135,137 @@ const PROVIDER_LABELS: Record<AiProvider, string> = {
   ollama: 'Ollama',
 };
 
+/** Last four characters only, e.g. ****1a2b. Never the full key. */
+export function multiKeyHint(apiKey: string): string {
+  const trimmed = apiKey.trim();
+  return `****${trimmed.slice(-4)}`;
+}
+
+const VERIFY_TIMEOUT_MS = 10_000;
+
+function providerErrorDetail(body: string, status: number): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: unknown } | string };
+    const detail =
+      typeof parsed?.error === 'string'
+        ? parsed.error
+        : typeof parsed?.error?.message === 'string'
+          ? parsed.error.message
+          : '';
+    if (detail) return detail.slice(0, 140);
+  } catch {
+    // Not JSON, fall through to the status line.
+  }
+  return `Provider rejected the key (HTTP ${status}).`;
+}
+
+/**
+ * Live verification call for a provider key. Ten seconds, header auth
+ * only, and only the provider's structured error message is returned.
+ * No mock bypass: a key that cannot be verified live is not stored.
+ */
+export async function verifyProviderKey(
+  providerId: ProviderId,
+  apiKey: string,
+  baseUrl: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    if (providerId === 'gemini') {
+      const res = await fetch(`${baseUrl}/models`, {
+        method: 'GET',
+        headers: { 'x-goog-api-key': apiKey },
+        signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
+      });
+      if (res.ok) return { ok: true };
+      return { ok: false, error: providerErrorDetail(await res.text().catch(() => ''), res.status) };
+    }
+    if (providerId === 'claude') {
+      const res = await fetch(`${baseUrl}/messages`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: PROVIDER_REGISTRY.claude.defaultModels.reasoning,
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'ping' }],
+        }),
+        signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
+      });
+      if (res.ok) return { ok: true };
+      return { ok: false, error: providerErrorDetail(await res.text().catch(() => ''), res.status) };
+    }
+    const headers: Record<string, string> = {};
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    const res = await fetch(`${baseUrl}/models`, {
+      method: 'GET',
+      headers,
+      signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
+    });
+    if (res.ok) return { ok: true };
+    return { ok: false, error: providerErrorDetail(await res.text().catch(() => ''), res.status) };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? `Could not reach provider (${err.message.slice(0, 120)}).` : 'Failed to reach provider.',
+    };
+  }
+}
+
+export interface SavedProviderKeyOut {
+  providerId: ProviderId;
+  apiKey: string;
+  baseUrl: string;
+  verifiedAt: string;
+}
+
+/** Decrypted saved keys for a user. Rows that fail to decrypt are skipped. */
+export async function getUserAiKeysDecrypted(
+  db: Database,
+  userId: string,
+): Promise<SavedProviderKeyOut[]> {
+  if (typeof (db as Database).listUserAiKeys !== 'function') return [];
+  const rows = await (db as Database).listUserAiKeys(userId).catch(() => []);
+  const out: SavedProviderKeyOut[] = [];
+  for (const row of rows) {
+    try {
+      out.push({
+        providerId: row.providerId as ProviderId,
+        apiKey: decryptSecret(row.encryptedKey),
+        baseUrl: row.baseUrl,
+        verifiedAt: row.verifiedAt,
+      });
+    } catch {
+      // A corrupt row must not break the swarm; it is skipped.
+    }
+  }
+  return out;
+}
+
+export const DEFAULT_ROUTING: UserLlmRouting = {
+  workerProvider: 'gemini',
+  workerModel: PROVIDER_REGISTRY.gemini.defaultModels.worker,
+  reasoningProvider: 'gemini',
+  reasoningModel: PROVIDER_REGISTRY.gemini.defaultModels.reasoning,
+};
+
+export async function getUserLlmRoutingOrDefault(
+  db: Database,
+  userId: string,
+): Promise<UserLlmRouting> {
+  if (typeof (db as Database).getUserLlmRouting !== 'function') return { ...DEFAULT_ROUTING };
+  const row = await (db as Database).getUserLlmRouting(userId).catch(() => null);
+  if (!row) return { ...DEFAULT_ROUTING };
+  return {
+    workerProvider: row.workerProvider || 'gemini',
+    workerModel: row.workerModel ?? null,
+    reasoningProvider: row.reasoningProvider || 'gemini',
+    reasoningModel: row.reasoningModel ?? null,
+  };
+}
+
 export async function aiKeyRoutes(app: FastifyInstance, deps: RouteDeps): Promise<void> {
   const { db } = deps;
   const authenticate = buildAuthenticate(db);
@@ -229,6 +367,185 @@ export async function aiKeyRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     const user = requireUser(req);
     await db.deleteAiKey(user.id);
     return { connected: false };
+  });
+
+  // ── Multi-provider keys (migration 034) ──
+  // Same authenticated access as every other route here: session cookie
+  // or a verified bs_ key. A provider key is never a credential.
+
+  app.get('/api/v1/ai-keys', { preHandler: [authenticate] }, async (req) => {
+    const user = requireUser(req);
+    const rows = await db.listUserAiKeys(user.id).catch(() => []);
+    const routing = await getUserLlmRoutingOrDefault(db, user.id);
+    return {
+      keys: rows.map((r) => ({
+        providerId: r.providerId,
+        keyHint: r.keyHint,
+        baseUrl: r.baseUrl,
+        verifiedAt: r.verifiedAt,
+      })),
+      routing: {
+        workerProvider: routing.workerProvider,
+        workerModel: routing.workerModel ?? PROVIDER_REGISTRY[routing.workerProvider as ProviderId]?.defaultModels.worker ?? null,
+        reasoningProvider: routing.reasoningProvider,
+        reasoningModel: routing.reasoningModel ?? PROVIDER_REGISTRY[routing.reasoningProvider as ProviderId]?.defaultModels.reasoning ?? null,
+      },
+      hasByok: rows.length > 0,
+    };
+  });
+
+  app.post('/api/v1/ai-keys', { preHandler: [authenticate] }, async (req, reply) => {
+    const user = requireUser(req);
+    const body = (req.body ?? {}) as {
+      providerId?: string;
+      apiKey?: string;
+      baseUrl?: string;
+    };
+    const providerIdRaw = typeof body.providerId === 'string' ? body.providerId.trim().toLowerCase() : '';
+    if (!isProviderId(providerIdRaw)) {
+      return reply.code(400).send({ error: `Unknown AI provider "${body.providerId ?? ''}".` });
+    }
+    const providerId = providerIdRaw as ProviderId;
+    const spec = PROVIDER_REGISTRY[providerId];
+
+    if (providerId === 'ollama' && getBackendRuntime() === 'cloud') {
+      return reply
+        .code(400)
+        .send({ error: 'Ollama requires a local backend and cannot be saved on the hosted backend.' });
+    }
+
+    let baseUrl: string;
+    try {
+      baseUrl = validateProviderBaseUrl(providerId, body.baseUrl);
+    } catch {
+      return reply.code(400).send({ error: `Disallowed base URL for provider ${providerId}.` });
+    }
+
+    const rawKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
+    if (providerId !== 'ollama') {
+      if (!rawKey || rawKey.length < 16) {
+        return reply.code(400).send({ error: `Please enter a valid ${spec.label} API key.` });
+      }
+      if (rawKey.startsWith('mock-') || rawKey === 'mock') {
+        return reply.code(400).send({ error: 'Mock keys cannot be saved; enter a real provider key.' });
+      }
+    }
+
+    const check = await verifyProviderKey(providerId, rawKey, baseUrl);
+    if (!check.ok) {
+      return reply.code(400).send({ error: check.error || 'Provider rejected the key.' });
+    }
+
+    const storedKey = providerId === 'ollama' && !rawKey ? 'ollama-local' : rawKey;
+    const encrypted = encryptSecret(storedKey);
+    const hint = providerId === 'ollama' && !rawKey ? 'local' : multiKeyHint(rawKey);
+    const verifiedAt = new Date().toISOString();
+    await db.upsertUserAiKey(user.id, {
+      providerId,
+      encryptedKey: encrypted,
+      keyHint: hint,
+      baseUrl,
+      verifiedAt,
+    });
+    // Keep the legacy single-key row on the latest saved key so older
+    // clients (extension popup, /api/me/ai-key) keep working.
+    await db.setAiKey(user.id, encrypted, providerId, hint, baseUrl).catch(() => undefined);
+    const remaining = await db.listUserAiKeys(user.id).catch(() => []);
+    return {
+      providerId,
+      keyHint: hint,
+      baseUrl,
+      verifiedAt,
+      hasByok: remaining.length > 0,
+    };
+  });
+
+  app.delete('/api/v1/ai-keys/:providerId', { preHandler: [authenticate] }, async (req, reply) => {
+    const user = requireUser(req);
+    const providerIdRaw = (req.params as { providerId?: string }).providerId ?? '';
+    const providerId = providerIdRaw.trim().toLowerCase();
+    if (!isProviderId(providerId)) {
+      return reply.code(400).send({ error: `Unknown AI provider "${providerIdRaw}".` });
+    }
+    const deleted = await db.deleteUserAiKey(user.id, providerId);
+    if (!deleted) {
+      return reply.code(404).send({ error: `No saved key for provider ${providerId}.` });
+    }
+    const remaining = await db.listUserAiKeys(user.id).catch(() => []);
+    const routing = await getUserLlmRoutingOrDefault(db, user.id);
+    const fallbackProvider = remaining[0]?.providerId ?? 'gemini';
+    let routingChanged = false;
+    if (routing.workerProvider === providerId) {
+      routing.workerProvider = fallbackProvider;
+      routing.workerModel = null;
+      routingChanged = true;
+    }
+    if (routing.reasoningProvider === providerId) {
+      routing.reasoningProvider = fallbackProvider;
+      routing.reasoningModel = null;
+      routingChanged = true;
+    }
+    if (routingChanged) {
+      await db.setUserLlmRouting(user.id, routing).catch(() => undefined);
+    }
+    return { deleted: true, hasByok: remaining.length > 0 };
+  });
+
+  app.put('/api/v1/ai-keys/routing', { preHandler: [authenticate] }, async (req, reply) => {
+    const user = requireUser(req);
+    const body = (req.body ?? {}) as {
+      workerProvider?: string;
+      workerModel?: string;
+      reasoningProvider?: string;
+      reasoningModel?: string;
+    };
+    const saved = await db.listUserAiKeys(user.id).catch(() => []);
+    const owned = new Set(saved.map((r) => r.providerId));
+    const account = await db.getUserById(user.id).catch(() => null);
+    const hasPlatformCredits = account !== null && account.plan !== 'free';
+    const pickProvider = (raw: unknown, current: string): string | null => {
+      if (raw === undefined) return current;
+      if (typeof raw !== 'string' || !isProviderId(raw.trim().toLowerCase())) return null;
+      return raw.trim().toLowerCase();
+    };
+    const current = await getUserLlmRoutingOrDefault(db, user.id);
+    const workerProvider = pickProvider(body.workerProvider, current.workerProvider);
+    const reasoningProvider = pickProvider(body.reasoningProvider, current.reasoningProvider);
+    if (workerProvider === null || reasoningProvider === null) {
+      return reply.code(400).send({ error: 'Unknown provider in routing.' });
+    }
+    for (const p of [workerProvider, reasoningProvider]) {
+      if (!owned.has(p) && !hasPlatformCredits) {
+        return reply.code(400).send({
+          error: `No saved key for provider ${p}; save a key first or use a plan with platform credits.`,
+        });
+      }
+    }
+    const pickModel = (raw: unknown, currentModel: string | null): string | null | false => {
+      if (raw === undefined) return currentModel;
+      if (typeof raw !== 'string' || !raw.trim() || raw.trim().length > 200) return false;
+      return raw.trim();
+    };
+    const workerModel = pickModel(body.workerModel, current.workerModel);
+    const reasoningModel = pickModel(body.reasoningModel, current.reasoningModel);
+    if (workerModel === false || reasoningModel === false) {
+      return reply.code(400).send({ error: 'Model names must be non-empty strings.' });
+    }
+    const routing: UserLlmRouting = {
+      workerProvider,
+      workerModel,
+      reasoningProvider,
+      reasoningModel,
+    };
+    await db.setUserLlmRouting(user.id, routing);
+    return {
+      routing: {
+        workerProvider: routing.workerProvider,
+        workerModel: routing.workerModel,
+        reasoningProvider: routing.reasoningProvider,
+        reasoningModel: routing.reasoningModel,
+      },
+    };
   });
 }
 
