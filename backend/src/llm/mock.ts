@@ -38,7 +38,11 @@ export class MockProvider implements LLMProvider {
       return makeCompletion(JSON.stringify(this.swarmVerdict(userText)), { inputTokens: 600, outputTokens: 350 });
     }
     if (systemText.includes('PoC VALIDATOR') || userText.includes('FINDINGS TO VALIDATE')) {
-      const match = /FINDINGS TO VALIDATE:\s*(\[[\s\S]*?\])/.exec(userText);
+      // The findings JSON rides inside a nonce-tagged DATA envelope
+      // (see src/llm/boundary.ts); fall back to the old bare layout.
+      const match =
+        /<<<DATA label="findings-to-validate" nonce="[0-9a-f]+">>>\n(\[[\s\S]*?\])\n<<<END_DATA/.exec(userText) ??
+        /FINDINGS TO VALIDATE:\s*(\[[\s\S]*?\])/.exec(userText);
       let list: any[] = [];
       if (match) {
         try { list = JSON.parse(match[1]); } catch { list = []; }
@@ -47,8 +51,13 @@ export class MockProvider implements LLMProvider {
         const raw = String(item.rawEvidence || item.evidence || '');
         // Only honeypot wording is a trap signal here: BugSeek's own
         // benign canaries contain the word "canary" by design, so that
-        // word alone must never condemn a finding.
-        const isTrap = /honeypot/i.test(raw) || (item.trapProbability ?? 0) >= 0.6;
+        // word alone must never condemn a finding. And the rawEvidence
+        // JSON always carries a "honeypotSignals" key (usually an empty
+        // array), the key name itself is not a trap signal, so it is
+        // stripped before the wording check, or every finding would
+        // be condemned by the field that reports the absence of traps.
+        const rawForTrap = raw.replace(/"honeypotSignals"\s*:\s*\[[^\]]*\]/g, '');
+        const isTrap = /honeypot/i.test(rawForTrap) || (item.trapProbability ?? 0) >= 0.6;
         const substantiated = !isTrap && (raw.length > 0 || String(item.title).length > 0);
         return {
           index: item.index ?? idx,
@@ -142,7 +151,11 @@ export class MockProvider implements LLMProvider {
     data?: Record<string, unknown>; bodyExcerpt?: string; args?: Record<string, unknown>;
   } | null {
     const tool = /^TEST: .+$/m.exec(prompt) ? /^TOOL: (.+)$/m.exec(prompt)?.[1]?.trim() : undefined;
-    const m = /```json\n([\s\S]*?)\n```/.exec(prompt);
+    // The observation JSON rides inside a nonce-tagged UNTRUSTED_OUTPUT
+    // frame (see src/llm/boundary.ts); fall back to the old ```json fence.
+    const m =
+      /<<<UNTRUSTED_OUTPUT nonce="[0-9a-f]+">>>\n([\s\S]*?)\n<<<END_UNTRUSTED_OUTPUT nonce="[0-9a-f]+">>>/.exec(prompt) ??
+      /```json\n([\s\S]*?)\n```/.exec(prompt);
     if (!m) return null;
     try {
       const parsed = JSON.parse(m[1]) as {
