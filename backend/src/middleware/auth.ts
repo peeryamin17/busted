@@ -1,5 +1,4 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { createHash } from 'node:crypto';
 import type { Database } from '../db/db.js';
 import { hashApiKey, verifySession } from '../auth/auth.js';
 import { SESSION_COOKIE, SESSION_IDLE_MS, hashSessionToken, isAdminEmail, parseCookies } from '../auth/session.js';
@@ -29,12 +28,13 @@ declare module 'fastify' {
 /**
  * Authentication, three ways:
  *  - `x-api-key: bs_…`, the extension's API keys (plan §6.1: Pro+ feature).
- *  - `x-gemini-api-key` / `x-qwen-api-key`, a pasted BYOK provider key
- *    signs in as a BYOK user, no bs_ key or session needed.
  *  - `bs_session` cookie, the website's server-side session, created by
  *    the Google sign-in flow (src/routes/googleAuth.ts).
  *  - `Authorization: Bearer <jwt>`, the email/password accounts' session
  *    token (register/login in src/routes/auth.ts).
+ * A pasted BYOK provider key is never a credential on its own: it is only
+ * used as the model key for an already authenticated user, looked up from
+ * storage (see getUserDecryptedAiKey) or passed per request to the swarm.
  */
 export interface AuthenticateOptions {
   /**
@@ -53,32 +53,6 @@ export function buildAuthenticate(db: Database, opts: AuthenticateOptions = {}) 
     let apiKey = request.headers['x-api-key'];
     if (!apiKey && authHeader?.startsWith('Bearer bs_')) {
       apiKey = authHeader.slice(7);
-    }
-    const geminiKey = request.headers['x-gemini-api-key'];
-    const qwenKey = request.headers['x-qwen-api-key'];
-    const byokKey =
-      typeof geminiKey === 'string' && geminiKey.trim().length >= 16
-        ? geminiKey.trim()
-        : typeof qwenKey === 'string' && qwenKey.trim().length >= 16
-          ? qwenKey.trim()
-          : null;
-
-    // Direct BYOK from the extension popup: a pasted provider key is the
-    // credential. Either provider works, Gemini or Qwen; the key holder
-    // pays for their own model use.
-    if (byokKey) {
-      const trimmed = byokKey;
-      const idHash = createHash('sha256').update(trimmed).digest('hex').slice(0, 16);
-      const byokEmail = `byok-${idHash}@bugseek.local`;
-      let user = await db.getUserByEmail(byokEmail);
-      if (!user) {
-        user = await db.createUser(byokEmail, '');
-        if (typeof db.setUserPlan === 'function') {
-          await db.setUserPlan(user.id, 'enterprise').catch(() => undefined);
-        }
-      }
-      request.user = { id: user.id, email: user.email, plan: 'enterprise', viaApiKey: true };
-      return;
     }
 
     // `bs_` API-key auth, with a login-equivalent brake on FAILED attempts

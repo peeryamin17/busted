@@ -67,20 +67,12 @@ export function regionForQwenBaseUrl(baseUrl: string | null | undefined): QwenRe
 }
 
 export async function verifyGeminiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
-  // Support mock/test keys in test or dev environments without making live HTTP requests
-  if (
-    apiKey.startsWith('mock-') ||
-    apiKey === 'AIzaTestValidKey1234567890' ||
-    process.env['MOCK_GEMINI_VERIFY'] === 'true'
-  ) {
-    return { ok: true };
-  }
-
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
-      { method: 'GET', signal: AbortSignal.timeout(8000) }
-    );
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+      method: 'GET',
+      headers: { 'x-goog-api-key': apiKey },
+      signal: AbortSignal.timeout(8000),
+    });
     if (res.ok) return { ok: true };
     const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
     return {
@@ -99,11 +91,6 @@ export async function verifyQwenKey(
   apiKey: string,
   baseUrl: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  // Mock/test keys never hit the live DashScope endpoint.
-  if (apiKey.startsWith('mock-') || process.env['MOCK_QWEN_VERIFY'] === 'true') {
-    return { ok: true };
-  }
-
   try {
     const res = await fetch(`${baseUrl}/models`, {
       method: 'GET',

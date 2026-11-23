@@ -41,7 +41,8 @@ export function isTimeoutError(err: unknown): boolean {
  * Google Gemini (AI Studio Developer API) implementation, the DEFAULT provider.
  *
  * REST endpoint: https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent
- * Auth: Both `x-goog-api-key` header and `?key=` query parameter for maximum proxy compatibility.
+ * Auth: `x-goog-api-key` header only. The key never goes in a URL query
+ * string, it would land in server and proxy logs.
  * The API key is read ONLY from the GEMINI_API_KEY env var or user BYOK, never hardcoded,
  * and always redacted from errors/logs.
  *
@@ -92,7 +93,7 @@ export class GeminiProvider implements LLMProvider {
     if (cached && cached.length > 0) return cached;
 
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(this.apiKey)}`;
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models';
       const res = await fetch(url, {
         headers: {
           'x-goog-api-key': this.apiKey,
@@ -250,7 +251,7 @@ export class GeminiProvider implements LLMProvider {
       // Try v1beta first, then v1 if 404/incompatible
       const versions = ['v1beta', 'v1'];
       for (const ver of versions) {
-        const url = `https://generativelanguage.googleapis.com/${ver}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
+        const url = `https://generativelanguage.googleapis.com/${ver}/models/${encodeURIComponent(model)}:generateContent`;
         const attemptStarted = Date.now();
         try {
           const data = await this.postWithRetry(url, body);

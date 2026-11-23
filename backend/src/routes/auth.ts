@@ -65,7 +65,9 @@ export async function authRoutes(app: FastifyInstance, deps: RouteDeps): Promise
       return reply.status(400).send({ error: body.error.issues[0]?.message ?? 'Invalid input' });
     }
     const user = await db.getUserByEmail(body.data.email);
-    if (!user || !(await verifyPassword(body.data.password, user.passwordHash))) {
+    // Accounts created without a password (Google sign-in, BYOK) store an
+    // empty hash; bcrypt.compare throws on it, so reject before comparing.
+    if (!user || !user.passwordHash || !(await verifyPassword(body.data.password, user.passwordHash))) {
       return reply.status(401).send({ error: 'Invalid email or password' });
     }
     if (isAdminEmail(user.email) && user.plan !== 'enterprise' && typeof db.setUserPlan === 'function') {

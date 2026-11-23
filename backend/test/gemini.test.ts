@@ -28,7 +28,7 @@ async function main() {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       fetchCalls.push({ url, options: init });
-      if (url.includes('/models?key=')) {
+      if (url.endsWith('/v1beta/models')) {
         return new Response(
           JSON.stringify({
             models: [
@@ -60,6 +60,7 @@ async function main() {
     const available = await provider.getAvailableModels();
     check('discovers models supporting generateContent', available.length === 2);
     check('strips models/ prefix', available.includes('gemini-2.0-flash'));
+    check('discovery sends the key in a header, never in the URL', !fetchCalls[0].url.includes('key=') && (fetchCalls[0].options?.headers as Record<string, string>)?.['x-goog-api-key'] === 'test-api-key-12345', fetchCalls[0]);
     check('filters out tts model despite generateContent capability', !available.includes('gemini-2.5-flash-preview-tts'));
     check('filters out models without generateContent', !available.includes('text-embedding-004'));
 
@@ -83,7 +84,7 @@ async function main() {
       const url = String(input);
       fetchCalls.push({ url, options: init });
 
-      if (url.includes('/models?key=')) {
+      if (url.endsWith('/v1beta/models')) {
         return new Response('{}', { status: 200 });
       }
 

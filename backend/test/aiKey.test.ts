@@ -18,6 +18,27 @@ function check(name: string, ok: boolean, extra?: unknown) {
 async function main() {
   process.env['KEY_ENCRYPTION_SECRET'] = 'test-secret-must-be-min-16-characters!';
 
+  // Provider verification hits the real Google/DashScope models endpoints.
+  // Answer those in-process so the suite is hermetic: 200 for any key,
+  // 400 for a key carrying BadKey. Everything else goes to the real fetch.
+  const realFetch = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    const url = String(input);
+    const isProviderCheck =
+      url.startsWith('https://generativelanguage.googleapis.com/v1beta/models') ||
+      url.includes('.aliyuncs.com/compatible-mode/v1/models');
+    if (!isProviderCheck) return realFetch(input as never, init);
+    const headers = new Headers(init?.headers);
+    const presented =
+      headers.get('x-goog-api-key') ?? headers.get('authorization') ?? '';
+    if (presented.includes('BadKey')) {
+      return new Response(JSON.stringify({ error: { message: 'API key not valid.' } }), {
+        status: 400,
+      });
+    }
+    return new Response(JSON.stringify({ models: [] }), { status: 200 });
+  }) as typeof fetch;
+
   // 1. Crypto unit checks
   const rawKey = 'AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz';
   const encrypted = encryptSecret(rawKey);
@@ -95,6 +116,19 @@ async function main() {
   });
   check('short apiKey → 400', shortPost.statusCode === 400);
 
+  // POST with a key the provider rejects → 400, nothing stored
+  const badPost = await app.inject({
+    method: 'POST',
+    url: '/api/me/ai-key',
+    headers: { cookie },
+    payload: { apiKey: 'AIzaBadKey1234567890', provider: 'gemini' },
+  });
+  check('provider-rejected key → 400', badPost.statusCode === 400, badPost.body);
+  check(
+    'provider-rejected key stores nothing',
+    (await getUserDecryptedAiKey(db, user.id)) === null,
+  );
+
   // POST with valid key (using mock test key prefix)
   const savePost = await app.inject({
     method: 'POST',
@@ -140,7 +174,8 @@ async function main() {
     },
   );
 
-  // Direct x-gemini-api-key header authentication without cookie or account
+  // Header-only auth is gone: a provider key with no session mints
+  // nothing and authenticates nothing.
   const directHeaderSwarm = await app.inject({
     method: 'POST',
     url: '/api/swarm/scans',
@@ -151,8 +186,9 @@ async function main() {
     },
   });
   check(
-    'direct x-gemini-api-key header → 200/202',
-    directHeaderSwarm.statusCode === 200 || directHeaderSwarm.statusCode === 202,
+    'direct x-gemini-api-key header without session → 401',
+    directHeaderSwarm.statusCode === 401,
+    directHeaderSwarm.body,
   );
 
   // --- BYOK provider picker: Qwen + Ollama ---------------------------------

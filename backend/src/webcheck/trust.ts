@@ -167,23 +167,23 @@ async function defaultSafeBrowsing(url: string): Promise<boolean> {
   const key = process.env['SAFE_BROWSING_API_KEY'];
   if (!key) return false;
   try {
-    const res = await fetch(
-      `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${encodeURIComponent(key)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          client: { clientId: 'bugseek-demo', clientVersion: '1.0' },
-          threatInfo: {
-            threatTypes: ['MALWARE', 'SOCIAL_ENGINEERING', 'UNWANTED_SOFTWARE'],
-            platformTypes: ['ANY_PLATFORM'],
-            threatEntryTypes: ['URL'],
-            threatEntries: [{ url }],
-          },
-        }),
-        signal: AbortSignal.timeout(6_000),
+    const res = await fetch('https://safebrowsing.googleapis.com/v4/threatMatches:find', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': key,
       },
-    );
+      body: JSON.stringify({
+        client: { clientId: 'bugseek-demo', clientVersion: '1.0' },
+        threatInfo: {
+          threatTypes: ['MALWARE', 'SOCIAL_ENGINEERING', 'UNWANTED_SOFTWARE'],
+          platformTypes: ['ANY_PLATFORM'],
+          threatEntryTypes: ['URL'],
+          threatEntries: [{ url }],
+        },
+      }),
+      signal: AbortSignal.timeout(6_000),
+    });
     if (!res.ok) return false;
     const data = (await res.json()) as { matches?: unknown[] };
     return Array.isArray(data.matches) && data.matches.length > 0;
