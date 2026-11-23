@@ -245,13 +245,50 @@ async function main() {
   const qwenUsage = await db.sumUsageSince(pairedQwen.id, 'scan', monthStartIso());
   check('stored Qwen key waives the 25-credit charge (usage 0)', qwenUsage === 0, qwenUsage);
 
+  // --- Header keys are ignored as model keys (PR 1 header ban) ---
+  const freeHeaderOnly = await swarm({ cookie, 'x-gemini-api-key': HEADER_GEMINI });
+  check('free plan + header key only → 403 (header grants no BYOK)', freeHeaderOnly.statusCode === 403, freeHeaderOnly.statusCode);
+
+  seenKeys.length = 0;
+  installKeyRecorder();
+  const hunterHeaderGemini = await swarm(
+    { cookie: hunterCookie, 'x-gemini-api-key': HEADER_GEMINI },
+    targetUrl,
+  );
+  check('hunter + header key only → swarm still starts (202)', hunterHeaderGemini.statusCode === 202, hunterHeaderGemini.statusCode);
+  await sleep(5000);
+  uninstallKeyRecorder();
+  check(
+    'header Gemini key never reached an LLM call',
+    !seenKeys.some((s) => s.key === HEADER_GEMINI),
+    seenKeys,
+  );
+
+  seenKeys.length = 0;
+  installKeyRecorder();
+  const hunterHeaderQwen = await swarm(
+    { cookie: hunterCookie, 'x-qwen-api-key': HEADER_QWEN },
+    targetUrl,
+  );
+  check('hunter + header Qwen key only → swarm still starts (202)', hunterHeaderQwen.statusCode === 202, hunterHeaderQwen.statusCode);
+  await sleep(5000);
+  uninstallKeyRecorder();
+  check(
+    'header Qwen key never reached an LLM call',
+    !seenKeys.some((s) => s.key === HEADER_QWEN),
+    seenKeys,
+  );
+
   // --- Control: no BYOK at all → the 25-credit charge is recorded ---
+  // The hunter header swarms above each recorded a 25-credit charge, so
+  // the control asserts on the delta from just before its own swarm.
+  const hunterUsageBefore = await db.sumUsageSince(hunter.id, 'scan', monthStartIso());
   const hunterSwarm = await swarm({ cookie: hunterCookie }, 'http://127.0.0.1:1/');
   check('hunter without BYOK → swarm starts (202)', hunterSwarm.statusCode === 202, hunterSwarm.statusCode);
   const hunterUsage = await db.sumUsageSince(hunter.id, 'scan', monthStartIso());
   check(
     'no BYOK → 25-credit charge recorded',
-    hunterUsage === SCAN_CREDIT_COST.active,
+    hunterUsage - hunterUsageBefore === SCAN_CREDIT_COST.active,
     hunterUsage,
   );
 

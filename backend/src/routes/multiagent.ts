@@ -9,11 +9,15 @@ import { redactFindingEvidence } from '../guardrails/redact.js';
 import { estimateCvss } from '../reports/cvss.js';
 import { securityScore } from '../reports/score.js';
 import { suggestFixes } from '../reports/remediation.js';
-import { createLLMProvider, createProviderForUser } from '../llm/index.js';
+import { createLLMProvider, createProviderForUser, buildPoolFromKeys } from '../llm/index.js';
 import { FailoverProvider } from '../llm/qwen.js';
 import { GeminiProvider } from '../llm/gemini.js';
 import { config } from '../config.js';
-import { getUserDecryptedAiKey, resolveQwenBaseUrl } from './aiKey.js';
+import {
+  getUserDecryptedAiKey,
+  getUserAiKeysDecrypted,
+  getUserLlmRoutingOrDefault,
+} from './aiKey.js';
 import { parseNoiseProfile } from '../egress/noise.js';
 import { buildPhaseCContext } from '../multiagent/head.js';
 import type { RouteDeps } from './health.js';
@@ -92,46 +96,24 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     const plan: PlanTier = isOp ? 'enterprise' : user.plan;
     const quota = PLAN_QUOTAS[plan];
 
-    const headerGeminiKey =
-      typeof request.headers['x-gemini-api-key'] === 'string' &&
-      request.headers['x-gemini-api-key'].trim().length >= 16
-        ? request.headers['x-gemini-api-key'].trim()
-        : undefined;
-
-    const headerQwenKey =
-      typeof request.headers['x-qwen-api-key'] === 'string' &&
-      request.headers['x-qwen-api-key'].trim().length >= 16
-        ? request.headers['x-qwen-api-key'].trim()
-        : undefined;
-
-    // The stored BYOK key's provider (ai_provider column) decides whether
-    // the decrypted key is a Gemini key or a DashScope (Qwen) key. The
-    // stored key wins over a per-request header for the same provider; a
-    // header only fills in when nothing is stored for that provider.
+    // Provider keys never come from request headers. The model key is the
+    // user's stored, verified key from Postgres; a header key is ignored.
     const storedAiKey = await db.getAiKey(user.id).catch(() => null);
     const storedProvider = storedAiKey?.aiProvider ?? 'gemini';
     const storedKey = await getUserDecryptedAiKey(db, user.id);
-    const userKey =
-      storedProvider === 'gemini' ? storedKey ?? headerGeminiKey : headerGeminiKey;
-    const qwenKey =
-      storedProvider === 'qwen' ? storedKey ?? headerQwenKey : headerQwenKey;
-    // The popup sends the Qwen base URL (region / workspace) alongside a
-    // local Qwen key. It is re-validated against the DashScope allowlist;
-    // a bad value is ignored with a warning (the provider then fails fast
-    // and failover decides) rather than killing the scan.
-    const headerQwenBaseUrl =
-      typeof request.headers['x-qwen-base-url'] === 'string' &&
-      request.headers['x-qwen-base-url'].trim().length > 0
-        ? request.headers['x-qwen-base-url'].trim()
-        : undefined;
-    let qwenBaseUrl = storedAiKey?.aiBaseUrl ?? undefined;
-    if (headerQwenBaseUrl) {
-      const resolved = resolveQwenBaseUrl('custom', headerQwenBaseUrl);
-      if ('baseUrl' in resolved) qwenBaseUrl = resolved.baseUrl;
-      else app.log.warn(`[swarm] ignoring invalid x-qwen-base-url header: ${resolved.error}`);
-    }
-    const hasByok = Boolean(userKey || qwenKey);
-
+    const userKey = storedProvider === 'gemini' ? storedKey : undefined;
+    const qwenKey = storedProvider === 'qwen' ? storedKey : undefined;
+    // Multi-provider keys (migration 034) win over the legacy single
+    // key: when the user saved verified keys, the swarm runs strictly
+    // from them, with the 25-credit charge waived.
+    const savedKeys = await getUserAiKeysDecrypted(db, user.id).catch(() => []);
+    const savedRouting = savedKeys.length > 0
+      ? await getUserLlmRoutingOrDefault(db, user.id).catch(() => null)
+      : null;
+    const hasByok = Boolean(userKey || qwenKey) || savedKeys.length > 0;
+    // The Qwen base URL comes from the stored key row; the popup and site
+    // save it through POST /api/v1/ai-keys, never as a request header.
+    const qwenBaseUrl = storedAiKey?.aiBaseUrl ?? undefined;
     // 1. Feature gating: swarm = active testing → Hunter+ or BYOK AI key.
     if (!isOp && !hasByok && !quota.activeTesting) {
       return reply.status(403).send({
@@ -249,7 +231,12 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     }
 
     let provider;
-    if (qwenKey) {
+    if (savedKeys.length > 0) {
+      // Strictly the user's verified saved keys, falling back across
+      // them on 429/5xx inside the pool. No platform key, no header key.
+      const pool = buildPoolFromKeys(savedKeys, savedRouting);
+      provider = pool ?? deps.provider ?? createLLMProvider();
+    } else if (qwenKey) {
       // BYOK Qwen is the primary provider; a DashScope failure (wrong
       // region 401, 429, timeout, 5xx) falls through to the server Gemini
       // key when one is configured, so the swarm survives a provider outage.
@@ -452,6 +439,14 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
             testsPlanned: r.testsPlanned,
             llmCalls: r.llmCalls,
             tokensUsed: r.tokensUsed,
+            providerId: r.llmProviders?.[0]?.providerId ?? null,
+            model: r.llmProviders?.[0]?.model ?? null,
+            llmProviders: (r.llmProviders ?? []).map((p) => ({
+              providerId: p.providerId,
+              model: p.model,
+              inputTokens: Number.isFinite(p.inputTokens) ? p.inputTokens : 0,
+              outputTokens: Number.isFinite(p.outputTokens) ? p.outputTokens : 0,
+            })),
             errors: r.errors,
             durationMs: r.durationMs,
           })),
