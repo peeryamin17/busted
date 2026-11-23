@@ -1,5 +1,5 @@
 /**
- * Active scan orchestrator (Phase 2).
+ * Active scan orchestrator.
  *
  * Pipeline:
  *   authorization check → scope check → DOM collection → tab traffic capture
@@ -138,7 +138,7 @@ export async function runActiveScan(
     dom = await collectDom(tabId);
   } catch (err) {
     // collectDom runs BEFORE the main try/finally below. If it throws, the
-    // debugger would otherwise stay attached — detach it here so a DOM
+    // debugger would otherwise stay attached, detach it here so a DOM
     // failure can never leak a debugging session onto the target tab.
     if (deep) {
       await deep.stop().catch(() => undefined);
@@ -254,8 +254,8 @@ export async function runActiveScan(
       errors.push(`brute-force tests: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    // Defense verification probes (Thread 5, DEFENSIVE): safe probes that
-    // test whether the target's defenses actually engage — rate limiting,
+    // Defense verification probes: safe probes that test whether the
+    // target's defenses actually engage, rate limiting,
     // WAF rules, blocking, logging. Same authorization gate as the other
     // active tests; every probe is inert by construction (benign canaries,
     // no execution, no state change).
@@ -270,7 +270,7 @@ export async function runActiveScan(
         const last = (stored as { lastResult?: { findings?: Finding[] } }).lastResult;
         if (Array.isArray(last?.findings)) secretFindings = last.findings;
       } catch {
-        /* no passive result available — probes run without it */
+        /* no passive result available, probes run without it */
       }
       const { findings: defenseFindings } = await runDefenseProbes(
         http,
@@ -305,7 +305,7 @@ export async function runActiveScan(
       errors.push(`commerce checks: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    // Sensitive files (.git, .env, backups, listings) — signature-verified.
+    // Sensitive files (.git, .env, backups, listings), signature-verified.
     step('Probing for exposed sensitive files…');
     try {
       const { findings: fileFindings } = await probeSensitiveFiles(http, targetUrl);
@@ -359,7 +359,7 @@ export async function runActiveScan(
   // Compute real posture signals from passive observations (header snapshot
   // captured by the background listener + a cookie audit read). These are
   // observational reads, not active probes, and they feed only the trap
-  // scorer — they are not added as findings here.
+  // scorer, they are not added as findings here.
   step('Scoring honeypot/trap probability…');
   let headerPostureGood = true;
   let cookiePostureGood = true;
@@ -371,7 +371,7 @@ export async function runActiveScan(
       );
     }
   } catch {
-    /* posture unknown — leave true; inconsistency signal stays quiet */
+    /* posture unknown, leave true; inconsistency signal stays quiet */
   }
   try {
     cookiePostureGood = !(await auditCookies(targetUrl)).some(
@@ -416,7 +416,7 @@ export async function runActiveScan(
       }
     }
   } catch {
-    /* offline — local results stand alone */
+    /* offline, local results stand alone */
   }
 
   const sorted = [...findings].sort(

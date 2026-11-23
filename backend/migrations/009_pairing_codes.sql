@@ -1,4 +1,4 @@
--- 009_pairing_codes.sql — one-time link codes that pair the extension
+-- 009_pairing_codes.sql, one-time link codes that pair the extension
 -- with a website account. Only the SHA-256 hash of each code is stored;
 -- a code expires after 10 minutes and can be exchanged exactly once
 -- for a regular API key (POST /api/v1/pair).

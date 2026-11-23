@@ -12,7 +12,7 @@ interface FlowPath {
  * Flowing background paths (21st.dev @kokonutd background-paths,
  * rebuilt): two families of long bezier strokes drift diagonally
  * across the frame, each slowly drawing itself along with a travelling
- * offset and a breathing opacity. Pure white at a whisper of opacity —
+ * offset and a breathing opacity. Pure white at a whisper of opacity,
  * paint-only animation, a modest path count, and completely static
  * under reduced motion.
  */

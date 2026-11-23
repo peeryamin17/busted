@@ -1,62 +1,44 @@
 /**
- * Defense verification probes (Thread 5 — DEFENSIVE).
+ * Defense verification probes. One question per attack class, for a
+ * website owner: did my site notice the attack, block it, log it,
+ * alert on it, or was it blind? These verify defenses, they do not
+ * attack. Every probe is safe by construction:
  *
- * This module answers one question for a website owner, per attack class:
- * "did my site notice the attack, block it, log it, alert on it — or was
- * it blind?" It verifies DEFENSES, it does not attack. Every probe here is
- * safe by construction:
+ *  - Key exposure: format hints only, from the bloodhound's findings.
+ *    No found key is ever validated against a provider API.
+ *  - Brute force: at most 5 failed logins with a canary username that
+ *    cannot be a real account (`bugseek-canary-<random>@invalid`).
+ *  - Exploitation / WAF: benign canary payloads, inert marker strings
+ *    sent as data, response read as text only. Never loaded in a tab,
+ *    never rendered, never executed. Reflected raw means "let through".
+ *  - Request smuggling: conditions only. Fetch cannot set
+ *    Transfer-Encoding, so no smuggled request can be built from here.
+ *    We check response/header handling for ambiguity and report the
+ *    rest as a server-config review. Live smuggling tests belong on
+ *    isolated staging, never shared infrastructure.
+ *  - Post-exploitation / lateral movement: static mapping only.
+ *    Internal and debug endpoints are inventoried with read-only GETs
+ *    (status + content type). SSRF and cloud-metadata reachability are
+ *    tested only via a canary callback to a BugSeek-owned endpoint,
+ *    yes/no, no data fetched. 169.254.169.254 is never requested.
+ *    Env vars come from static sources only (error messages, bundles,
+ *    source maps), key names only, values never captured. BaaS key scope
+ *    is assessed only for the client's own keys, supplied at their
+ *    explicit direction.
+ *  - OAST: with no listener configured, the SSRF canary is not sent
+ *    and the finding says so.
  *
- *  - Key exposure: consumes the bloodhound's secret findings and assesses
- *    them from FORMAT HINTS only (which key types support scoping, which
- *    are short-lived by construction). No found key is ever validated
- *    against a provider API — no live call is made with a found key.
- *  - Brute force: at most 5 deliberately failed logins with a canary
- *    username that cannot be a real account
- *    (`bugseek-canary-<random>@invalid`). Never a real account, never
- *    evasion, never more attempts than needed to see the defense engage.
- *  - Exploitation / WAF: benign canary payloads — inert marker strings
- *    carrying a random token. They are sent as data and the response is
- *    read as TEXT ONLY: probe URLs are never loaded in a tab, never
- *    rendered, and no payload is ever confirmed by execution. A payload
- *    that is reflected raw is reported as "let through", never executed.
- *  - Request smuggling: CONDITIONS ONLY. The browser fetch API forbids
- *    setting Transfer-Encoding, so no smuggled request can be built from
- *    here at all. We check response/header handling for ambiguity signals
- *    and report the rest as a server-config review. No desync attempt is
- *    ever made against shared infrastructure; isolated staging is the
- *    right place for a live smuggling test, and this module says so.
- *  - Post-exploitation / lateral movement: STATIC MAPPING ONLY. Internal
- *    and debug endpoints are inventoried with read-only GETs (status +
- *    content type — no auth bypass, no session use, no dumping). SSRF and
- *    cloud-metadata reachability are tested ONLY via a canary callback to
- *    a BugSeek-owned endpoint: the probe asks "did the server make the
- *    outbound request at all" (yes/no, no data fetched). The cloud
- *    metadata address (169.254.169.254) is never requested, directly or
- *    via a parameter. Environment variables are read from STATIC sources
- *    only (error messages, bundles, source maps) — key NAMES only, values
- *    never captured. BaaS key scope is assessed ONLY for the client's OWN
- *    keys, supplied by the client at their explicit direction — never for
- *    found or leaked keys.
- *  - OAST: if no OAST listener is configured (scaffolding only), the
- *    SSRF canary is not sent and the finding says so plainly.
+ * Gating: the base authorization record gates the whole module, every
+ * request goes through ActiveHttpClient (scope + rate limiting). The
+ * brute-force probe additionally needs the `allowAuthProbes` grant.
+ * Probes that need a login form are skipped when no form is found.
  *
- * Authorization: the base authorization record gates the whole module
- * (same gate as active testing — every request goes through
- * ActiveHttpClient, so scope + rate limiting apply). The brute-force
- * probe additionally requires the separate `allowAuthProbes` grant, the
- * same gate authChecker uses. Probes that need a login form are skipped
- * when no form is found.
- *
- * Honest limits (stated in every finding that touches them): from
- * outside, an extension can observe BLOCKING (status codes, block pages,
- * CAPTCHAs) and sometimes REFLECTION — it cannot observe whether the
- * server LOGGED the attempt or ALERTED anyone. "Logged" and "alerted"
- * are therefore always reported as "unknown — not observable from
- * outside" unless the client wires in the backend runtime detection
- * layer (backend/src/detection/), which watches from inside.
- *
- * Wiring: this module is NOT called by the active runner. The
- * coordinator integrates `runDefenseProbes` into the runner.
+ * Limits, stated in every finding that touches them: from outside, an
+ * extension can observe blocking (status codes, block pages, CAPTCHAs)
+ * and sometimes reflection. It cannot observe whether the server logged
+ * the attempt or alerted anyone, so "logged" and "alerted" are always
+ * "unknown, not observable from outside" unless the client wires in
+ * the backend runtime detection layer (backend/src/detection/).
  */
 import { scoreFinding } from '../lib/cvss';
 import { SECRET_PATTERNS } from '../lib/regexes';
@@ -66,7 +48,7 @@ import { redactedSnippet } from './httpClient';
 import { detectLoginForms } from './authChecker';
 
 /**
- * The OAST listener lives on the backend (backend/src/oast/ — scaffolding
+ * The OAST listener lives on the backend (backend/src/oast/, scaffolding
  * only until OAST_DOMAIN points at real infrastructure). The extension
  * cannot check that itself, so "configured" here means the coordinator
  * supplied a BugSeek-owned canary URL for this scan. No canary URL means
@@ -118,9 +100,9 @@ export interface DefenseVerdict {
   blocked: DefenseSignal;
   /** Did the site visibly react at all (any non-200-normal response)? */
   detected: DefenseSignal;
-  /** Not observable from outside — always 'unknown' here. */
+  /** Not observable from outside, always 'unknown' here. */
   logged: DefenseSignal;
-  /** Not observable from outside — always 'unknown' here. */
+  /** Not observable from outside, always 'unknown' here. */
   alerted: DefenseSignal;
   /** Plain-language summary of what was (and was not) seen. */
   summary: string;
@@ -135,7 +117,7 @@ export interface DiscoveredEndpointInput {
 export interface OwnKeySelfCheckInput {
   /** Provider id as the client knows it, e.g. 'stripe', 'supabase'. */
   provider: string;
-  /** Redacted fingerprint only — never a key value. */
+  /** Redacted fingerprint only, never a key value. */
   fingerprint: string;
   /** Scopes/restrictions the client says the key has, if they know them. */
   declaredScopes?: string[];
@@ -156,7 +138,7 @@ export interface DefenseProbeInput {
   /**
    * A BugSeek-owned OAST canary URL for the SSRF callback test, supplied
    * by the backend when a listener exists. Omit (or pass null) when there
-   * is no listener — the SSRF probe is then reported statically.
+   * is no listener, the SSRF probe is then reported statically.
    */
   oastCanaryUrl?: string | null;
   /** The client's OWN keys, supplied at their explicit direction, for a scope self-check. */
@@ -187,7 +169,7 @@ function baseFinding(partial: Omit<Finding, 'id' | 'category' | 'mode' | 'tags'>
 }
 
 /* ------------------------------------------------------------------ */
-/* 1. Key exposure — format-hint assessment of bloodhound findings.    */
+/* 1. Key exposure, format-hint assessment of bloodhound findings.    */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -296,7 +278,7 @@ export function assessKeyExposure(input: DefenseProbeInput): {
   }
 
   // Keys leaking in error messages / captured responses (static scan of
-  // bodies already captured — no new requests, key names / fingerprints only).
+  // bodies already captured, no new requests, key names / fingerprints only).
   for (const body of input.responseBodies ?? []) {
     for (const pattern of SECRET_PATTERNS) {
       pattern.regex.lastIndex = 0;
@@ -321,7 +303,7 @@ export function assessKeyExposure(input: DefenseProbeInput): {
         ...cvssFields('secrets:response-body'),
         requestCount: 0,
       }));
-      break; // one finding per body is enough — the pattern list is long
+      break; // one finding per body is enough, the pattern list is long
     }
   }
 
@@ -341,7 +323,7 @@ export function assessKeyExposure(input: DefenseProbeInput): {
 }
 
 /* ------------------------------------------------------------------ */
-/* 2. Brute-force defense — ≤5 canary-username failed logins.          */
+/* 2. Brute-force defense, ≤5 canary-username failed logins.          */
 /* ------------------------------------------------------------------ */
 
 export const MAX_DEFENSE_LOGIN_ATTEMPTS = 5;
@@ -438,7 +420,7 @@ export async function probeBruteForceDefense(
     } catch {
       break;
     }
-    if (engaged.length > 0) break; // defense seen — stop, never more than needed
+    if (engaged.length > 0) break; // defense seen, stop, never more than needed
   }
 
   if (engaged.length > 0) {
@@ -506,7 +488,7 @@ export async function probeBruteForceDefense(
 }
 
 /* ------------------------------------------------------------------ */
-/* 3. Exploitation defense — benign canary payloads, text-only read.   */
+/* 3. Exploitation defense, benign canary payloads, text-only read.   */
 /* ------------------------------------------------------------------ */
 
 interface CanaryProbeOutcome {
@@ -533,7 +515,7 @@ function classifyCanaryResponse(
   }
   if (status === 429) return 'blocked'; // rate limiting is also a defense engaging
   if (!body.includes(canary)) return 'let-through-encoded'; // dropped, encoded, or normalised away
-  // Reflected verbatim — but check whether it was HTML-encoded.
+  // Reflected verbatim, but check whether it was HTML-encoded.
   const idx = body.indexOf(canary);
   const around = body.slice(Math.max(0, idx - 120), idx + canary.length + 120);
   if (/&lt;|&gt;|&quot;|&#x?[0-9a-f]+;/i.test(around)) return 'let-through-encoded';
@@ -652,7 +634,7 @@ export async function probeExploitationDefense(
 }
 
 /* ------------------------------------------------------------------ */
-/* 4. Post-exploitation paths — STATIC mapping, read-only GETs.         */
+/* 4. Post-exploitation paths, STATIC mapping, read-only GETs.         */
 /* ------------------------------------------------------------------ */
 
 const INTERNAL_PATHS = [
@@ -748,7 +730,7 @@ export async function probePostExploitationExposure(
 }
 
 /* ------------------------------------------------------------------ */
-/* 5. WAF effectiveness — inert canaries across encoding classes.      */
+/* 5. WAF effectiveness, inert canaries across encoding classes.      */
 /*    DECLINED offensive equivalent: adaptive WAF/filter evasion       */
 /*    (fuzzing loop mutating payloads until one slips through).         */
 /*    This is the defensive flip: ONE inert canary per encoding class, */
@@ -786,7 +768,7 @@ export async function probeWafEffectiveness(
 
   // One inert canary per encoding class. Each payload is a classic WAF-test
   // SHAPE (angle brackets, quote, traversal, expression syntax) whose only
-  // content is the random canary token — no executable code, no exfiltration
+  // content is the random canary token, no executable code, no exfiltration
   // channel, and the response is read as text only, never rendered.
   const canary = randToken('bswaf');
   const base = new URL(tabUrl);
@@ -885,7 +867,7 @@ export async function probeWafEffectiveness(
 }
 
 /**
- * Request-smuggling CONDITIONS check — analysis only, no desync attempt.
+ * Request-smuggling CONDITIONS check, analysis only, no desync attempt.
  *
  * The browser fetch API forbids setting Transfer-Encoding, so a smuggled
  * request cannot be constructed from this extension at all. What CAN be
@@ -893,7 +875,7 @@ export async function probeWafEffectiveness(
  * Content-Length, Transfer-Encoding + Content-Length together, chunked
  * framing oddities) and whether the server rejects a TE-bearing request.
  * A live smuggling test belongs on the client's isolated staging with a
- * purpose-built tool — never against shared production infrastructure —
+ * purpose-built tool, never against shared production infrastructure,
  * and this finding says exactly that.
  */
 export async function probeRequestSmugglingConditions(
@@ -967,7 +949,7 @@ export async function probeRequestSmugglingConditions(
 }
 
 /* ------------------------------------------------------------------ */
-/* 6. Lateral-movement exposure mapping — static blast-radius map.     */
+/* 6. Lateral-movement exposure mapping, static blast-radius map.     */
 /*    DECLINED offensive equivalent: automated lateral movement &      */
 /*    exfiltration (SSRF/RCE/leaked BaaS keys to enumerate metadata,   */
 /*    dump env vars, map internal topology). This is the defensive     */
@@ -1008,7 +990,7 @@ export async function probeLateralMovementExposure(
   let canaryDispatched = false;
   if (sinkParams.length > 0 && listenerConfigured && canaryUrl) {
     // One GET, one sink param, canary URL as the value. No metadata
-    // address, no internal host — only the BugSeek-owned canary.
+    // address, no internal host, only the BugSeek-owned canary.
     const first = (input.apiEndpoints ?? []).find((ep) =>
       (ep.params ?? []).some((p) => SSRF_PARAM_RE.test(p)),
     );
@@ -1021,7 +1003,7 @@ export async function probeLateralMovementExposure(
         await http.get(u.toString());
         canaryDispatched = true;
       } catch {
-        /* dispatch failure is itself a data point — recorded below */
+        /* dispatch failure is itself a data point, recorded below */
       }
     }
   }
@@ -1088,7 +1070,7 @@ export async function probeLateralMovementExposure(
   }
 
   // --- c. Metadata-endpoint reachability: canary ONLY, never fetched. ---
-  // The metadata address is never requested by this module — directly, via
+  // The metadata address is never requested by this module, directly, via
   // a parameter, or via a redirect. Reachability is inferred only from (i)
   // whether an SSRF sink exists (above) and (ii) whether any captured
   // response mentions metadata hosts (static text search below).
@@ -1154,7 +1136,7 @@ export async function probeLateralMovementExposure(
     }));
   }
 
-  // --- e. BaaS key scope — ONLY the client's own keys, at their direction. ---
+  // --- e. BaaS key scope, ONLY the client's own keys, at their direction. ---
   const ownKeys = input.ownKeys ?? [];
   if (ownKeys.length === 0) {
     findings.push(baseFinding({
@@ -1268,7 +1250,7 @@ export async function runDefenseProbes(
 
 /* ── Defensive section for the extension's one-click Markdown report ──
  * Mirrors backend/src/reports/defensive.ts (the extension cannot import
- * backend code). Derives classes from finding tags — extension findings
+ * backend code). Derives classes from finding tags, extension findings
  * carry them; the backend derives from titles as a fallback because tags
  * do not survive scan ingestion. `logged`/`alerted` are always unknown
  * from outside; only server-side logs or the runtime detection layer can

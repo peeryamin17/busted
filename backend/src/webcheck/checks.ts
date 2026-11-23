@@ -4,11 +4,11 @@ import type { ApiInfo, TlsInfo, WebFinding } from './types.js';
 /**
  * Pure analysis for the web demo patrol.
  *
- * Everything here works over already-fetched snapshots — no I/O — so
+ * Everything here works over already-fetched snapshots, no I/O, so
  * it is unit-testable offline and the redaction rules are reviewable
  * in one place: cookie findings name the cookie, never its value;
  * secret findings name the key TYPE and the file, never the matched
- * string; .env evidence lists key NAMES only.
+ * string;.env evidence lists key NAMES only.
  */
 
 export interface PageSnapshot {

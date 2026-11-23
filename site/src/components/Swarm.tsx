@@ -74,7 +74,7 @@ export function Swarm() {
         </Reveal>
 
         <div className="mt-14 grid items-center gap-12 lg:grid-cols-[1.3fr_0.7fr]">
-          {/* ——— diagram ——— */}
+          {/* --- diagram --- */}
           <Reveal>
             <ContainerScroll
               className="relative mx-auto aspect-[4/4.4] w-full max-w-2xl sm:aspect-[16/12.5] lg:aspect-[4/3.6]"
@@ -145,7 +145,7 @@ export function Swarm() {
             </ContainerScroll>
           </Reveal>
 
-          {/* ——— score + how a run lands ——— */}
+          {/* --- score + how a run lands --- */}
           <Reveal delay={0.1}>
             <div className="flex flex-col items-center gap-7 lg:items-start">
               <ScoreRing value={72} grade="C" caption="Illustrative score — your target earns its own." />

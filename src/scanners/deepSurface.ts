@@ -1,14 +1,14 @@
 /**
- * Deep surface scanner (Phase 4) — devtools-grade passive inventory.
+ * Deep surface scanner, devtools-grade passive inventory.
  *
- * Where the Phase 1 scanners report individual problems, this module maps
+ * Where the other scanners report individual problems, this maps
  * the whole runtime surface a developer would inspect in DevTools:
  *   - every cookie catalogued, with session carriers identified
  *   - web-storage session material (JWTs / auth tokens readable by any JS)
  *   - payment gateways fingerprinted + card-collection posture
  *   - third-party integrations grouped by purpose (analytics, chat, ads…)
  *
- * Purely observational — this module makes NO network requests. Storage
+ * Purely observational, this module makes NO network requests. Storage
  * values are never read here: the content script already reduced them to
  * key names + shapes, and cookie evidence lists names only.
  */
@@ -20,7 +20,7 @@ const nid = (p: string) => `deep-${p}-${seq++}`;
 const AUTH_KEY_RE = /(token|auth|jwt|session|sess|access|refresh|bearer|sid)/i;
 
 /* ------------------------------------------------------------------ */
-/* Cookies — full inventory                                            */
+/* Cookies, full inventory                                            */
 /* ------------------------------------------------------------------ */
 
 const SESSION_NAME_RE =
@@ -72,7 +72,7 @@ async function inventoryCookies(url: string): Promise<Finding[]> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Web storage — session material readable by any script               */
+/* Web storage, session material readable by any script               */
 /* ------------------------------------------------------------------ */
 
 function scanStorage(dom: DomScanData): Finding[] {
@@ -158,7 +158,7 @@ function scanStorage(dom: DomScanData): Finding[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* Payments — gateway fingerprinting + card-collection posture         */
+/* Payments, gateway fingerprinting + card-collection posture         */
 /* ------------------------------------------------------------------ */
 
 const GATEWAYS: Array<{ name: string; re: RegExp }> = [
@@ -242,7 +242,7 @@ function scanPayments(dom: DomScanData): Finding[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* Integrations — third-party map grouped by purpose                   */
+/* Integrations, third-party map grouped by purpose                   */
 /* ------------------------------------------------------------------ */
 
 const INTEGRATION_GROUPS: Array<{ group: string; re: RegExp }> = [

@@ -4,7 +4,7 @@ import { springPop } from '../../lib/motion';
 import { BackgroundPaths } from './BackgroundPaths';
 
 /**
- * Glyph paths lifted from the onyx-glyph-preloader vocabulary (MIT) —
+ * Glyph paths lifted from the onyx-glyph-preloader vocabulary (MIT),
  * geometric marks drawn in a 100×100 box, plus two of our own:
  * a viewfinder (scanning) and a sonar wave.
  */
@@ -27,7 +27,7 @@ interface Fleck {
 
 function useFlecks(count: number, seed: number): Fleck[] {
   return useMemo(() => {
-    // stateless hash-based pseudo-random — deterministic per (seed, index)
+    // stateless hash-based pseudo-random, deterministic per (seed, index)
     const rand = (n: number) => {
       const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
       return x - Math.floor(x);
@@ -101,7 +101,7 @@ function GlyphTile({ index, lit }: { index: number; lit: boolean }) {
 /**
  * Onyx Glyph Preloader (after 21st.dev's @kedhareswer/onyx-glyph-preloader):
  * sandblasted black-metal glyph tiles orbit a climbing percentage,
- * lighting up one by one — then forge into the BugSeek mark above the
+ * lighting up one by one, then forge into the BugSeek mark above the
  * wordmark. ~2s, click to skip, once per session, instant (absent)
  * under reduced motion.
  */

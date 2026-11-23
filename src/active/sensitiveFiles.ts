@@ -1,11 +1,11 @@
 /**
- * Sensitive-file prober (Phase 4, AUTHORISED active tier only).
+ * Sensitive-file prober (authorised active tier only).
  *
  * The classic recon checklist: is the target accidentally publishing its
  * own source, configuration, or backups? A tight list of well-known paths,
  * GET-only, through the scope-checked rate-limited client. A path counts
  * as exposed only when the response is 200 AND carries a content signature
- * — a 200 alone is usually a SPA fallback or a custom error page.
+ *, a 200 alone is usually a SPA fallback or a custom error page.
  *
  * Evidence discipline: for files like .env we report matched KEY NAMES
  * only. Secret values are never copied into findings.
@@ -143,7 +143,7 @@ export async function probeSensitiveFiles(
         remediation: probe.remediation,
       });
     } catch {
-      /* unreachable path — absence is the expected, safe outcome */
+      /* unreachable path, absence is the expected, safe outcome */
     }
   }
 

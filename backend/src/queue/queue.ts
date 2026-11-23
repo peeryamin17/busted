@@ -1,8 +1,8 @@
 /**
  * Scan job queue abstraction.
  *
- * - `BullMQQueue` (BullMQ + Redis) when REDIS_URL is set — production path.
- * - `MemoryQueue` otherwise — in-process, zero infrastructure, so
+ * - `BullMQQueue` (BullMQ + Redis) when REDIS_URL is set, production path.
+ * - `MemoryQueue` otherwise, in-process, zero infrastructure, so
  *   `npm run dev` works locally. Jobs are NOT durable in memory mode
  *   (documented limitation; fine for local dev).
  */

@@ -5,7 +5,7 @@
  * "CORS misconfiguration + state-changing API → account takeover") using
  * tag/category/title predicates. The structures and the local matcher run
  * entirely in the extension; the backend AI agent can deepen them later via
- * apiClient.deepenAttackChains() — the hooks for that handoff live here.
+ * apiClient.deepenAttackChains(), the hooks for that handoff live here.
  */
 import type { AttackChain, Finding, Severity } from './types';
 import { SEVERITY_ORDER } from './types';

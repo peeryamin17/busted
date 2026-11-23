@@ -23,7 +23,7 @@ export const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
  * The operator's account (ADMIN_EMAIL) is exempt from the inactivity
- * sign-out and the one-active-session rule — the same email that
+ * sign-out and the one-active-session rule, the same email that
  * unlocks /api/admin/users, so there is one source of truth.
  */
 export function isAdminEmail(email: string): boolean {

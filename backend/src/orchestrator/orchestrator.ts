@@ -84,14 +84,14 @@ export class ScanOrchestrator {
     }
     const target = normalizeTargetUrl(req.targetUrl);
 
-    // 3. Authorization verification for active testing (plan §8 — REQUIRED).
+    // 3. Authorization verification for active testing (plan §8, REQUIRED).
     let authorizationId: string | undefined;
     if (req.mode === 'active') {
       const record = await verifyAndRecordAuthorization(this.deps.db, user.id, req.authorization);
       authorizationId = record.id;
     }
 
-    // 4. Usage quota — credit-metered (business plan §3): 1 credit = one
+    // 4. Usage quota, credit-metered (business plan §3): 1 credit = one
     // passive scan, 25 credits = one active agent scan.
     const creditCost = SCAN_CREDIT_COST[req.mode];
     const used = await this.deps.db.sumUsageSince(user.id, 'scan', monthStartIso());
@@ -112,7 +112,7 @@ export class ScanOrchestrator {
       excludedPaths: req.scope?.excludedPaths ?? [],
       maxRequestsPerSecond: Math.min(
         req.scope?.maxRequestsPerSecond ?? this.deps.config.agentRequestsPerSecond,
-        10 // hard ceiling — never DoS-like (plan §8)
+        10 // hard ceiling, never DoS-like (plan §8)
       ),
     };
 

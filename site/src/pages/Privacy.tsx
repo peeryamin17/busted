@@ -4,7 +4,7 @@ import { Reveal } from '../components/Reveal';
 import { SonarGrid } from '../components/fx/SonarGrid';
 
 /**
- * Privacy — the public summary page. This is the short version, written to
+ * Privacy, the public summary page. This is the short version, written to
  * be read. The full policy (every category, purpose, retention period and
  * right) is a plain page at /privacy-policy.html, mirrored from
  * docs/privacy-policy.md; keep all three in step when any changes.

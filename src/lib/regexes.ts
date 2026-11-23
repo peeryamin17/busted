@@ -400,7 +400,7 @@ export function shannonEntropy(value: string): number {
 /**
  * Redacted fingerprint: provider + first 4 + last 4 characters only.
  * The middle is never stored, logged, or rendered anywhere. Short values
- * reveal even less (first 2 + last 2). Use this — never the raw value —
+ * reveal even less (first 2 + last 2). Use this, never the raw value,
  * when correlating a key across locations.
  */
 export function fingerprintSecret(value: string, provider = 'unknown'): string {
@@ -415,7 +415,7 @@ export function fingerprintSecret(value: string, provider = 'unknown'): string {
 /**
  * Hashes of well-known public values. A high-entropy-looking string that is
  * just the hash of "" / "test" / "password" is not a secret. Only exact
- * matches are ignored — an unknown hash is still reported by the generic
+ * matches are ignored, an unknown hash is still reported by the generic
  * assignment patterns, not silently dropped.
  */
 const KNOWN_PUBLIC_HASHES = new Set([

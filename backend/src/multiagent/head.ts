@@ -723,7 +723,7 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
   // it only confirms/escalates what specialists already reported, with
   // benign canaries, and stops on any rate-limit, lockout, error storm or
   // guardrail refusal. Everything it cannot test stays an explicit hint.
-  // No LLM tokens are spent here — only bounded, rate-limited HTTP probes
+  // No LLM tokens are spent here, only bounded, rate-limited HTTP probes
   // through the shared tool context (scope + SSRF enforced per request).
   const ladderCandidates = deduped.filter((f) => isLadderTestable(f)).slice(0, 8);
   if (ladderCandidates.length > 0) {

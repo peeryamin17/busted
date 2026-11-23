@@ -1,26 +1,19 @@
 /**
  * Cross-file taint propagation (white-box, client-side).
  *
- * A page's JavaScript is usually split across several bundles, and the
- * single-file taint engine cannot see a tainted value leave one bundle and
- * reach a sink in another. This module links them — honestly, and only that
- * far:
+ * A page's JS is usually split across bundles, and the single-file
+ * taint engine cannot see a tainted value leave one bundle and reach
+ * a sink in another. This links them, and only that far: each script
+ * is parsed once for its top-level functions and per-function summaries
+ * (which params flow to a sink / to the return), then re-analysed with
+ * the merged summary table, so a call into another bundle's function
+ * resolves like a local call. A flow counts as cross-file only when
+ * its trace calls a function defined in a different script.
  *
- *   1. Every script is parsed once to collect its top-level function
- *      definitions and the engine's per-function summaries (which parameters
- *      flow to a sink / to the return value).
- *   2. Each script is re-analysed with the MERGED summary table of all
- *      scripts, so a call into a function defined in another bundle is
- *      resolved exactly like a local call.
- *   3. A flow is labelled cross-file only when its trace contains a call
- *      into a function whose definition lives in a different script.
- *
- * What this is NOT: full cross-file data-flow. Global variables, object
- * properties, event-driven hand-offs and dynamic dispatch (`window[x]()`)
- * are not tracked across files — only named function definitions and the
- * arguments passed to them at call sites. A cross-file flow is therefore
- * reported at reduced confidence (0.75 max) and labelled as
- * definition→use linking.
+ * Not full cross-file data flow: globals, object properties,
+ * event-driven hand-offs and dynamic dispatch (`window[x]()`) are not
+ * tracked across files. Cross-file flows are capped at 0.75 confidence
+ * and labelled definition-to-use linking.
  */
 import * as acorn from 'acorn';
 import {

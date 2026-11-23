@@ -2,9 +2,9 @@
  * Provider-agnostic LLM interface.
  *
  * Agent decisions go through this interface so the underlying model is
- * swappable (Claude today; OpenAI or a fine-tuned model tomorrow — plan §4.3).
+ * swappable (Claude today; OpenAI or a fine-tuned model tomorrow, plan §4.3).
  * The API key for any provider comes ONLY from environment variables, never
- * hardcoded (see .env.example).
+ * hardcoded (see.env.example).
  */
 
 export interface LLMMessage {

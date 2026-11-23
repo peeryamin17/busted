@@ -76,7 +76,7 @@ export async function authRoutes(app: FastifyInstance, deps: RouteDeps): Promise
   });
 
   /**
-   * GET /api/admin/users — the operator's user list (emails, plans, last
+   * GET /api/admin/users, the operator's user list (emails, plans, last
    * login). Gated to the single ADMIN_EMAIL account; everyone else 403s.
    */
   app.get('/api/admin/users', { preHandler: authenticate }, async (request, reply) => {
@@ -113,7 +113,7 @@ export async function authRoutes(app: FastifyInstance, deps: RouteDeps): Promise
     }
     const { key, keyHash, keyPrefix } = generateApiKey();
     const rec = await db.createApiKey(user.id, body.data.name, keyHash, keyPrefix);
-    // The raw key is returned ONCE — it cannot be retrieved again.
+    // The raw key is returned ONCE, it cannot be retrieved again.
     return reply.status(201).send({
       id: rec.id,
       name: rec.name,
@@ -132,7 +132,7 @@ export async function authRoutes(app: FastifyInstance, deps: RouteDeps): Promise
     const { code, codeHash } = generatePairingCode();
     const expiresAt = new Date(Date.now() + PAIRING_CODE_TTL_MS).toISOString();
     await db.createPairingCode(user.id, codeHash, expiresAt);
-    // The raw code is returned ONCE — only its hash is stored.
+    // The raw code is returned ONCE, only its hash is stored.
     return reply.status(201).send({ code, expiresAt });
   });
 

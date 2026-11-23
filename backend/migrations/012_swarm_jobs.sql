@@ -1,4 +1,4 @@
--- 011_swarm_jobs.sql — crash-safe persistent job queue for multiagent swarm scans.
+-- 011_swarm_jobs.sql, crash-safe persistent job queue for multiagent swarm scans.
 -- Supports atomic queue claims with FOR UPDATE SKIP LOCKED and crash recovery.
 
 create table if not exists swarm_jobs (

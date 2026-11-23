@@ -18,11 +18,11 @@ import type { Confidence, Severity } from '../types.js';
  *   POST /api/code-intake?kind=zip|jar&filename=<name>
  *
  * Uploads a code archive as a raw binary body (application/zip,
- * application/java-archive, or application/octet-stream — no multipart
+ * application/java-archive, or application/octet-stream, no multipart
  * dependency; the body IS the archive). Authenticated users only; no plan
- * gate and no credit charge — static analysis of the user's own code.
+ * gate and no credit charge, static analysis of the user's own code.
  *
- * Limits: 10 MB archive, 2,000 entries, 2 MB per file. Analysis runs
+ * Limits: 10 MB archive, 2, 000 entries, 2 MB per file. Analysis runs
  * in memory; nothing is written to disk. Results are persisted as a scan
  * with category 'whitebox' findings so the report builders render them
  * in the dedicated White-box section.
@@ -54,7 +54,7 @@ export async function codeIntakeRoutes(app: FastifyInstance, deps: RouteDeps): P
   const { db } = deps;
   const authenticate = buildAuthenticate(db);
 
-  // Raw binary body parsers — the request body IS the archive.
+  // Raw binary body parsers, the request body IS the archive.
   for (const contentType of ['application/zip', 'application/java-archive', 'application/octet-stream']) {
     app.addContentTypeParser(contentType, { parseAs: 'buffer' }, (_req, body, done) => {
       done(null, body);

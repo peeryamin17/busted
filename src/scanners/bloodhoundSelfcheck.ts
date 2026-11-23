@@ -1,5 +1,5 @@
 /**
- * Bloodhound self-check — run with `npm run check:bloodhound`.
+ * Bloodhound self-check, run with `npm run check:bloodhound`.
  *
  * No test runner exists in this repo, so this is a plain executable
  * module: esbuild bundles it and node runs it. Every check uses synthetic

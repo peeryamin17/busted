@@ -180,7 +180,7 @@ const MODES: Mode[] = ['passive', 'active', 'swarm'];
 
 /**
  * The toolkit, switched by Expandable Tabs (21st.dev pattern): three
- * modes — passive, active, swarm — each with its own bento layout of
+ * modes, passive, active, swarm, each with its own bento layout of
  * spotlight cards. Click outside the tab bar and it collapses to icons.
  */
 export function Bento() {

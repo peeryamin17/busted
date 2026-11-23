@@ -2,23 +2,18 @@
  * Runs the secret regex patterns over collected JavaScript sources.
  * All reported evidence is redacted; placeholder/test values are skipped.
  *
- * Bloodhound additions (additive only — existing pattern findings keep
- * their ids, titles, and severities):
- *  - every pattern finding now carries `secretProvider` + a redacted
- *    `fingerprint` (provider + first 4 + last 4 chars) so one key can be
- *    correlated across locations without ever storing its full value;
- *  - generic high-entropy string detection (`scanHighEntropyStrings`)
- *    catches provider-less keys via Shannon entropy, with a false-positive
- *    filter (known public hashes, data-URI/image base64, URL fragments,
- *    repeated characters, placeholders);
- *  - `scanSecretKeyNames` flags secret-shaped key NAMES in web storage and
- *    cookies — names only, values are never read for this check.
+ * Every pattern finding carries `secretProvider` + a redacted
+ * fingerprint (provider + first 4 + last 4 chars), so one key can be
+ * correlated across locations without storing its full value.
+ * `scanHighEntropyStrings` catches provider-less keys via Shannon
+ * entropy, with a false-positive filter (known public hashes, data-URI
+ * / image base64, URL fragments, repeated characters, placeholders).
+ * `scanSecretKeyNames` flags secret-shaped key names in web storage
+ * and cookies, names only, values never read.
  *
- * Sources scanned: inline scripts, fetched JS bundles (the background
- * worker feeds bundle code in as ScriptSources — no new fetching here),
- * and source-mapped original sources (sourceMapScanner reuses the same
- * pattern library). No found key is ever validated against a provider
- * API — identification is format/context/entropy only.
+ * Sources: inline scripts, fetched JS bundles (fed in as ScriptSources
+ * by the background worker), and source-mapped original sources. No
+ * found key is ever validated against a provider API.
  */
 import {
   ENTROPY_MAX_FINDINGS_PER_SOURCE,
@@ -43,7 +38,7 @@ export interface ScriptSource {
 let findingSeq = 0;
 const MAX_MATCHES_PER_PATTERN = 5;
 
-/** Quoted runs of token-shaped characters — candidates for entropy scoring. */
+/** Quoted runs of token-shaped characters, candidates for entropy scoring. */
 const QUOTED_RUN_RE = /["'`]([A-Za-z0-9+/=_-]{20,})["'`]/g;
 
 /** A URL tail immediately before a candidate means it is a path segment, not a key. */
@@ -57,7 +52,7 @@ function spansOverlap(aStart: number, aEnd: number, spans: Array<{ start: number
  * Generic high-entropy detection over one source. `patternSpans` are the
  * [start, end) ranges already matched by SECRET_PATTERNS so the same key
  * is not reported twice (once as a known provider, once as generic).
- * Returns findings only — the candidate values themselves are never kept.
+ * Returns findings only, the candidate values themselves are never kept.
  */
 export function scanHighEntropyStrings(
   code: string,
@@ -197,7 +192,7 @@ function keyNameMatch(key: string): string | null {
 
 /**
  * Flag storage entries / cookie names whose KEY NAME looks secret-bearing.
- * Only names are inspected — storage values are never read here (the
+ * Only names are inspected, storage values are never read here (the
  * content script already reduced them to key + shape) and cookie values
  * are never requested. A matching name alone is weak evidence, so these
  * findings are medium/low confidence and carry no fingerprint.

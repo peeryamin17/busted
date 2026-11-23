@@ -29,7 +29,7 @@ export interface GoogleAuthOptions {
 }
 
 /**
- * "Sign in with Google" for the website — authorization-code flow with
+ * "Sign in with Google" for the website, authorization-code flow with
  * OUR backend as the OAuth client:
  *
  *   GET /api/auth/google          → 302 to Google (state nonce in a
@@ -104,8 +104,8 @@ export async function googleAuthRoutes(
       new Date(Date.now() + SESSION_TTL_MS).toISOString(),
     );
     // House rules for browser sessions (the operator's ADMIN_EMAIL
-    // account is exempt): one active session per account — this
-    // sign-in signs the account out everywhere else — and dead rows
+    // account is exempt): one active session per account, this
+    // sign-in signs the account out everywhere else, and dead rows
     // get swept while we're here.
     if (!isAdminEmail(user.email)) {
       await db.deleteOtherSessions(user.id, tokenHash).catch(() => undefined);

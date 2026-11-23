@@ -30,7 +30,7 @@ interface LockedRow {
   note: string;
 }
 
-/** The trust layer's verdict ("is it a trap?") — never part of the score. */
+/** The trust layer's verdict ("is it a trap?"), never part of the score. */
 interface TrustView {
   verdict: 'clear' | 'suspicious' | 'known-bad';
   reasons: string[];
@@ -118,7 +118,7 @@ interface RunSummary {
   score?: number | null;
   grade?: string | null;
   findingCount?: number;
-  /** 'clear' | 'suspicious' | 'known-bad' — absent on vault stubs and old runs. */
+  /** 'clear' | 'suspicious' | 'known-bad', absent on vault stubs and old runs. */
   trustVerdict?: string | null;
   /** History-vault stub: the run exists; its contents ride along on a plan. */
   locked?: boolean;
@@ -165,7 +165,7 @@ function originTag(run: RunSummary): string | null {
   return `from ${place} · ${tag}`;
 }
 
-/** Result line: "RECORDED FROM GPS 34.0837, 74.7973 (±18m) — Srinagar, India · IP 103.9.1.2 — Srinagar, India". */
+/** Result line: "RECORDED FROM GPS 34.0837, 74.7973 (±18m), Srinagar, India · IP 103.9.1.2, Srinagar, India". */
 function stampLine(requester?: { ip: string | null; geo: unknown } | null): string | null {
   if (!requester) return null;
   const { ip, gps } = readStamp(requester.geo);
@@ -229,7 +229,7 @@ const scoreColor = (v: number): string =>
 /**
  * Ask the browser for the device's position (the visitor decides via
  * the browser's own prompt). Resolves null on refusal, timeout or an
- * unsupported browser — never throws, and the server stamps the run
+ * unsupported browser, never throws, and the server stamps the run
  * from the IP instead when no position arrives.
  */
 function capturePosition(): Promise<{ lat: number; lon: number; accuracy: number } | null> {
@@ -353,7 +353,7 @@ export function WebCheck() {
       setRuns(data.runs ?? []);
       if (data.usage) setUsage(data.usage);
     } catch {
-      /* the list is a courtesy — the form still works without it */
+      /* the list is a courtesy, the form still works without it */
     }
   }, []);
 

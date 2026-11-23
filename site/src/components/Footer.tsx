@@ -22,7 +22,7 @@ const COLUMNS: Array<{ title: string; links: Array<{ label: string; href: string
 ];
 
 /**
- * Footer with an oversized wordmark bleeding off the bottom edge —
+ * Footer with an oversized wordmark bleeding off the bottom edge,
  * the agency-poster treatment. Links and credits ride above it.
  */
 export function Footer({ home = true, member = false }: { home?: boolean; member?: boolean }) {

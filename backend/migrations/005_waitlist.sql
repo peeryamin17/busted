@@ -1,7 +1,7 @@
 -- Launch waitlist ("THE DROP" on the site).
 --
 -- Emails from the Coming-soon form on the marketing site, stored in
--- our own database — written once, emailed once at launch, never
+-- our own database, written once, emailed once at launch, never
 -- shared. `source` records which form collected the address so
 -- future forms don't need a schema change.
 create table if not exists waitlist (

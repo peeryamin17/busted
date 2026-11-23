@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 /**
- * A tiny pathname router — pushState + popstate, no dependency.
+ * A tiny pathname router, pushState + popstate, no dependency.
  * The host rewrites every path to index.html (see vercel.json), so
  * client routes survive direct loads and refreshes.
  */

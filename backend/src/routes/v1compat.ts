@@ -13,7 +13,7 @@ import type { Confidence, Severity } from '../types.js';
  *
  * The extension's `src/lib/apiClient.ts` was written against this contract
  * (`GET /api/v1/health`, `POST /api/v1/chains/analyze`, `POST /api/v1/scans`)
- * while the backend served different paths — so backend integration was dead.
+ * while the backend served different paths, so backend integration was dead.
  * These adapters close that gap:
  *
  * - GET  /api/v1/health          (public)  liveness probe for the popup badge
@@ -110,7 +110,7 @@ export async function v1CompatRoutes(app: FastifyInstance, deps: RouteDeps): Pro
   // Who the presented credential belongs to. `operator` is true only for
   // the ADMIN_EMAIL account; the extension uses it to offer that account a
   // developer unlock (authorization records are then saved automatically
-  // instead of through the form — every request still passes scope checks).
+  // instead of through the form, every request still passes scope checks).
   app.get('/api/v1/account', { preHandler: authenticate }, async (request) => {
     const user = requireUser(request);
     const isOp = isAdminEmail(user.email);

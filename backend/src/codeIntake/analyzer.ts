@@ -1,25 +1,16 @@
 /**
- * Code-intake analyser — static analysis of user-uploaded code archives.
+ * Code-intake analyser: static analysis of user-uploaded archives.
+ * Nothing is executed, compiled, or run.
  *
- * Two modes, both purely static (nothing is executed, compiled, or run):
+ * ZIP: walk source files, run secret patterns plus dangerous-API-use
+ * detection. JAR/WAR: scan .class constant pools (raw UTF-8 strings) for
+ * secrets, hardcoded credentials, JDBC URLs, and dangerous API references.
+ * That is a constant-pool string scan, not decompilation: method bodies
+ * are never reconstructed, and a referenced API is not proof it is called
+ * with attacker-controlled data.
  *
- *  - ZIP (repo): walk source files (JS/TS/Java/Python/PHP/Go/Ruby/Rust/C#),
- *    run well-known secret patterns plus dangerous-API-use detection.
- *  - JAR/WAR (Java bytecode): unzip and scan `.class` files' CONSTANT
- *    POOLS — the raw UTF-8 strings embedded in the class file — for
- *    secrets, hardcoded credentials, JDBC URLs and dangerous API references
- *    (Runtime.exec, reflection, deserialization). This is a CONSTANT-POOL
- *    STRING SCAN, NOT DECOMPILATION: method bodies are never reconstructed,
- *    control flow is never followed, and a referenced API is not proof it
- *    is called with attacker-controlled data.
- *
- * Limits (zip-bomb / resource guards): 10 MB archive, 2,000 entries,
- * 2 MB per file, 20 MB total scanned text. Everything runs in memory —
- * nothing is written to disk, so there is no temp dir to clean up.
- *
- * No backend secret-detection patterns existed to reuse (guardrails/
- * redact.ts only redacts); the patterns here mirror the extension's
- * well-known-format approach from src/lib/regexes.ts.
+ * Limits: 10 MB archive, 2,000 entries, 2 MB per file, 20 MB total
+ * scanned text. Everything runs in memory; nothing is written to disk.
  */
 import JSZip from 'jszip';
 import { redactText } from '../guardrails/redact.js';

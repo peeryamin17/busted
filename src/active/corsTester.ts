@@ -95,7 +95,7 @@ interface OriginProbeResult {
 }
 
 /**
- * Probe one URL with several origins. Returns findings (at most a few — the
+ * Probe one URL with several origins. Returns findings (at most a few, the
  * worst misconfiguration wins) and the number of requests spent.
  */
 export async function testCors(
@@ -129,7 +129,7 @@ export async function testCors(
             status: res.status,
           });
         } catch {
-          /* probe failed — move on */
+          /* probe failed, move on */
         } finally {
           if (ruleSet) await clearProbeOrigin();
         }
@@ -171,7 +171,7 @@ function classifyProbes(
 
   const withCreds = (p: OriginProbeResult): boolean => p.allowCredentials;
 
-  // Wildcard + credentials — the classic critical misconfiguration.
+  // Wildcard + credentials, the classic critical misconfiguration.
   const wildcard = probes.find(
     (p) => p.allowOrigin === '*' && withCreds(p),
   );
@@ -264,7 +264,7 @@ function classifyProbes(
     };
   }
 
-  // Reflected without credentials — weaker, still worth noting.
+  // Reflected without credentials, weaker, still worth noting.
   const reflectedOpen = probes.find(
     (p) =>
       p.origin.startsWith('https://') &&

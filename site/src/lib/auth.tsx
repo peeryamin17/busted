@@ -40,7 +40,7 @@ const AuthContext = createContext<AuthState>({
  * Session probe against our own backend, reached through the site's
  * /api proxy (see vercel.json / vite.config.ts) so the httpOnly
  * bs_session cookie stays same-site in the browser. 200 means signed
- * in; anything else — 401, network trouble, backend asleep — means
+ * in; anything else, 401, network trouble, backend asleep, means
  * signed out.
  */
 async function probeSession(): Promise<{

@@ -1,7 +1,7 @@
 import type { TrustAssessment } from './types.js';
 
 /**
- * The trust layer — is this page a trap?
+ * The trust layer, is this page a trap?
  *
  * The security score grades how a site is configured; this module asks
  * the other question: does it behave like a phish? It consults live
@@ -11,7 +11,7 @@ import type { TrustAssessment } from './types.js';
  * domains, password boxes in the wrong neighbourhood) into a verdict.
  *
  * Invariants:
- *  - never throws — the worst outcome is a quiet 'clear';
+ *  - never throws, the worst outcome is a quiet 'clear';
  *  - never adds findings and never touches the security score;
  *  - every network read fails open (a dead feed is an empty feed).
  */
@@ -145,7 +145,7 @@ async function loadFeedIndex(): Promise<FeedIndex> {
 /**
  * The default feed lookup. A hit is the checked URL appearing verbatim
  * (trailing-slash-insensitive), or a listed URL on the same host whose
- * path is '/' — feeds report whole hosts that way.
+ * path is '/', feeds report whole hosts that way.
  */
 const defaultFeedMatch = async (
   url: string,
@@ -200,7 +200,7 @@ const PHISHING_WARNING_RE =
 const BRAND_LURE_RE =
   /(paypal|apple|microsoft|amazon|netflix|binance|coinbase|metamask|chase|wellsfargo|bankofamerica|instagram|facebook|whatsapp|telegram|login|signin|verify|secure|account|update|confirm|support|wallet|recover|unlock)/i;
 
-/** Disposable subdomain platforms — free to pitch, free to abandon. */
+/** Disposable subdomain platforms, free to pitch, free to abandon. */
 const FREE_HOST_SUFFIXES = [
   'pages.dev', 'vercel.app', 'netlify.app', 'github.io', 'web.app',
   'firebaseapp.com', 'glitch.me', 'repl.co', 'replit.app', 'surge.sh',

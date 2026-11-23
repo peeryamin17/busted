@@ -3,7 +3,7 @@ import type { Transition } from 'framer-motion';
 /**
  * Shared spring presets, per the Apple fluid-interfaces guidance:
  * critically damped (bounce 0) by default; a whisper of bounce only for
- * small playful entrances. Interruptible springs everywhere — never lock
+ * small playful entrances. Interruptible springs everywhere, never lock
  * out input mid-flight.
  */
 export const springQuiet: Transition = { type: 'spring', bounce: 0, duration: 0.45 };

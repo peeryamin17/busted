@@ -13,7 +13,7 @@ import type { Finding } from '../types.js';
  *   presented as confirmed.
  *
  * 'Verified' here means reproduced with a benign canary and read-only
- * proofs. It is not proof of exploitability to full impact — the ladder
+ * proofs. It is not proof of exploitability to full impact, the ladder
  * never executes an attack chain.
  */
 

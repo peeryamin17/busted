@@ -7,10 +7,10 @@ import { LiquidGlassButton } from './LiquidGlassButton';
 
 /**
  * The end of the road: past the footer, where the site is supposed to
- * be over, a sealed crate sits in the dark. It rattles now and then —
+ * be over, a sealed crate sits in the dark. It rattles now and then,
  * something inside wants out. Only ever rendered for signed-out
  * visitors (Landing gates it on the auth probe); signing in is the
- * unwrap. Mystery, yes; fake promises, no — the copy says exactly
+ * unwrap. Mystery, yes; fake promises, no, the copy says exactly
  * what's inside.
  *
  * Reduced motion gets the still life: no rattle, no wiggle, no pop.
@@ -30,7 +30,7 @@ export function MysteryCrate() {
   }, [rattleControls, reduce]);
 
   // Every few seconds, something inside knocks. Only while it's on
-  // screen — a crate rattling in an empty room is just wasteful.
+  // screen, a crate rattling in an empty room is just wasteful.
   useEffect(() => {
     if (!inView || reduce) return;
     let alive = true;

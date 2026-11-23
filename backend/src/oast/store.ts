@@ -1,5 +1,5 @@
 /**
- * In-memory OAST callback store — Phase 3 scaffolding.
+ * In-memory OAST callback store, Phase 3 scaffolding.
  *
  * The production OAST listener (separate always-on infra, see docs/oast.md)
  * POSTs observed DNS/HTTP hits to /api/oast/callback; they land here keyed by

@@ -1,18 +1,15 @@
 /**
- * Runtime detection layer — types (Thread 5, DEFENSIVE).
+ * Runtime detection layer: types. The layer watches BugSeek's own backend
+ * first: it runs rules over security events the backend records (failed
+ * logins, API-key uses, requests) and persists detections the site owner
+ * can read back. Rule-based only: no new services, no new spend, no model
+ * calls.
  *
- * The layer watches BugSeek's OWN backend first (dogfooding): it runs
- * rules over security events the backend already records or is given
- * (failed logins, API-key uses, requests) and persists detections the
- * site owner can read back. It is rule-based only — no new services, no
- * new spend, no model calls.
- *
- * Privacy discipline: passwords are NEVER stored, not even hashed
- * without a pepper — see events.ts. Account identifiers are stored as
- * SHA-256 hashes (equality is all the spray rules need). IPs stored in
- * detections are the ATTACKER's address hitting the owner's backend, i.e.
- * operational security data the owner needs to block them — not the
- * owner's own PII.
+ * Passwords are never stored, not even hashed without a pepper (see
+ * events.ts). Account identifiers are stored as SHA-256 hashes; equality
+ * is all the spray rules need. IPs in detections are the attacker's
+ * address hitting the owner's backend, operational data the owner needs
+ * to block them.
  */
 
 export type DetectionPattern =
@@ -33,7 +30,7 @@ export interface DetectionRecord {
   severity: DetectionSeverity;
   title: string;
   detail: string;
-  /** Redacted evidence: counts, paths, key prefixes, IPs — never secrets. */
+  /** Redacted evidence: counts, paths, key prefixes, IPs, never secrets. */
   evidence?: string;
   /** Dedupe key: pattern + the entity it fired on (IP / account hash / key prefix). */
   dedupeKey: string;
@@ -53,14 +50,14 @@ export interface SecurityEvent {
   at: string; // ISO
   /** Source address of the request. */
   ip?: string;
-  /** SHA-256 hash of the account identifier (username/email) — never the value. */
+  /** SHA-256 hash of the account identifier (username/email), never the value. */
   accountHash?: string;
-  /** Peppered SHA-256 of the attempted password — equality only, never plaintext. */
+  /** Peppered SHA-256 of the attempted password, equality only, never plaintext. */
   passwordHash?: string;
   userAgent?: string;
   /** API-key prefix only (e.g. `bs_abc123`), never the key. */
   apiKeyPrefix?: string;
-  /** Request path only — no query string, no values. */
+  /** Request path only, no query string, no values. */
   endpoint?: string;
   status?: number;
 }

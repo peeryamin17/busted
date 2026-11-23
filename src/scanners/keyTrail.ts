@@ -1,31 +1,24 @@
 /**
  * Key-trail correlation (API-key bloodhound).
  *
- * When the same key fingerprint is found in more than one place — a JS
- * bundle, a source map, a storage key, a request — this module links the
- * sightings into one ordered "trail" per fingerprint so a report shows
- * where a key lives AND where it travels, instead of N disconnected
- * findings.
+ * When the same key fingerprint shows up in more than one place, a JS
+ * bundle, a source map, a storage key, a request, this links the
+ * sightings into one ordered "trail" per fingerprint, so a report shows
+ * where a key lives and where it travels instead of N disconnected
+ * findings. Trails carry the redacted fingerprint only
+ * (`provider:first4…last4`); the full value is never stored, logged,
+ * or rendered here.
  *
- * Redaction: trails carry the redacted fingerprint only
- * (`provider:first4…last4`). The full key value is never stored, logged,
- * or rendered anywhere in this module.
- *
- * Honest limits (read before extending this):
- *  - Traffic correlation is NAME-BASED ONLY. The extension's traffic log
- *    records query/form parameter NAMES and never values, and it records
- *    no request headers at all — so a traffic step means "a key-shaped
- *    parameter/header name was sent to a host where this fingerprint was
- *    also seen", NOT "this exact key value was observed in transit".
- *    Every traffic step says so in its text and carries
- *    `valueMatched: false`.
- *  - Header and WebSocket observations cannot come from TrafficEntry.
- *    They arrive only as explicit `TrafficKeyUse` inputs supplied by a
- *    caller that actually observed them (no such observer exists yet —
- *    see the note on `TrafficKeyUse.channel`). Until one does, trails
- *    contain discovery/storage steps plus query-param steps.
- *  - No found key is ever validated against a provider API. Trails are
- *    format/context/entropy identification only.
+ * Limits: traffic correlation is name-based only. The traffic log
+ * records parameter names, never values, and no request headers, so a
+ * traffic step means "a key-shaped parameter/header name was sent to a
+ * host where this fingerprint was also seen", not "this exact key was
+ * observed in transit". Every traffic step says so and carries
+ * `valueMatched: false`. Header and WebSocket observations can only
+ * arrive as explicit `TrafficKeyUse` inputs from a caller that
+ * actually observed them; none exists yet, so trails currently hold
+ * discovery/storage steps plus query-param steps. No found key is ever
+ * validated against a provider API.
  */
 import type { Finding } from '../lib/types';
 
@@ -120,7 +113,7 @@ export function hostOfLocation(location: string): string {
 /**
  * Build one trail per fingerprint. Discovery/storage sightings come first
  * (in the order supplied); a traffic use joins a trail only when its host
- * matches a host where that fingerprint was seen at rest — same-site
+ * matches a host where that fingerprint was seen at rest, same-site
  * correlation, so a key found on example.com is never linked to an
  * `api_key` param sent to an unrelated host.
  */

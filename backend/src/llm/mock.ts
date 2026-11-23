@@ -213,7 +213,7 @@ export class MockProvider implements LLMProvider {
       return this.noFinding('could not parse tool result');
     }
 
-    // Honeypot heuristics first — traps take precedence over findings.
+    // Honeypot heuristics first, traps take precedence over findings.
     const excerpt = obs.bodyExcerpt ?? '';
     if (/thinkstcanary|canarytoken|honeypot|cowrie/i.test(excerpt)) {
       return {

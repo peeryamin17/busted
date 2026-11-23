@@ -6,16 +6,16 @@ import { generateCanary, oastConfigured, oastDomain } from '../oast/canary.js';
 import { recordCallback, callbacksForScan } from '../oast/store.js';
 
 /**
- * OAST (out-of-band security testing) routes — Phase 3 scaffolding.
+ * OAST (out-of-band security testing) routes, Phase 3 scaffolding.
  *
- *   POST /api/oast/callback   — the OAST listener posts observed DNS/HTTP hits.
+ *   POST /api/oast/callback, the OAST listener posts observed DNS/HTTP hits.
  *                               Auth: shared service secret (x-oast-token).
- *   GET  /api/oast/callbacks  — user-authenticated; callbacks for a scan id,
+ *   GET  /api/oast/callbacks, user-authenticated; callbacks for a scan id,
  *                               so the UI/CLI can surface "blind hit observed".
- *   POST /api/oast/canary     — user-authenticated; mint a canary for a scan.
+ *   POST /api/oast/canary, user-authenticated; mint a canary for a scan.
  *
  * The listener itself (wildcard DNS + HTTP server) is separate always-on
- * infrastructure — see docs/oast.md. Until OAST_DOMAIN / OAST_INGEST_TOKEN are
+ * infrastructure, see docs/oast.md. Until OAST_DOMAIN / OAST_INGEST_TOKEN are
  * configured these routes exist but do nothing useful.
  */
 

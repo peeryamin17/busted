@@ -1,8 +1,8 @@
-# BugSeek AI — Refund Policy
+# BugSeek AI, Refund Policy
 
-> **DRAFT — NOT LEGAL ADVICE. Requires review by a qualified lawyer before publication or any paid launch.**
+> **DRAFT, NOT LEGAL ADVICE. Requires review by a qualified lawyer before publication or any paid launch.**
 
-**Effective date:** [TO BE SET — do not publish without one]
+**Effective date:** [TO BE SET, do not publish without one]
 
 ---
 

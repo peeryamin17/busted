@@ -28,12 +28,12 @@ declare module 'fastify' {
 
 /**
  * Authentication, three ways:
- *  - `x-api-key: bs_…` — the extension's API keys (plan §6.1: Pro+ feature).
- *  - `x-gemini-api-key` / `x-qwen-api-key` — a pasted BYOK provider key
+ *  - `x-api-key: bs_…`, the extension's API keys (plan §6.1: Pro+ feature).
+ *  - `x-gemini-api-key` / `x-qwen-api-key`, a pasted BYOK provider key
  *    signs in as a BYOK user, no bs_ key or session needed.
- *  - `bs_session` cookie — the website's server-side session, created by
+ *  - `bs_session` cookie, the website's server-side session, created by
  *    the Google sign-in flow (src/routes/googleAuth.ts).
- *  - `Authorization: Bearer <jwt>` — the email/password accounts' session
+ *  - `Authorization: Bearer <jwt>`, the email/password accounts' session
  *    token (register/login in src/routes/auth.ts).
  */
 export interface AuthenticateOptions {
@@ -132,7 +132,7 @@ export function buildAuthenticate(db: Database, opts: AuthenticateOptions = {}) 
       failedAuthLimiter.recordSuccess(ipBucket);
       failedAuthLimiter.recordSuccess(fpBucket);
       request.user = { id: user.id, email: user.email, plan, viaApiKey: true };
-      // Runtime detection layer (Thread 5, DEFENSIVE — dogfooding): record
+      // Runtime detection layer (Thread 5, DEFENSIVE, dogfooding): record
       // the API-key use so the anomaly rules can spot a key used from a new
       // IP, a volume spike, or endpoints the key never used before. Prefix
       // only, never the key; path only, never the query string. Best-effort:
@@ -169,7 +169,7 @@ export function buildAuthenticate(db: Database, opts: AuthenticateOptions = {}) 
       }
       // Five quiet minutes and the session signs itself out; every
       // authenticated request resets the clock. The operator's
-      // account (ADMIN_EMAIL) is exempt — it keeps the 30-day
+      // account (ADMIN_EMAIL) is exempt, it keeps the 30-day
       // absolute expiry only.
       if (!isOp) {
         if (Date.now() - Date.parse(session.lastSeenAt) > SESSION_IDLE_MS) {

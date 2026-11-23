@@ -49,7 +49,7 @@ export function taintFlowsToFindings(flows: SourceToSinkFlow[]): Finding[] {
 
 /**
  * Info-level findings for shared helpers reused across bundles where no
- * sink was reached — useful context, explicitly not vulnerabilities.
+ * sink was reached, useful context, explicitly not vulnerabilities.
  * Capped so a bundle-heavy page does not flood the results.
  */
 export function crossFileLinksToFindings(links: CrossFileLink[], max = 5): Finding[] {

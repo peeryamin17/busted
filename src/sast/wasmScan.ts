@@ -1,23 +1,19 @@
 /**
- * WebAssembly scan — lighter version (white-box, client-side).
+ * WebAssembly scan, lighter version (white-box, client-side).
  *
- * What this DOES:
- *  - Finds `.wasm` modules the page loaded (resource-timing entries collected
- *    by the content script) and fetches the same-origin ones, size-capped.
- *  - Validates the `\0asm` magic bytes, then lists the module's exports
- *    via `WebAssembly.Module.exports()` on the already-fetched bytes.
- *  - Scans the module's embedded strings for well-known secret patterns
- *    and URLs (the same patterns as the JS secret scanner).
+ * Finds `.wasm` modules the page loaded (resource-timing entries from
+ * the content script) and fetches the same-origin ones, size-capped.
+ * Validates the `\0asm` magic bytes, lists exports via
+ * `WebAssembly.Module.exports()` on the fetched bytes, and scans the
+ * module's embedded strings for secret patterns and URLs (same
+ * patterns as the JS secret scanner).
  *
- * What this does NOT do (stated plainly wherever results surface):
- *  - No decompilation and no function-body analysis. Export NAMES and
- *    embedded STRINGS are the whole signal; a WASM function that quietly
- *    exfiltrates data is invisible to this scan.
- *  - No execution: modules are compiled with `new WebAssembly.Module`
- *    (validation only) and never instantiated, so no module code runs.
- *  - No detection of WASM embedded as base64 inside JS, or loaded from
- *    cross-origin URLs the extension cannot fetch (those are listed, not
- *    fetched).
+ * Limits, stated wherever results surface: no decompilation, no
+ * function-body analysis, export names and embedded strings are the
+ * whole signal. No execution, modules are compiled with
+ * `new WebAssembly.Module` (validation only) and never instantiated.
+ * No detection of WASM embedded as base64 inside JS, or loaded from
+ * cross-origin URLs the extension cannot fetch (listed, not fetched).
  */
 import { SECRET_PATTERNS, isPlaceholder, redactSecret } from '../lib/regexes';
 import type { Finding } from '../lib/types';
@@ -43,7 +39,7 @@ function hasWasmMagic(bytes: Uint8Array): boolean {
   return WASM_MAGIC.every((b, i) => bytes[i] === b);
 }
 
-/** Printable ASCII runs (>= 6 chars) out of raw bytes — the string table. */
+/** Printable ASCII runs (>= 6 chars) out of raw bytes, the string table. */
 function extractStrings(bytes: Uint8Array): string[] {
   const out: string[] = [];
   let run = '';

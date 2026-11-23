@@ -3,7 +3,7 @@ import { ChevronDown, Download, FileText, RefreshCw } from 'lucide-react';
 import { Reveal } from './Reveal';
 
 /**
- * "My reports" — every scan tied to this account (extension runs, swarm
+ * "My reports", every scan tied to this account (extension runs, swarm
  * runs, engine runs), read back from the backend. The list comes from
  * GET /api/scans; opening a row pulls its findings and offers the same
  * markdown report the backend generates.

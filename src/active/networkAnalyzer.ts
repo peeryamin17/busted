@@ -44,7 +44,7 @@ const UNUSUAL_METHODS = new Set(['PUT', 'DELETE', 'PATCH', 'TRACE', 'OPTIONS']);
 
 export interface NetworkAnalysis {
   findings: Finding[];
-  /** Distinct API-ish paths seen — reused by apiDiscovery/idor. */
+  /** Distinct API-ish paths seen, reused by apiDiscovery/idor. */
   endpointPaths: string[];
   /** True when the overall posture looks good (feeds honeypot inconsistency signal). */
   postureGood: boolean;

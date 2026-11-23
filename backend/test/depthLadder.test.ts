@@ -1,6 +1,6 @@
 /**
  * Unit tests for the exploit-depth ladder (multiagent/depthLadder.ts).
- * All live probes are mocked — no network, no real target, no LLM.
+ * All live probes are mocked, no network, no real target, no LLM.
  *
  * Run:  npx tsx test/depthLadder.test.ts   (from backend/)
  */
@@ -32,7 +32,7 @@ function resp(partial: Partial<DepthProbeResponse>): DepthProbeResponse {
 }
 
 async function main() {
-  // ── 1. Canaries: unique, random, alphanumeric — never a script ──
+  // ── 1. Canaries: unique, random, alphanumeric, never a script ──
   {
     const a = generateCanary();
     const b = generateCanary();

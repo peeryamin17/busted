@@ -1,4 +1,4 @@
-/* Web demo patrol tests — no live network, DNS or TLS anywhere:
+/* Web demo patrol tests, no live network, DNS or TLS anywhere:
    the guard gets an injected resolver, the checks module gets crafted
    snapshots, and the routes get a fixture patrol runner. Covers the
    SSRF guard, the redaction rules, the plan gate (withheld finding
@@ -84,7 +84,7 @@ async function main() {
 
   /* ── the checks module over crafted snapshots ───────────────── */
   const SECRET_VALUE = 's3cret-cookie-value';
-  const AWS_DOCS_KEY = 'AKIAIOSFODNN7EXAMPLE'; // AWS's public documentation example — not a credential
+  const AWS_DOCS_KEY = 'AKIAIOSFODNN7EXAMPLE'; // AWS's public documentation example, not a credential
   const { findings, api } = analyseWebCheck({
     page: {
       finalUrl: 'https://shop.example/',

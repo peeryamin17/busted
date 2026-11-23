@@ -1,9 +1,9 @@
 /**
- * Analyzer (Thread 5, DEFENSIVE) — runs the rules and persists what fires.
+ * Analyzer (Thread 5, DEFENSIVE), runs the rules and persists what fires.
  *
  * Dedupe: a candidate is only persisted when no detection with the same
  * dedupe key exists from the last hour (a spray that keeps going does
- * not spam the panel with a new row every run). Analysis is on-demand —
+ * not spam the panel with a new row every run). Analysis is on-demand,
  * the coordinator wires it to run after login/API-key/request intake, or
  * on a schedule. It never runs by itself here.
  */

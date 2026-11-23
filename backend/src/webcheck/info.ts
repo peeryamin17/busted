@@ -3,7 +3,7 @@ import { isPrivateAddress } from './guard.js';
 import type { DnsInfo, DomainInfo, GeoStamp, PerfInfo, ServerInfo } from './types.js';
 
 /**
- * The "website info" matrix sources — all free, key-less public APIs,
+ * The "website info" matrix sources, all free, key-less public APIs,
  * all best-effort: every reader degrades to nulls/empty lists rather
  * than failing the patrol. Nothing here is invented; a field is null
  * because it could not be read, and the UI says exactly that.
@@ -29,7 +29,7 @@ export const defaultJsonFetcher: JsonFetcher = async (url, opts = {}) => {
 /* ── Small TTL caches for slow-changing answers ─────────────────
    DNS, RDAP and IP-geo answers barely move; re-patrolling a host
    should not re-ask the internet. Only the DEFAULT fetcher is
-   cached — tests inject their own fetchers and always see them
+   cached, tests inject their own fetchers and always see them
    called. Failures are never cached (a null degrades, then retries
    next time). */
 const cacheStore = new Map<string, { at: number; ttl: number; value: unknown }>();
@@ -293,7 +293,7 @@ interface BigDataCloudResponse {
 
 /**
  * Place names for device coordinates (BigDataCloud's free, key-less
- * reverse geocoder). Garnish only — the coordinates are the record;
+ * reverse geocoder). Garnish only, the coordinates are the record;
  * failure leaves the names blank rather than inventing them.
  */
 export async function fetchReverseGeo(

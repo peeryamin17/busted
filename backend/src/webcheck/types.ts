@@ -4,7 +4,7 @@ import type { Confidence, Severity } from '../types.js';
  * Shapes for the web demo patrol (`src/webcheck/`).
  *
  * `WebFinding` mirrors the canonical Finding (types.ts) in the fields
- * the demo needs — severity/title/detail/category/evidence — plus the
+ * the demo needs, severity/title/detail/category/evidence, plus the
  * scorer's `confidence`. Findings are constructed so evidence can
  * never carry a secret value (names and URLs only); see checks.ts.
  */
@@ -79,7 +79,7 @@ export interface DnsInfo {
 /**
  * The trust layer's verdict on a patrolled page: is this a trap?
  *
- * Deliberately separate from the security score — the score grades how
+ * Deliberately separate from the security score, the score grades how
  * a site is BUILT (headers, cookies, exposed files); trust asks whether
  * it is HONEST. A well-built scam aces the first and fails this one.
  */
@@ -91,7 +91,7 @@ export interface TrustAssessment {
   sources: string[];
 }
 
-/** The "website info" matrix — every field nullable, never fabricated. */
+/** The "website info" matrix, every field nullable, never fabricated. */
 export interface WebInfo {
   perf: PerfInfo;
   server: ServerInfo;
@@ -104,7 +104,7 @@ export interface WebInfo {
   /**
    * The trust verdict, written fresh by every patrol. Runs stored
    * before the trust layer existed lack it at runtime (the Postgres
-   * jsonb has no `trust` key) — every reader must tolerate undefined.
+   * jsonb has no `trust` key), every reader must tolerate undefined.
    */
   trust: TrustAssessment;
 }

@@ -4,7 +4,7 @@ import { Children, type CSSProperties, type ReactNode } from 'react';
 /**
  * Text marquee (the vertical word-cycler): a fixed prefix with a slot of
  * words rolling upward forever, edges faded by a mask. Integrated from
- * the component Peer supplied, adapted to this codebase — no "use
+ * the component Peer supplied, adapted to this codebase, no "use
  * client", keyframes live in index.css (`tm-slide-vertical`), mask is an
  * inline style (Tailwind v3 has no mask-image utilities), heights are
  * font-relative so the slot sits inside a headline at any size, and

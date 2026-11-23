@@ -1,5 +1,5 @@
 /**
- * BugSeek connect relay — runs ONLY on the BugSeek website.
+ * BugSeek connect relay, runs ONLY on the BugSeek website.
  *
  * The website cannot talk to the extension directly (it does not know
  * the extension's ID), so this content script is the bridge:

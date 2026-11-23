@@ -32,7 +32,7 @@ const swarmScanErrors = new Map<string, string>();
 /**
  * Multi-agent "super agent" swarm routes.
  *
- * POST /api/swarm/scans — run the head agent + specialist workers against an
+ * POST /api/swarm/scans, run the head agent + specialist workers against an
  * authorized target. Runs inline (bounded by maxDurationMs); for production
  * use at scale this should be moved onto the scan job queue.
  *
@@ -56,7 +56,7 @@ const scopeSchema = z.object({
 
 const swarmScanSchema = z.object({
   targetUrl: z.string().min(1).max(2000),
-  authorization: z.unknown(), // REQUIRED — validated by verifyAndRecordAuthorization (plan §8)
+  authorization: z.unknown(), // REQUIRED, validated by verifyAndRecordAuthorization (plan §8)
   scope: scopeSchema.optional(),
   surfaceSnapshot: z.any().optional(),
   maxWorkers: z.number().int().min(1).max(8).optional(),
@@ -144,7 +144,7 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       return reply.status(400).send({ error: (err as Error).message });
     }
 
-    // 3. Authorization record (plan §8 — REQUIRED for active testing).
+    // 3. Authorization record (plan §8, REQUIRED for active testing).
     let authorizationId: string;
     try {
       const record = await verifyAndRecordAuthorization(db, user.id, d.authorization);

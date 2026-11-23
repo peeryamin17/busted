@@ -1,4 +1,4 @@
-/* Code-intake route + analyser tests — no live network, no disk writes:
+/* Code-intake route + analyser tests, no live network, no disk writes:
    archives are built in memory with JSZip, the route runs against the
    in-memory DB with a real session cookie. Covers the ZIP source scan
    (secrets + dangerous APIs), the JAR constant-pool scan (explicitly NOT
@@ -64,9 +64,9 @@ async function main() {
   check('zip: method note is honest', zipResult.method.includes('Static regex scan'), zipResult.method);
 
   /* ── analyser: JAR constant-pool scan ──────────────────────── */
-  // A fake .class file: not a real class, just bytes carrying the same
+  // A fake.class file: not a real class, just bytes carrying the same
   // constant-pool strings a real class would (the scanner reads strings,
-  // it does not parse the class format — that IS the documented limit).
+  // it does not parse the class format, that IS the documented limit).
   const fakeClass = Buffer.from(
     'cafebabe junk java/lang/Runtime exec (Ljava/lang/String;)Ljava/lang/Process; ' +
       'jdbc:mysql://db.internal:3306/app?user=root&password=hunter2 ' +

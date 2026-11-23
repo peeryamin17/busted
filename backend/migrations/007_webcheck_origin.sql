@@ -1,4 +1,4 @@
--- 007_webcheck_origin.sql — who asked for each patrol, and roughly where from.
+-- 007_webcheck_origin.sql, who asked for each patrol, and roughly where from.
 --
 -- requester_ip/geo stamp the run with its owner's address and coarse
 -- location (city/country granularity, never finer). The patrol form

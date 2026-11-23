@@ -4,8 +4,8 @@ import net from 'node:net';
 /**
  * SSRF guard for the web demo patrol.
  *
- * The patrol fetches arbitrary user-supplied sites, so every URL —
- * the original and every redirect hop — must prove it points at the
+ * The patrol fetches arbitrary user-supplied sites, so every URL,
+ * the original and every redirect hop, must prove it points at the
  * public internet before a socket opens: http(s) only, no embedded
  * credentials, and EVERY resolved address must be public. One private
  * answer in the DNS set refuses the whole run (rebinding defence).
@@ -69,7 +69,7 @@ export function isPrivateAddress(ip: string): boolean {
   }
 
   if (net.isIPv4(lower)) return isPrivateIpv4(lower);
-  if (!net.isIPv6(lower)) return true; // not an address at all — fail closed
+  if (!net.isIPv6(lower)) return true; // not an address at all, fail closed
 
   if (lower === '::1' || lower === '::') return true; // loopback / unspecified
   const head = firstHextet(lower);

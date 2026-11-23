@@ -4,7 +4,7 @@
  * The backend base URL is a single constant so the sibling backend worker
  * (~/workspace/bugseek/backend, Fastify, default port 3000) can be wired in
  * without touching call sites. The extension stays fully functional when the
- * backend is unreachable — every apiClient call degrades gracefully.
+ * backend is unreachable, every apiClient call degrades gracefully.
  */
 
 /** Base URL of the BugSeek backend API (Fastify). Override per deployment. */
@@ -16,7 +16,7 @@ export const BACKEND_REQUEST_TIMEOUT_MS = 8000;
 /** Default minimum gap between active requests (conservative). */
 export const DEFAULT_ACTIVE_REQUEST_GAP_MS = 1500;
 
-/** Hard floor for the gap — the UI refuses anything lower. */
+/** Hard floor for the gap, the UI refuses anything lower. */
 export const MIN_ACTIVE_REQUEST_GAP_MS = 250;
 
 /** Safety cap on active HTTP requests per scan (DoS guardrail, plan §8). */

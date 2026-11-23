@@ -1,6 +1,6 @@
 /* Google sign-in test: the full authorization-code callback flow against
-   the in-memory DB with a fake Google transport (the real client code —
-   URL building, form encoding, profile parsing — never touches the
+   the in-memory DB with a fake Google transport (the real client code,
+   URL building, form encoding, profile parsing, never touches the
    network), session lifecycle, and the preserved API-key auth path. */
 import { createHash } from 'node:crypto';
 

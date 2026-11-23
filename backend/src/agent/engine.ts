@@ -17,7 +17,7 @@ import { redactFindingEvidence } from '../guardrails/redact.js';
  *             test list (adaptive: tests match the detected stack).
  * 2. ACT:     the highest-priority test runs via the tool interface.
  * 3. OBSERVE: the response (status, headers, body, timing) is summarized.
- * 4. REFLECT: before recording anything, the LLM is asked — is this real or
+ * 4. REFLECT: before recording anything, the LLM is asked, is this real or
  *             a honeypot? what's the contextual severity? can it chain with
  *             other findings? Only then is a finding recorded.
  *
@@ -37,7 +37,7 @@ export interface PlannedTest {
 
 export interface ReflectionDecision {
   verdict: 'finding' | 'honeypot' | 'no-finding';
-  /** 0..1 — trap probability (plan §4.5). >= 0.6 is flagged as a possible trap. */
+  /** 0..1, trap probability (plan §4.5). >= 0.6 is flagged as a possible trap. */
   trapProbability: number;
   severity?: Severity;
   confidence?: Confidence;
@@ -282,7 +282,7 @@ export async function runAgentScan(opts: AgentRunOptions): Promise<AgentOutcome>
         outcome.summary = `Stopped: time budget exhausted while paused after ${outcome.testsRun} tests.`;
         return outcome;
       }
-      await sleep(1000); // paused — wait for resume
+      await sleep(1000); // paused, wait for resume
     }
 
     const tool = tools.find((t) => t.name === test.tool);
@@ -308,7 +308,7 @@ export async function runAgentScan(opts: AgentRunOptions): Promise<AgentOutcome>
     };
     emit({ kind: 'observe', message: `Observed result for "${test.name}"`, data: { ok: toolResult.ok, status: toolResult.status } });
 
-    // REFLECT — the complex-reasoning step: route to the Pro-class tier.
+    // REFLECT, the complex-reasoning step: route to the Pro-class tier.
     const reflectCompletion = await provider.complete({
       messages: [
         { role: 'system', content: REFLECT_SYSTEM },

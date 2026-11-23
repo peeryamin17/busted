@@ -10,7 +10,7 @@ export interface ReportInput {
   generatedBy: string;
 }
 
-/** Markdown report — the free-tier format and the base for bounty-platform templates. */
+/** Markdown report, the free-tier format and the base for bounty-platform templates. */
 export function generateMarkdownReport(input: ReportInput): string {
   const { scan, findings } = input;
   const sorted = [...findings].sort(
@@ -147,7 +147,7 @@ export function generateMarkdownReport(input: ReportInput): string {
     lines.push('**Remediation:**', '', f.remediation, '');
     if (f.suggestedFix) {
       lines.push(
-        '**Suggested fix (AI-generated — review before applying):**',
+        '**Suggested fix (review before applying):**',
         '',
         '```',
         f.suggestedFix,

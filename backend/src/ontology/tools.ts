@@ -78,7 +78,7 @@ export async function executeOsdkTool(
 
 /**
  * Hard Provenance Gate:
- * Drops any AI-generated finding that fails to cite real, verified evidence_blobs
+ * Drops any finding that fails to cite real, verified evidence_blobs
  * from this scan.
  */
 export async function enforceProvenanceGate<

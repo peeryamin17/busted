@@ -186,7 +186,7 @@ export interface Database {
   listWebChecks(userId: string, limit: number): Promise<WebCheckRecord[]>;
   /** One patrol run, only when it belongs to the user. */
   getWebCheck(userId: string, id: string): Promise<WebCheckRecord | null>;
-  /** How many patrols a user has stored (quota counting — never fetch rows to count). */
+  /** How many patrols a user has stored (quota counting, never fetch rows to count). */
   countWebChecks(userId: string): Promise<number>;
   /** History rows plus the user's total run count, in one query. */
   listWebCheckSummariesCounted(

@@ -1,7 +1,7 @@
 -- 014_detections.sql
 -- Runtime detection layer (Thread 5, DEFENSIVE): detections the rule
 -- engine persists for the site owner to read back. Evidence is redacted
--- by construction (counts, paths, key prefixes, attacker IPs — never
+-- by construction (counts, paths, key prefixes, attacker IPs, never
 -- secrets, never password material, never plaintext account identifiers).
 
 CREATE TABLE IF NOT EXISTS detections (

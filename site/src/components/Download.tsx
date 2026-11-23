@@ -7,7 +7,7 @@ import { springPop, springQuiet } from '../lib/motion';
 
 /**
  * The drop: aurora-lit CTA block with a real waitlist behind it now.
- * The store listing doesn't exist yet — the email list does, in our
+ * The store listing doesn't exist yet, the email list does, in our
  * own backend, and it gets written to once: at launch.
  */
 export function Download() {
@@ -35,7 +35,7 @@ export function Download() {
 
   return (
     <section id="download" className="relative scroll-mt-24 overflow-hidden py-28 sm:py-36">
-      {/* aurora backdrop — white glow, drifting on transform */}
+      {/* aurora backdrop, white glow, drifting on transform */}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         <div
           className="aurora absolute left-1/2 top-1/2 h-[460px] w-[820px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.12] blur-[110px]"

@@ -38,14 +38,14 @@ export function isTimeoutError(err: unknown): boolean {
 }
 
 /**
- * Google Gemini (AI Studio Developer API) implementation — the DEFAULT provider.
+ * Google Gemini (AI Studio Developer API) implementation, the DEFAULT provider.
  *
  * REST endpoint: https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent
  * Auth: Both `x-goog-api-key` header and `?key=` query parameter for maximum proxy compatibility.
- * The API key is read ONLY from the GEMINI_API_KEY env var or user BYOK — never hardcoded,
+ * The API key is read ONLY from the GEMINI_API_KEY env var or user BYOK, never hardcoded,
  * and always redacted from errors/logs.
  *
- * Tiered routing (cost control — the user is a cost-sensitive student):
+ * Tiered routing (cost control, the user is a cost-sensitive student):
  * - tier 'routine'   → GEMINI_ROUTINE_MODEL   (default gemini-2.0-flash: cheap, ultra-fast)
  * - tier 'reasoning' → GEMINI_REASONING_MODEL (default gemini-2.0-flash / gemini-1.5-pro: strong reasoning)
  *
@@ -367,7 +367,7 @@ export class GeminiProvider implements LLMProvider {
       const err = new Error(`Gemini API error ${res.status}: ${sanitizedPayload.slice(0, 300)}`);
       (err as any).status = res.status;
       lastError = err;
-      if (res.status !== 429 && res.status < 500) break; // non-transient — don't retry
+      if (res.status !== 429 && res.status < 500) break; // non-transient, don't retry
     }
     throw lastError ?? new Error('Gemini request failed');
   }

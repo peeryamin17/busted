@@ -1,5 +1,5 @@
 /**
- * Cookie auditor — enumerates cookies via the chrome.cookies API and checks
+ * Cookie auditor, enumerates cookies via the chrome.cookies API and checks
  * Secure / HttpOnly / SameSite flags plus domain scoping.
  */
 import type { Finding } from '../lib/types';

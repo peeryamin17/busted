@@ -12,29 +12,29 @@ import type {
 } from '../types.js';
 
 /**
- * Exploit-depth ladder — extends the head agent's PoC validator pass
+ * Exploit-depth ladder, extends the head agent's PoC validator pass
  * (head.ts Phase 4.5) with live, benign-canary proof.
  *
  * The ladder VALIDATES findings the specialists already produced. It never
  * invents findings, never executes an attack chain, and never performs a
  * state-changing request:
  *
- *   CONFIRM   — a benign canary proves the vulnerability is real
+ *   CONFIRM, a benign canary proves the vulnerability is real
  *               (XSS: unique canary reflected; IDOR: a neighbour record
  *               reachable with the same shape; CORS: a canary origin is
  *               echoed with credentials allowed; GraphQL: a read-only
  *               `{ __typename }` query returns data).
- *   ESCALATE  — blast radius, READ-ONLY proofs only (second reflection
+ *   ESCALATE, blast radius, READ-ONLY proofs only (second reflection
  *               context, second neighbour record, credentialed cross-origin
  *               GET returning data, read-only introspection).
- *   MEASURE   — impact is derived from the OBSERVED depth, not a model
+ *   MEASURE, impact is derived from the OBSERVED depth, not a model
  *               guess, and recorded with the evidence for each rung.
  *
  * HARD RULES, enforced here (not just documented):
  * - Canaries are unique random tokens, alphanumeric only. They are markers,
  *   never scripts: no alert(), no document.cookie, no exfiltration payload.
  * - Read-only proofs only. The only non-GET request the ladder makes is a
- *   GraphQL query (`{ __typename }` / introspection) — a read-only query,
+ *   GraphQL query (`{ __typename }` / introspection), a read-only query,
  *   never a mutation. No POST/PUT/DELETE/PATCH anywhere else.
  * - Never modify/delete data. Never record another record's VALUES: IDOR
  *   escalation compares HTTP status + JSON FIELD NAMES + content length
@@ -54,7 +54,7 @@ import type {
 
 export type LadderKind = 'xss' | 'idor' | 'cors' | 'graphql' | 'unprobeable';
 
-/** Minimal shape the ladder needs — satisfied by WorkerFinding and Finding. */
+/** Minimal shape the ladder needs, satisfied by WorkerFinding and Finding. */
 export interface LadderFindingInput {
   category: string;
   title: string;
@@ -93,7 +93,7 @@ export type DepthProber = (req: DepthProbeRequest) => Promise<DepthProbeResponse
 export interface LadderOptions {
   /** Absolute target URL, used to resolve relative finding locations. */
   targetUrl?: string;
-  /** Max HTTP probes per finding (default 6). Hard cap — the ladder is cheap. */
+  /** Max HTTP probes per finding (default 6). Hard cap, the ladder is cheap. */
   maxProbes?: number;
   /**
    * Allow the IDOR escalation probe (neighbour record reached, compared by
@@ -127,7 +127,7 @@ const MAX_PROBES_DEFAULT = 6;
 const MAX_BODY_BYTES = 200_000;
 const SERVER_ERROR_STOP = 3;
 
-/** A benign canary: unique, random, alphanumeric — a marker, never a payload. */
+/** A benign canary: unique, random, alphanumeric, a marker, never a payload. */
 export function generateCanary(): string {
   return `bs${randomBytes(8).toString('hex')}`;
 }
@@ -220,7 +220,7 @@ function resolveUrl(finding: LadderFindingInput, targetUrl?: string): URL | null
       const u = new URL(c);
       if (u.protocol === 'http:' || u.protocol === 'https:') return u;
     } catch {
-      // Not absolute — try resolving a path against the target origin.
+      // Not absolute, try resolving a path against the target origin.
       if (targetUrl && c.startsWith('/')) {
         try {
           return new URL(c, targetUrl);
@@ -354,7 +354,7 @@ async function runXss(
 ): Promise<DepthLevel> {
   // Confirm: reflect the canary through the parameter the finding names
   // (query param in the location URL, else a name mentioned in evidence,
-  // else the conventional 'q'). Alphanumeric canary — reflection is
+  // else the conventional 'q'). Alphanumeric canary, reflection is
   // unambiguous, and nothing executes.
   const params = [...url.searchParams.keys()];
   const mentioned = (finding.evidence ?? '').match(/param(?:eter)?\s*["']?([A-Za-z0-9_]+)/i)?.[1];
@@ -387,7 +387,7 @@ async function runXss(
     observed: `HTTP ${res.status}: canary reflected unencoded ${context}. Excerpt: ${excerptAround(res.body, canary)}`,
     status: res.status,
   });
-  // Escalate: same canary reflected through a second parameter — proves
+  // Escalate: same canary reflected through a second parameter, proves
   // the reflection is not tied to one input.
   const secondParam =
     ['q', 'search', 'query', 'name', 'keyword'].find((p) => p !== firstParam) ?? 'search';
@@ -446,7 +446,7 @@ async function runIdor(
   const baseFields = jsonFieldNames(base.body);
   if (!baseFields) return 'unproven';
   // Confirm: a neighbour record (id+1) returns the same shape. This is the
-  // IDOR proof — but only shape is compared. Values are NEVER recorded, so
+  // IDOR proof, but only shape is compared. Values are NEVER recorded, so
   // no other user's data is read, stored, or exfiltrated. Ideally the
   // neighbour is a seeded canary record; without one, shape + status is the
   // honest limit of what a read-only probe can prove.
@@ -506,7 +506,7 @@ async function runCors(
   probe: DepthProber,
   state: LadderState,
 ): Promise<DepthLevel> {
-  // The canary origin is ours and unresolvable (.invalid) — it can only
+  // The canary origin is ours and unresolvable (.invalid), it can only
   // prove the server echoes an arbitrary origin; no real site is involved
   // and no credentials of any user are sent (the ladder holds none).
   const canaryOrigin = `https://canary-${canary}.bugseek-test.invalid`;
@@ -569,7 +569,7 @@ async function runGraphql(
 ): Promise<DepthLevel> {
   const headers = { 'content-type': 'application/json' };
   // Confirm: a read-only `{ __typename }` query returns data. This is a
-  // query, never a mutation — no state changes.
+  // query, never a mutation, no state changes.
   if (state.probesUsed >= state.maxProbes) return 'unproven';
   state.probesUsed += 1;
   const res = await probe({
@@ -590,7 +590,7 @@ async function runGraphql(
     hasData =
       !!parsed && typeof parsed === 'object' && 'data' in (parsed as Record<string, unknown>);
   } catch {
-    /* non-JSON — not confirmed */
+    /* non-JSON, not confirmed */
   }
   if (!res.ok || !hasData) return 'unproven';
   state.evidence.push({

@@ -1,4 +1,4 @@
-# BugSeek AI — Chrome Web Store submission packet
+# BugSeek AI, Chrome Web Store submission packet
 
 Everything the store asks for, drafted ready to paste. The operator-side steps (developer account, trader declaration, screenshots, final submit) are marked **[you]**; everything else is done or written here.
 
@@ -19,13 +19,13 @@ Live policy URLs:
 
 **Detailed description:**
 
-> BugSeek AI is a security reconnaissance companion for people who test websites they own or are allowed to test — bug bounty hunters, developers, and site owners.
+> BugSeek AI is a security reconnaissance companion for people who test websites they own or are allowed to test, bug bounty hunters, developers, and site owners.
 >
 > Open the popup on any page and BugSeek reads what the page is made of: content and scripts, cookies, response headers, source maps, storage inventories, payment-gateway fingerprints and the third-party services the page talks to. Standard checks run entirely on your device and the results stay in your browser.
 >
-> When you want to go further, you can send the target to the BugSeek backend for a deeper scan — an AI swarm of specialist agents, and open-source scanning engines — over an encrypted connection, against your account. Active testing that sends real requests to a target stays locked behind an explicit authorisation form and strict request throttling, and only ever runs when you say so.
+> When you want to go further, you can send the target to the BugSeek backend for a deeper scan, an AI swarm of specialist agents, and open-source scanning engines, over an encrypted connection, against your account. Active testing that sends real requests to a target stays locked behind an explicit authorisation form and strict request throttling, and only ever runs when you say so.
 >
-> Before the extension collects anything it shows you a short disclosure of exactly what it reads and waits for your agreement — and asks again before the first backend run.
+> Before the extension collects anything it shows you a short disclosure of exactly what it reads and waits for your agreement, and asks again before the first backend run.
 >
 > BugSeek never records secret values: exposed secret files are reported by variable name, secrets in code by pattern type, and cookie values are never captured.
 
@@ -66,7 +66,7 @@ Live policy URLs:
 
 **Privacy policy URL:** https://bugseek-ai.vercel.app/privacy-policy.html
 
-**Does the item use remote code?** No — all code is bundled in the package.
+**Does the item use remote code?** No, all code is bundled in the package.
 
 **Data the item handles (declare exactly this):**
 
@@ -94,11 +94,11 @@ Live policy URLs:
 
 Capture from the unpacked `dist/` build in Chrome:
 
-1. **The disclosure gate** — fresh profile, popup just opened. (The honesty shot; keep it first.)
-2. **Passive results** — scan a page with findings; show the summary and finding cards.
-3. **A clean page** — scan a well-configured site; show the all-clear state.
-4. **Active testing locked** — the authorisation form, untouched.
-5. **Swarm run record** — the worker cards and score ring after a backend run (needs your API key + a target you're authorised to test).
+1. **The disclosure gate**, fresh profile, popup just opened. (The honesty shot; keep it first.)
+2. **Passive results**, scan a page with findings; show the summary and finding cards.
+3. **A clean page**, scan a well-configured site; show the all-clear state.
+4. **Active testing locked**, the authorisation form, untouched.
+5. **Swarm run record**, the worker cards and score ring after a backend run (needs your API key + a target you're authorised to test).
 
 Rules of thumb: real product only, no mock data claims, black theme as-is.
 
@@ -118,7 +118,7 @@ Rules of thumb: real product only, no mock data claims, black theme as-is.
 - [x] Backend address defaults to production (no localhost in the store build)
 - [x] Icons 16/32/48/128 present
 - [x] 440×280 small promo tile rendered from the master logo (`brand/store-promo-tile-440x280.png`; mark + wordmark variant, picked 2026-10-13)
-- [ ] **[you]** Developer account ($5 one-time) + trader declaration (publishes your legal name, address and phone — use details you're comfortable making public)
+- [ ] **[you]** Developer account ($5 one-time) + trader declaration (publishes your legal name, address and phone, use details you're comfortable making public)
 - [ ] **[you]** Screenshots per §4
 - [ ] **[you]** Paste §1–§3 into the dashboard; submit for review
 - [ ] Plan for review time: days to weeks; permission questions (especially `cookies` and `<all_urls>`) are answered from §2

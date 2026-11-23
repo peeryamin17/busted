@@ -81,7 +81,7 @@ export interface Finding {
   trapSignals?: string[];
   /**
    * True when trapProbability >= TRAP_FLAG_THRESHOLD (0.6, matches backend).
-   * Flagged findings are presented as "possible trap — verify manually",
+   * Flagged findings are presented as "possible trap, verify manually",
    * NOT reported as vulnerabilities.
    */
   honeypotSuspect?: boolean;
@@ -110,7 +110,7 @@ export interface Finding {
   /**
    * Ordered trail of locations where this key (by fingerprint) was seen or
    * sent, e.g. `discovered in bundle app.js → sent as query param api_key
-   * to api.example.com`. Traffic steps are name-based correlation only —
+   * to api.example.com`. Traffic steps are name-based correlation only,
    * values are never observed in transit.
    */
   trail?: string[];
@@ -123,7 +123,7 @@ export interface TechFingerprint {
 }
 
 /** Raw data collected by the content script from the target page. */
-/** Web-storage inventory entry: key name + value SHAPE only — never the value. */
+/** Web-storage inventory entry: key name + value SHAPE only, never the value. */
 export interface StorageEntry {
   key: string;
   /** Value length in characters. */

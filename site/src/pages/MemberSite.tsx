@@ -102,7 +102,7 @@ function WebDemoBanner() {
 }
 
 /**
- * The main BugSeek site — the whole product story. It renders inside
+ * The main BugSeek site, the whole product story. It renders inside
  * /app behind Google sign-in; the public front page is Landing.
  */
 export function MemberSite() {

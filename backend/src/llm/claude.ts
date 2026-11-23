@@ -3,7 +3,7 @@ import { makeCompletion, type LLMCompletion, type LLMCompletionRequest, type LLM
 
 /**
  * Claude (Anthropic Messages API) implementation.
- * The API key is read ONLY from the ANTHROPIC_API_KEY env var — never
+ * The API key is read ONLY from the ANTHROPIC_API_KEY env var, never
  * hardcoded, never logged. config.ts throws at boot if the key is missing
  * while LLM_PROVIDER=claude.
  */

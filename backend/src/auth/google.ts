@@ -5,18 +5,18 @@ import { config } from '../config.js';
  * (authorization-code flow, server-side exchange).
  *
  * The client secret is used ONLY here, server-side, when swapping the
- * authorization code for tokens — it never reaches frontend code. The
+ * authorization code for tokens, it never reaches frontend code. The
  * exchange happens once per sign-in; no Google tokens are stored (we
  * fetch the profile, then discard them) because our own session cookie
  * is the credential from that point on.
  *
  * The client is a factory with an injectable fetch so tests can drive
  * the real code paths (URL building, form encoding, parsing) with a
- * fake transport — tests never talk to Google.
+ * fake transport, tests never talk to Google.
  */
 
 export interface GoogleProfile {
-  /** Stable Google subject id — the identity key for our users. */
+  /** Stable Google subject id, the identity key for our users. */
   sub: string;
   email: string;
   name?: string;
@@ -103,7 +103,7 @@ let defaultClient: GoogleClient | null | undefined;
 
 /**
  * Singleton client from config (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET /
- * GOOGLE_REDIRECT_URI). Null when Google sign-in is not configured — the
+ * GOOGLE_REDIRECT_URI). Null when Google sign-in is not configured, the
  * auth routes answer 503 in that case while the rest of the app runs.
  */
 export function googleClientFromEnv(): GoogleClient | null {

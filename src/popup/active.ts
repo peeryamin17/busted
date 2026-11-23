@@ -231,7 +231,7 @@ async function refreshAuthzState(): Promise<void> {
 /**
  * Developer unlock: when the stored API key belongs to the operator
  * account, the popup stops interrupting its owner with the per-host
- * authorization form. Fails closed — no key, an unreachable backend, or
+ * authorization form. Fails closed, no key, an unreachable backend, or
  * a non-operator account all leave the form exactly as it was.
  */
 let accountError: string | null = null;
@@ -273,7 +273,7 @@ function renderLinkedAccount(): void {
 
 /**
  * The record a run is about to rely on. With the developer unlock, a
- * missing record is saved on the spot — same fields, same statement,
+ * missing record is saved on the spot, same fields, same statement,
  * same scope checks on every request; only the form is skipped.
  * Without the unlock this never writes anything.
  */
@@ -516,7 +516,7 @@ async function ensureBackendConsent(run: () => void): Promise<void> {
  * Deploy the backend AI swarm: a head agent plus specialist worker agents
  * run inline on the server against the authorized target (Hunter plan,
  * 25 credits). Requires the same authorization record as local active
- * testing — the backend re-validates it.
+ * testing, the backend re-validates it.
  */
 async function startSwarmScan(): Promise<void> {
   if (swarmRunning || running) return;
@@ -1009,7 +1009,7 @@ async function handleImportFile(file: File): Promise<void> {
 //
 // The swarm runs inline on the backend, so worker reports only exist once
 // the run is DONE. While waiting we show a deploying state; when the
-// response lands we play the real run record back — worker cards stagger
+// response lands we play the real run record back, worker cards stagger
 // in, then the security score counts up. The caption says "run record" so
 // the playback never pretends to be a live feed. All strings render via
 // textContent (worker names/summaries are server-generated, never raw HTML).
@@ -1254,7 +1254,7 @@ function renderSwarmPlayback(outcome: SwarmOutcome): void {
   }
 
   if (reduce) {
-    // Final states immediately — no stagger, no count-up.
+    // Final states immediately, no stagger, no count-up.
     if (score) renderSwarmScore(scoreBox, score, true);
     return;
   }

@@ -20,7 +20,7 @@ function replaceTo(to: string) {
 
 /**
  * The public front door: a trailer, not the film. New visitors get the
- * hero, its scan and the ticker — then a door. Everything past that
+ * hero, its scan and the ticker, then a door. Everything past that
  * (the toolkit, the swarm, the whole working site) lives inside /app
  * behind Google sign-in. Members who land here are forwarded inside.
  */
@@ -81,7 +81,7 @@ export function Landing() {
       </div>
       {/* past the end of the site: a sealed crate for anyone who kept
           scrolling. Signed-out visitors only, and only once the probe
-          has answered — members never see it (they're forwarded in). */}
+          has answered, members never see it (they're forwarded in). */}
       {!loading && !user && (
         <div className="relative z-10">
           <MysteryCrate />

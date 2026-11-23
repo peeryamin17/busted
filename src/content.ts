@@ -1,5 +1,5 @@
 /**
- * BugSeek AI content script — passive DOM collection only.
+ * BugSeek AI content script, passive DOM collection only.
  * It never modifies the page, never sends requests, and only runs a scan
  * when the user clicks "Scan" in the popup.
  */
@@ -101,7 +101,7 @@ function collectSinks(inlineScripts: string[]): DomScanData['sinks'] {
 
 /**
  * Classify a storage value by SHAPE only. The raw value never leaves this
- * function — reports and findings carry the classification, not the secret.
+ * function, reports and findings carry the classification, not the secret.
  */
 function classifyValueShape(v: string): StorageEntry['shape'] {
   if (/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/.test(v)) return 'jwt';
@@ -145,7 +145,7 @@ function collectStorage(store: Storage | null): StorageEntry[] {
       try {
         value = store.getItem(key) ?? '';
       } catch {
-        /* unreadable value — record the key with an empty shape */
+        /* unreadable value, record the key with an empty shape */
       }
       const shape = classifyValueShape(value);
       out.push({
@@ -156,7 +156,7 @@ function collectStorage(store: Storage | null): StorageEntry[] {
       });
     }
   } catch {
-    /* storage blocked (privacy mode, opaque origin) — inventory stays empty */
+    /* storage blocked (privacy mode, opaque origin), inventory stays empty */
   }
   return out;
 }
@@ -208,7 +208,7 @@ function collectDom(): DomScanData {
     .filter((s) => !!s.src)
     .map((s) => s.src);
 
-  // WebAssembly modules the page loaded (resource timing only — no fetches
+  // WebAssembly modules the page loaded (resource timing only, no fetches
   // here; the background worker fetches same-origin ones, size-capped).
   const wasmUrls: string[] = [];
   try {
@@ -217,7 +217,7 @@ function collectDom(): DomScanData {
       if (/\.wasm(\?|#|$)/i.test(name)) wasmUrls.push(name);
     }
   } catch {
-    /* performance API unavailable — inventory stays empty */
+    /* performance API unavailable, inventory stays empty */
   }
 
   const metaTags = Array.from(document.querySelectorAll('meta'))
@@ -287,7 +287,7 @@ chrome.runtime.onMessage.addListener(
     if (msg.type === 'XSS_PROBE') {
       // Confirm reflected XSS via DOM observation: load the probe URL in a
       // hidden same-origin iframe and check whether the marker payload
-      // executed (marker reaches document.title). Read-only observation —
+      // executed (marker reaches document.title). Read-only observation,
       // the payload itself is a non-destructive title assignment.
       void probeXssExecution(msg.url, msg.marker).then(
         (executed) => sendResponse({ ok: true, executed }),
@@ -305,7 +305,7 @@ chrome.runtime.onMessage.addListener(
 
 /**
  * Load `url` in a hidden same-origin iframe and report whether `marker`
- * reached document.title — i.e. whether an injected marker payload executed.
+ * reached document.title, i.e. whether an injected marker payload executed.
  * The iframe is removed afterwards. Resolves false on any failure
  * (X-Frame-Options, CSP, navigation errors): unconfirmed, never an error.
  */
@@ -333,7 +333,7 @@ function probeXssExecution(url: string, marker: string): Promise<boolean> {
           const title = iframe.contentDocument?.title ?? '';
           finish(title.includes(marker));
         } catch {
-          // Cross-origin or blocked — cannot observe.
+          // Cross-origin or blocked, cannot observe.
           finish(false);
         }
       }, 1500);

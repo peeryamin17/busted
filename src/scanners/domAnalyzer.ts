@@ -1,5 +1,5 @@
 /**
- * DOM structure analyzer — turns the content script's collected data into
+ * DOM structure analyzer, turns the content script's collected data into
  * passive findings (forms, iframes, comments, XSS sink hints).
  * No interaction with the page beyond reading the DOM.
  */
@@ -100,7 +100,7 @@ export function analyzeDom(dom: DomScanData): Finding[] {
     });
   }
 
-  // XSS sink hints — informational; manual review required.
+  // XSS sink hints, informational; manual review required.
   for (const sink of dom.sinks) {
     findings.push({
       id: `sink-${findingSeq++}`,

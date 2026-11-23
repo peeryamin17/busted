@@ -9,7 +9,7 @@
  *  - Backend consent: just-in-time, before the first run that sends a
  *    target to the BugSeek backend (AI swarm, open-source engines). The
  *    target address and the server-side findings go to the backend and,
- *    for the swarm, to an AI model — the user agrees to that separately.
+ *    for the swarm, to an AI model, the user agrees to that separately.
  *
  * Records hold only the agreed version + timestamp. Declining leaves
  * the features locked; there is no quiet default.

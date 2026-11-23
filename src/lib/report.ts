@@ -1,5 +1,5 @@
 /**
- * Markdown report generator — turns a ScanResult into a bug-bounty-ready
+ * Markdown report generator, turns a ScanResult into a bug-bounty-ready
  * Markdown document with severity tags, CVSS scores, trap flags, attack
  * chains, reproduction steps, and remediation notes.
  */
@@ -179,7 +179,7 @@ export function buildMarkdownReport(r: ScanResult): string {
     });
   }
 
-  // Defensive aftermath (Thread 5): did the site notice the safe probes?
+  // Defensive aftermath: did the site notice the safe probes?
   // Rendered from defense-verification findings when the active scan ran
   // them; omitted entirely otherwise.
   const defensiveLines = defensiveSectionLines(r.findings);

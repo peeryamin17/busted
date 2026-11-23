@@ -6,7 +6,7 @@
  * field name and meaning. New fields are additive only (cvssScore,
  * cvssVector, trapProbability, honeypotSuspect, reproSteps, references), so
  * old clients keep working. The extension sibling may add fields but MUST NOT
- * rename or change the meaning of existing ones — see docs/schemas.md.
+ * rename or change the meaning of existing ones, see docs/schemas.md.
  */
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
@@ -26,7 +26,7 @@ export type Confidence = 'high' | 'medium' | 'low';
  *
  * The ladder VALIDATES findings specialists already produced; it never
  * invents findings. `status: 'verified'` means the vulnerability was
- * reproduced with a benign canary probe and read-only evidence — it is NOT
+ * reproduced with a benign canary probe and read-only evidence, it is NOT
  * proof of exploitability to full impact, and no chain is ever executed.
  * `status: 'hint'` means the claim could not be reproduced (or could not be
  * tested live) and must be treated as an unconfirmed hint.
@@ -43,9 +43,9 @@ export interface DepthEvidence {
   rung: 'confirm' | 'escalate';
   /** What was probed, e.g. 'xss-reflection', 'idor-neighbor-shape'. */
   kind: string;
-  /** The (redacted) request that was made — read-only by construction. */
+  /** The (redacted) request that was made, read-only by construction. */
   request: string;
-  /** What was observed — redacted excerpt, or status/shape metadata only. */
+  /** What was observed, redacted excerpt, or status/shape metadata only. */
   observed: string;
   status?: number;
 }
@@ -56,13 +56,13 @@ export interface FindingVerification {
   impact: DepthImpact;
   /** Human-readable statement of what the observed depth does/does not prove. */
   impactSummary: string;
-  /** The benign canary token used, if a live probe ran (ours — safe to show). */
+  /** The benign canary token used, if a live probe ran (ours, safe to show). */
   canaryToken?: string;
   evidence: DepthEvidence[];
   /** Why the ladder stopped early, if it did (rate limit, error storm, scope refusal…). */
   stopReason?: string;
   /**
-   * Proof-of-exploitation level 0–4 (Phase B proof gate): 0 unverified
+   * Proof-of-exploitation level 0-4: 0 unverified
    * claim, 1 error/timing variation, 2 structural manipulation, 3 data
    * extracted / cross-context, 4 critical impact (never auto-assigned).
    * A finding counts as 'verified' only at POE ≥ 3 with a verbatim
@@ -133,7 +133,7 @@ export interface Scan {
   mode: ScanMode;
   status: ScanStatus;
   scope: ScopePolicy;
-  /** Authorization record id — REQUIRED for active scans (plan §8). */
+  /** Authorization record id, REQUIRED for active scans (plan §8). */
   authorizationId?: string;
   techStack: TechEntry[];
   progress: ScanProgress;
@@ -146,7 +146,7 @@ export interface Scan {
 /**
  * Canonical server-side finding.
  *
- * LEGAL GUARDRAIL (plan §8 — data handling): `evidence` MUST be redacted
+ * LEGAL GUARDRAIL (plan §8, data handling): `evidence` MUST be redacted
  * before persistence. The backend runs every finding through
  * `redactEvidence()` (guardrails/redact.ts) which masks secrets, tokens,
  * credentials and PII. Findings reference the vulnerability; they never
@@ -171,7 +171,7 @@ export interface Finding {
   /**
    * Honeypot/trap suspicion, 0..1 (plan §4.5). Findings with
    * trapProbability >= 0.6 are flagged via `honeypotSuspect` and presented
-   * as "possible trap — verify manually", not as confirmed vulnerabilities.
+   * as "possible trap, verify manually", not as confirmed vulnerabilities.
    */
   trapProbability: number;
   honeypotSuspect: boolean;
@@ -182,8 +182,8 @@ export interface Finding {
   reproSteps: string[];
   remediation: string;
   /**
-   * AI-generated concrete code fix (Phase 3, developer persona). Always
-   * labeled as unverified in reports — a wrong auto-fix is worse than none.
+   * Concrete code fix (Phase 3, developer persona). Always
+   * labeled as unverified in reports, a wrong auto-fix is worse than none.
    */
   suggestedFix?: string;
   /**
@@ -247,7 +247,7 @@ export interface ApiKeyRecord {
   userId: string;
   name: string;
   keyHash: string;
-  /** e.g. "bs_a1b2" — safe to display, used for key identification. */
+  /** e.g. "bs_a1b2", safe to display, used for key identification. */
   keyPrefix: string;
   createdAt: string; // ISO
   lastUsedAt?: string; // ISO

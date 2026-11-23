@@ -1,4 +1,4 @@
-/* Waitlist test: POST /api/waitlist against the in-memory DB — storage,
+/* Waitlist test: POST /api/waitlist against the in-memory DB, storage,
    dedupe by normalised email, input validation, and the per-route
    rate limit. No live Postgres needed, same as the other suites. */
 async function main() {

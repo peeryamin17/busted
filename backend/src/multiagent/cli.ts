@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * BugSeek swarm CLI — run the multi-agent super agent from the terminal.
+ * BugSeek swarm CLI, run the multi-agent super agent from the terminal.
  *
  *   npx tsx src/multiagent/cli.ts --target https://example.com --scope full-domain
  *
  * Flags:
- *   --target <url>        (required) target to test — you must be authorized
+ *   --target <url>        (required) target to test, you must be authorized
  *   --scope <mode>        full-domain | subdomain | page   (default: subdomain)
  *   --subdomains          include subdomains (with full-domain)
  *   --rps <n>             requests/sec across all workers (default: 2, max: 10)
@@ -14,7 +14,7 @@
  *   --max-tokens <n>      global LLM token budget (default: 120000)
  *   --timeout-min <n>     wall-clock cap in minutes (default: 10)
  *   --allow-private       allow private/internal targets (self-hosted labs)
- *   --specialists a,b,c   force specialist set (ids: recon,secrets,headers,cors,xss,idor,auth,graphql,sourcemap)
+ *   --specialists a, b, c   force specialist set (ids: recon, secrets, headers, cors, xss, idor, auth, graphql, sourcemap)
  *   --out <file.md>       write Markdown report to file (default: stdout)
  *   --mock                use the mock LLM provider (no API key, for testing)
  *

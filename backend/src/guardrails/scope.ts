@@ -3,7 +3,7 @@ import net from 'node:net';
 import type { ScopePolicy } from '../types.js';
 
 /**
- * LEGAL GUARDRAIL — scope enforcement (product plan §8).
+ * LEGAL GUARDRAIL, scope enforcement (product plan §8).
  *
  * The agent must respect defined scope boundaries. Every URL the agent (or any
  * active-testing tool) touches passes through `assertUrlAllowed` / `isUrlInScope`.
@@ -111,7 +111,7 @@ export function isPrivateIp(ip: string): boolean {
 /**
  * SSRF guard: resolve the hostname and refuse private / internal addresses.
  * Bypassable ONLY via ALLOW_PRIVATE_TARGETS=true (for local test apps like
- * OWASP Juice Shop / DVWA) — which config.ts forbids in production.
+ * OWASP Juice Shop / DVWA), which config.ts forbids in production.
  */
 export async function assertPublicHost(hostname: string, allowPrivate: boolean): Promise<void> {
   if (net.isIP(hostname)) {

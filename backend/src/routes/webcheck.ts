@@ -11,16 +11,16 @@ import type { RouteDeps } from './health.js';
 /**
  * Web demo patrol routes.
  *
- *   POST /api/webcheck      — run a passive patrol on a site the user
+ *   POST /api/webcheck, run a passive patrol on a site the user
  *                             owns (the `authorized` tick is the licence
  *                             to probe it), store the FULL result,
  *                             answer with the plan-gated view.
- *   GET  /api/webcheck      — my runs, newest first, summaries only.
- *   GET  /api/webcheck/:id  — one of my runs, plan-gated view.
+ *   GET  /api/webcheck, my runs, newest first, summaries only.
+ *   GET  /api/webcheck/:id, one of my runs, plan-gated view.
  *
  * THE GATE IS THE PRODUCT: the stored result is complete, but free
  * plans see the first two findings in full and only {severity,
- * category} for the rest — withheld titles/details never leave the
+ * category} for the rest, withheld titles/details never leave the
  * server. Upgrading unblurs the stored run; nothing re-scans.
  */
 
@@ -126,9 +126,9 @@ export function gatedView(rec: WebCheckRecord, plan: PlanTier): Record<string, u
         )
       : rec.findings.map(fullFinding),
     info: rec.info,
-    /** The trust verdict ("is it a trap?") — separate from the score, always. */
+    /** The trust verdict ("is it a trap?"), separate from the score, always. */
     trust: rec.info.trust ?? null,
-    /** The origin stamp stored with this run (the owner's own — shown back to them). */
+    /** The origin stamp stored with this run (the owner's own, shown back to them). */
     requester: { ip: rec.requesterIp, geo: rec.requesterGeo },
     locked: LOCKED,
   };
@@ -144,7 +144,7 @@ export async function webCheckRoutes(
   const patrol: PatrolRunner = opts.patrol ?? ((url) => runWebPatrol(url));
 
   // One patrol a minute per user (the fleet is small and targets
-  // deserve a breather). Checked in-route, keyed by the account —
+  // deserve a breather). Checked in-route, keyed by the account,
   // the plugin's IP limit below is just the outer fence.
   const lastRunAt = new Map<string, number>();
   const RUN_INTERVAL_MS = 60_000;
@@ -171,7 +171,7 @@ export async function webCheckRoutes(
 
       /* The free handful is for keeps: ten patrols a lifetime, counted
          from the stored runs. Refuse BEFORE the throttle stamps or a
-         single probe flies — a plan is the only way past this door. */
+         single probe flies, a plan is the only way past this door. */
       const usedBefore = await db.countWebChecks(user.id);
       if (user.plan === 'free' && usedBefore >= FREE_PATROL_LIMIT) {
         return reply.status(403).send({
@@ -192,7 +192,7 @@ export async function webCheckRoutes(
 
       try {
         const outcome = await patrol(body.data.url);
-        // Stamp the run with who asked and where from — BOTH halves,
+        // Stamp the run with who asked and where from, BOTH halves,
         // side by side (disclosed on the form): the address and its
         // coarse location always, and the device's own position when
         // the visitor shared it. Both lookups are best-effort.
@@ -263,7 +263,7 @@ export async function webCheckRoutes(
       usage: usageFor(user.plan, total),
       runs: runs.map((r, i) => {
         /* History vault: past the newest few, a free account keeps the
-           fact of a run — its host and date — and none of its contents. */
+           fact of a run, its host and date, and none of its contents. */
         if (user.plan === 'free' && i >= FREE_HISTORY_OPEN) {
           return { id: r.id, host: r.host, createdAt: r.createdAt, locked: true };
         }

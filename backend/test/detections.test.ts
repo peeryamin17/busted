@@ -1,4 +1,4 @@
-/* Runtime detection tests (Thread 5, DEFENSIVE) — no live network:
+/* Runtime detection tests (Thread 5, DEFENSIVE), no live network:
    crafted security events drive the pure rules; the analyzer persists
    through MemoryDatabase; the routes get a real session cookie via
    Fastify inject. Covers every rule (velocity, spray, many-accounts,
@@ -75,7 +75,7 @@ async function main() {
     'spray detection never carries a plaintext account',
     !JSON.stringify(spray).includes('user0@example.com'),
   );
-  // Same password hash, different accounts — equality works on hashes.
+  // Same password hash, different accounts, equality works on hashes.
   const hashA = hashAttemptedPassword('Summer2026!');
   const hashB = hashAttemptedPassword('Summer2026!');
   check('password hashing is deterministic for equality matching', hashA === hashB);

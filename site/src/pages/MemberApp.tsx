@@ -22,7 +22,7 @@ function MemberLoading() {
 
 /**
  * The guarded members' home at /app. Until the session probe answers,
- * only the hold screen renders — the member experience never flashes
+ * only the hold screen renders, the member experience never flashes
  * for signed-out visitors, who are handed to /signin instead.
  */
 export function MemberApp() {

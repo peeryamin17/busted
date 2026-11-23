@@ -1,28 +1,19 @@
 /**
- * Security-event intake (Thread 5, DEFENSIVE).
+ * Security-event intake: a bounded in-memory ring buffer plus hashing
+ * helpers, for the rules to run on. When the process restarts the buffer
+ * is gone.
  *
- * The backend today records very little per-request data (sessions carry
- * no IP; API keys only stamp lastUsedAt; usage events are counters). This
- * module is the intake the rules run on: a bounded in-memory ring buffer
- * plus hashing helpers. It invents no infrastructure — when the process
- * restarts the buffer is gone, and that is documented, not hidden.
+ * Wiring: call recordSecurityEvent from the login-failure paths, from
+ * API-key auth, and from a request hook for 404/probe traffic. Until
+ * wired, the rules run over whatever events exist, which may be none,
+ * and analyzeEvents says so rather than inventing detections.
  *
- * Wiring (coordinator): call `recordSecurityEvent` from the login-failure
- * paths (routes/auth.ts, routes/googleAuth.ts), from API-key auth
- * (middleware/auth.ts, once per authenticated request — or sampled), and
- * from a request hook for 404/probe traffic. Until wired, the rules run
- * over whatever events have been recorded — which may be none — and
- * `analyzeEvents` says so rather than inventing detections.
- *
- * Hashing: account identifiers and attempted passwords are stored as
- * SHA-256 hashes with a server-side pepper. The pepper comes from
- * DETECTION_PEPPER when set; otherwise a random per-process pepper is
- * used (correlation then lasts only as long as the process — acceptable
- * for an in-memory buffer). A peppered hash of a weak password is still
+ * Account identifiers and attempted passwords are stored as SHA-256
+ * hashes with a server-side pepper (DETECTION_PEPPER, else a random
+ * per-process pepper). A peppered hash of a weak password is still
  * dictionary-reversible in principle, so the buffer is treated as
- * sensitive: bounded, in-memory only, never logged, never returned by
- * any API. The rules need EQUALITY only (same password across accounts,
- * same account across IPs) — the hash is never reversed or displayed.
+ * sensitive: bounded, in-memory only, never logged, never returned
+ * by any API. The rules need equality only.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import type { SecurityEvent } from './types.js';

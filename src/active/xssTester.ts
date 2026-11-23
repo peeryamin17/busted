@@ -1,21 +1,20 @@
 /**
- * Context-aware XSS testing (active testing).
+ * Context-aware XSS testing (active testing). Not blind fuzzing:
  *
- * Method (NOT blind fuzzing):
- *  1. Take reflection points: the tab URL's query parameters and GET forms
+ *  1. Reflection points: the tab URL's query parameters and GET forms
  *     from the DOM collection.
- *  2. Send a unique canary per parameter; find where it lands in the raw
+ *  2. One unique canary per parameter; find where it lands in the raw
  *     HTML and classify the sink context (HTML text, double/single-quoted
  *     attribute, JS string, HTML comment).
- *  3. Send ONE context-adapted payload carrying a marker, then confirm via
- *     DOM observation: the content script loads the probe URL in a hidden
+ *  3. One context-adapted payload carrying a marker, confirmed via DOM
+ *     observation: the content script loads the probe URL in a hidden
  *     same-origin iframe and reports whether the marker reached
  *     document.title (i.e. the payload executed).
- *  4. Reflected-but-not-executed inputs become low-severity REVIEW HINTS,
- *     never vulnerabilities.
+ *  4. Reflected-but-not-executed inputs become low-severity review
+ *     hints, never vulnerabilities.
  *
- * Payloads are non-destructive marker assignments (document.title) — no
- * alert(), no exfiltration, no persistence.
+ * Payloads are non-destructive marker assignments (document.title),
+ * no alert(), no exfiltration, no persistence.
  */
 import { scoreFinding } from '../lib/cvss';
 import type { DomScanData, Finding, XssProbeResponse } from '../lib/types';

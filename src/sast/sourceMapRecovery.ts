@@ -1,21 +1,19 @@
 /**
  * Source-map recovery (white-box, client-side).
  *
- * When a production bundle ships its source map exposed (already detected by
- * sourceMapScanner), the map's `sourcesContent` holds the ORIGINAL,
- * unminified sources. Minified code defeats most AST analysis — identifiers
- * are single letters, control flow is flattened — so this module re-runs the
- * taint engine on the recovered original sources instead.
+ * When a production bundle ships its source map exposed (already
+ * detected by sourceMapScanner), the map's `sourcesContent` holds the
+ * original, unminified sources. Minified code defeats most AST
+ * analysis, so this re-runs the taint engine on the recovered original
+ * sources instead.
  *
- * Honest limits, stated wherever the results surface:
- *  - Positions in the findings are positions in the RECOVERED original
- *    source (file + line), not positions in the minified bundle. No VLQ
- *    mapping back to generated positions is performed.
- *  - Only sources embedded in the map (`sourcesContent`) are analysed; a
- *    map that lists sources without embedding them is skipped (fetching
- *    each original file is out of scope for a passive scan).
- *  - A map that is absent, unparseable, or whose sources fail to parse is
- *    skipped gracefully — the minified-bundle findings still stand.
+ * Limits, stated wherever results surface: finding positions are
+ * positions in the recovered original source, not the minified bundle,
+ * no VLQ mapping back to generated positions. Only sources embedded
+ * in the map are analysed; a map that lists sources without embedding
+ * them is skipped. A map that is absent, unparseable, or whose sources
+ * fail to parse is skipped gracefully, the minified-bundle findings
+ * still stand.
  */
 import type { ExposedSourceMap } from '../scanners/sourceMapScanner';
 import { DeepTaintEngine, scanVueHtmlBindings, type SourceToSinkFlow } from './taintEngine';

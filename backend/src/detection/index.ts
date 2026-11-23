@@ -1,5 +1,5 @@
 /**
- * Runtime detection layer — public surface (Thread 5, DEFENSIVE).
+ * Runtime detection layer, public surface (Thread 5, DEFENSIVE).
  *
  * Dogfooded on BugSeek's own backend first: the rules watch the events
  * this backend records (failed logins, API-key uses, probe traffic).

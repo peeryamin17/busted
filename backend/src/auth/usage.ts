@@ -7,7 +7,7 @@ import type { PlanTier } from '../types.js';
  * access, report formats) is enforced on the relevant endpoints.
  *
  * Credits are the billing unit: 1 credit = one passive recon scan,
- * 25 credits = one guided active agent scan. This protects margin — an
+ * 25 credits = one guided active agent scan. This protects margin, an
  * active scan costs ~65x a passive one in LLM spend (business plan §3.1).
  */
 export interface PlanQuota {

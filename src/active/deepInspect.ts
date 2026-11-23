@@ -1,30 +1,24 @@
 /**
- * Deep inspect mode — devtools-level traffic visibility for active scans.
+ * Deep inspect mode, devtools-level traffic visibility for active scans.
  *
- * DevTools itself is only a UI over the Chrome DevTools Protocol (CDP).
- * This module speaks that same protocol via chrome.debugger, giving an
- * active scan everything a human would see with DevTools open: full
- * request/response BODIES for the tab's own traffic (chrome.webRequest
- * only exposes metadata — never bodies), POST payloads, and per-response
- * MIME types.
+ * DevTools is just a UI over the Chrome DevTools Protocol (CDP). This
+ * speaks that protocol via chrome.debugger, so a scan sees what a human
+ * with DevTools open would: full request/response bodies for the tab's
+ * own traffic (webRequest only exposes metadata, never bodies), POST
+ * payloads, per-response MIME types.
  *
- * Safety contract:
- *  - Opt-in only. The `debugger` permission is OPTIONAL in the manifest and
- *    is requested at runtime when the user ticks "Deep inspect" — it is
- *    never an install-time permission.
- *  - Attach happens only after a valid authorization record exists, and
- *    only on the single target tab.
- *  - Bodies are captured ONLY for in-scope URLs (scopeCheck), only for
- *    text-ish content types, and capped in count and bytes.
- *  - Captured bodies live in memory for the duration of the scan and are
- *    dropped on detach. Only redacted snippets ever reach findings; raw
- *    bodies are never written to storage or the report.
- *  - The session always detaches: on scan end (finally), on tab close, on
- *    navigation-triggered detach, or when the user opens DevTools.
+ * Safety: `debugger` is a required manifest permission (Chrome cannot
+ * grant it as optional), but attaching is still opt-in per scan, only
+ * after a valid authorization record exists, and only on the target
+ * tab. Bodies are captured only for in-scope URLs, only text-ish
+ * content types, capped in count and bytes. They live in memory for
+ * the scan and are dropped on detach; only redacted snippets reach
+ * findings. The session always detaches: scan end, tab close,
+ * navigation, or the user opening DevTools.
  *
- * UX notes (surfaced, not hidden): Chrome shows a "…is debugging this
- * browser" infobar while attached, and attach fails while DevTools is
- * already open on the same tab — both produce user-facing messages.
+ * Chrome shows a "...is debugging this browser" infobar while
+ * attached, and attach fails while DevTools is already open on the
+ * same tab. Both surface as user-facing messages.
  */
 import {
   DEEP_INSPECT_BODY_CONTENT_RE,
@@ -90,7 +84,7 @@ interface ResponseMeta {
   mimeType: string;
 }
 
-/** Numeric path segment, e.g. /users/12345 — candidate object reference. */
+/** Numeric path segment, e.g. /users/12345, candidate object reference. */
 const NUMERIC_SEGMENT_RE = /\/(\d{1,10})(?=\/|$)/;
 /** Query params that usually reference objects. */
 const ID_PARAM_RE = /[?&](id|user_id|userid|account_id|order_id|customer_id|doc_id|file_id|record_id)=/i;

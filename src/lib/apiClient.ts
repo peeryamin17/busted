@@ -1,12 +1,10 @@
 /**
- * Backend API client — the SINGLE module that talks to the BugSeek backend.
+ * Backend API client, the single module that talks to the BugSeek backend.
  *
- * The backend (~/workspace/bugseek/backend, Fastify, default
- * http://localhost:3000) is built by a sibling worker in parallel, so every
- * endpoint here is provisional: each call has a short timeout and degrades to
- * null when the backend is unreachable. The extension is fully functional
- * standalone — backend calls only add AI deepening, scan history, and richer
- * reports on top of local results.
+ * The backend (Fastify, default http://localhost:3000) may be unreachable,
+ * so every call has a short timeout and degrades to null when it is. The
+ * extension works standalone; backend calls only add AI deepening, scan
+ * history, and richer reports on top of local results.
  */
 import {
   BACKEND_BASE_URL,
@@ -64,7 +62,7 @@ export async function setBackendApiKey(key: string | null): Promise<void> {
     if (key) await chrome.storage.local.set({ [API_KEY_STORAGE_KEY]: key });
     else await chrome.storage.local.remove(API_KEY_STORAGE_KEY);
   } catch {
-    /* storage unavailable — backend calls simply stay unauthenticated */
+    /* storage unavailable, backend calls simply stay unauthenticated */
   }
 }
 
@@ -191,7 +189,7 @@ export interface BackendAccount {
  * Who the stored API key belongs to (GET /api/v1/account). `operator` is
  * true only for the operator (ADMIN_EMAIL) account and drives the popup's
  * developer unlock. Null when there is no key, the backend is unreachable,
- * or it predates the endpoint — callers fail closed (locked) on null.
+ * or it predates the endpoint, callers fail closed (locked) on null.
  */
 export async function getBackendAccount(): Promise<BackendAccount | null> {
   const apiKey = await getBackendApiKey();
@@ -296,7 +294,7 @@ export async function deepenAttackChains(
  * Run the backend multi-agent swarm (head agent + specialist workers) against
  * an authorized target. POST /api/swarm/scans (Hunter+, 25 credits).
  * Returns the swarm outcome (head summary + persisted findings), or null when
- * offline. The caller must pass the user's explicit authorization — the
+ * offline. The caller must pass the user's explicit authorization, the
  * backend re-validates it (plan §8).
  */
 export interface SwarmAuthorizationInput {
@@ -508,7 +506,7 @@ async function fetchJsonOrThrow<T>(
       const body = (await res.json()) as { error?: unknown };
       if (typeof body?.error === 'string' && body.error) message = body.error;
     } catch {
-      /* non-JSON error body — keep the generic message */
+      /* non-JSON error body, keep the generic message */
     }
     throw new Error(message);
   }
@@ -542,7 +540,7 @@ export interface ImportOutcome {
   score: { value: number; grade: string } | null;
 }
 
-/** GET /api/engines/status — which open-source engines the backend can run. */
+/** GET /api/engines/status, which open-source engines the backend can run. */
 export async function getEnginesStatus(): Promise<EngineStatusEntry[] | null> {
   const res = await fetchJson<{ engines: EngineStatusEntry[] }>(
     '/api/engines/status',
@@ -553,7 +551,7 @@ export async function getEnginesStatus(): Promise<EngineStatusEntry[] | null> {
 }
 
 /**
- * POST /api/engines/scans — run one open-source engine (WhatWeb / Nikto /
+ * POST /api/engines/scans, run one open-source engine (WhatWeb / Nikto /
  * Nuclei) on the backend against an authorized target (Hunter+). Throws with
  * the server's error string on 403/503/400.
  */
@@ -573,7 +571,7 @@ export async function runEngineScan(
 }
 
 /**
- * POST /api/import/findings — import an external scanner report (ZAP /
+ * POST /api/import/findings, import an external scanner report (ZAP /
  * Nuclei / Nikto / SQLMap) as BugSeek findings. Throws with the server's
  * error string when the report can't be parsed/validated.
  */

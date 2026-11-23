@@ -4,7 +4,7 @@
  * Every finding gets a trap-probability score in [0, 1] from multiple
  * signals, combined with noisy-or so independent signals reinforce each
  * other. Findings at or above TRAP_FLAG_THRESHOLD are flagged
- * (finding.honeypotSuspect = true) and presented as "possible trap — verify
+ * (finding.honeypotSuspect = true) and presented as "possible trap, verify
  * manually", NOT reported as vulnerabilities.
  *
  * Signals (from the plan):

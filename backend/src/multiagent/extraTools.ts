@@ -10,7 +10,7 @@ import { redactText } from '../guardrails/redact.js';
  * primitives as the core tools (scope check → rate limit → SSRF guard).
  *
  * - probe_idor:    mutate a numeric object reference (id±1, id±10) and compare
- *                  response status/shape — the deterministic core of IDOR
+ *                  response status/shape, the deterministic core of IDOR
  *                  detection. Only status codes, content types and JSON FIELD
  *                  NAMES are compared; values are never recorded.
  * - fetch_js:      fetch a same-origin JavaScript file and deterministically
@@ -192,11 +192,11 @@ const fetchSourcemap: AgentTool = {
           try {
             mapUrl = new URL(m[1], jsUrl).toString();
           } catch {
-            /* unresolvable — fall through to the .map guess */
+            /* unresolvable, fall through to the.map guess */
           }
         }
       } catch {
-        /* JS fetch failed; still try the conventional .map location */
+        /* JS fetch failed; still try the conventional.map location */
       }
       const candidates = mapUrl && mapUrl !== jsUrl + '.map' ? [mapUrl, jsUrl + '.map'] : [jsUrl + '.map'];
       for (const candidate of candidates) {
@@ -207,7 +207,7 @@ const fetchSourcemap: AgentTool = {
           try {
             map = JSON.parse(text);
           } catch {
-            continue; // not a map — try the next candidate
+            continue; // not a map, try the next candidate
           }
           if (!map || typeof map !== 'object' || !Array.isArray((map as { sources?: unknown }).sources)) {
             continue;

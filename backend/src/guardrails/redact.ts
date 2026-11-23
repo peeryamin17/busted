@@ -1,11 +1,11 @@
 /**
- * LEGAL GUARDRAIL — no exfiltration or storage of sensitive data (product plan §8).
+ * LEGAL GUARDRAIL, no exfiltration or storage of sensitive data (product plan §8).
  *
  * BugSeek must never exfiltrate, store, or transmit sensitive data found during
  * testing (PII, credentials, financial data). Findings reference the
  * vulnerability; they do not reproduce the sensitive data itself.
  *
- * EVERY finding is passed through `redactEvidence()` before persistence —
+ * EVERY finding is passed through `redactEvidence()` before persistence,
  * both for agent-produced findings and for findings submitted by the extension
  * via POST /api/scans/:id/findings. Evidence snippets are truncated so a
  * partial match can never leak a full secret.
@@ -84,7 +84,7 @@ export function redactFindingEvidence<T extends { evidence?: string; location?: 
     evidence: finding.evidence ? redactText(finding.evidence) : finding.evidence,
     location: finding.location ? redactText(finding.location, 300) : finding.location,
   };
-  // Free-text fields that LLMs (or extension clients) fill in — scrub too.
+  // Free-text fields that LLMs (or extension clients) fill in, scrub too.
   for (const key of ['title', 'description', 'remediation', 'suggestedFix', 'note'] as const) {
     const v = (finding as Record<string, unknown>)[key];
     if (typeof v === 'string' && v) {

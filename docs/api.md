@@ -1,6 +1,6 @@
-# BugSeek AI — API Contract (Backend ↔ Extension)
+# BugSeek AI, API Contract (Backend ↔ Extension)
 
-Base URL: `http://localhost:3000` (dev) — configurable via `PORT`.
+Base URL: `http://localhost:3000` (dev), configurable via `PORT`.
 All request/response bodies are JSON unless noted. Errors: `{ "error": "<message>" }`
 with an appropriate HTTP status code.
 
@@ -24,10 +24,10 @@ Two schemes (both attach `request.user = { id, email, plan }`):
 
 ### Auth
 
-`POST /api/auth/register` — body `{ "email": string, "password": string(min 8) }` → `201 { user, token }`
-`POST /api/auth/login` — body `{ email, password }` → `200 { user, token }`
+`POST /api/auth/register`, body `{ "email": string, "password": string(min 8) }` → `201 { user, token }`
+`POST /api/auth/login`, body `{ email, password }` → `200 { user, token }`
 `GET /api/auth/me` 🔒 → `200 { user }`
-`POST /api/auth/api-keys` 🔒 — body `{ "name" }` → `201 { id, name, keyPrefix, key, createdAt }` (`key` returned once)
+`POST /api/auth/api-keys` 🔒, body `{ "name" }` → `201 { id, name, keyPrefix, key, createdAt }` (`key` returned once)
 `GET /api/auth/api-keys` 🔒 → `200 { keys: [{ id, name, keyPrefix, createdAt, lastUsedAt, revokedAt }] }` (hashes never exposed)
 `DELETE /api/auth/api-keys/:id` 🔒 → `200 { revoked: true }`
 
@@ -35,7 +35,7 @@ Two schemes (both attach `request.user = { id, email, plan }`):
 
 ### Scans
 
-`POST /api/scans` 🔒 — create a scan (validates guardrails, quota, then enqueues)```jsonc
+`POST /api/scans` 🔒, create a scan (validates guardrails, quota, then enqueues)```jsonc
 {
   "targetUrl": "https://target.com",
   "mode": "passive" | "active",
@@ -46,7 +46,7 @@ Two schemes (both attach `request.user = { id, email, plan }`):
     "excludedPaths": ["/logout"],              // default []
     "maxRequestsPerSecond": 2                  // default from server config, hard cap 10
   },
-  // REQUIRED for mode=active (plan §8 — explicit authorization):
+  // REQUIRED for mode=active (plan §8, explicit authorization):
   "authorization": {
     "type": "bug-bounty" | "pentest-contract" | "ownership",
     "programName": "Acme Bug Bounty",          // optional
@@ -63,7 +63,7 @@ Two schemes (both attach `request.user = { id, email, plan }`):
 `GET /api/scans?limit=20&offset=0` 🔒 → `200 { scans: [...], total }`
 `GET /api/scans/:id` 🔒 → `200 { scan }` (`404` if not yours)
 
-`GET /api/scans/:id/progress?since=0` 🔒 — poll progress events
+`GET /api/scans/:id/progress?since=0` 🔒, poll progress events
 ```jsonc
 {
   "scanId": "...", "status": "running",
@@ -81,14 +81,14 @@ The extension polls with `since=<latestSeq>` (e.g. every 2s) for live updates.
 
 ### Swarm (multi-agent "super agent")
 
-`POST /api/swarm/scans` 🔒 — run the head agent + specialist worker swarm
+`POST /api/swarm/scans` 🔒, run the head agent + specialist worker swarm
 inline (bounded by `timeoutMinutes`). Same lifecycle as ordinary scans:
 **authorization record required**, **25 credits** charged (active-scan cost),
 findings persisted, scan marked `completed`/`failed`. Requires Hunter+.
 ```jsonc
 {
   "targetUrl": "https://target.com",
-  "authorization": { /* REQUIRED — same shape as POST /api/scans mode=active */ },
+  "authorization": { /* REQUIRED, same shape as POST /api/scans mode=active */ },
   "scope": { "mode": "subdomain", "includeSubdomains": false, "excludedHosts": [], "excludedPaths": [] },
   "specialists": ["recon", "headers"],  // optional; omit for adaptive selection
   "maxWorkers": 4, "concurrency": 2,    // optional
@@ -108,14 +108,14 @@ Invalid transitions → `409` (e.g. pausing a completed scan).
 `GET /api/scans/:id/findings` 🔒 → `200 { scanId, findings: [Finding...] }`
 (see `docs/schemas.md` for the Finding schema)
 
-`POST /api/scans/:id/findings` 🔒 — extension submits its Phase 1 passive findings
+`POST /api/scans/:id/findings` 🔒, extension submits its Phase 1 passive findings
 (scan must be `queued`, `running`, or `paused`; completed scans → `409`).
 ```jsonc
 {
   "category": "secrets", "title": "...", "description": "...",
   "severity": "critical", "confidence": "high",
   "location": "https://target.com/app.js",       // optional
-  "evidence": "const k = \"AKIA...\";",           // optional — REDACTED server-side before storage
+  "evidence": "const k = \"AKIA...\";",           // optional, REDACTED server-side before storage
   "remediation": "...", "reproSteps": ["..."], "references": ["https://..."],
   "trapProbability": 0                            // optional, 0..1
 }
@@ -145,7 +145,7 @@ monthly (no rollover); overage $5 per 100 credits (Hunter/Pro).
 | pro ($99) | 1,500 | ✅ | ✅ | all |
 | enterprise | custom pools | ✅ | ✅ | all |
 
-## Legal guardrails (plan §8) — enforced, not advisory
+## Legal guardrails (plan §8), enforced, not advisory
 
 1. **Authorization**: `mode=active` requires an explicit, stored authorization
    record (`type`, `statement`, `confirmed: true`). No record → no active scan,

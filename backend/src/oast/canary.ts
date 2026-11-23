@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 
 /**
- * OAST (out-of-band security testing) canary hostnames — Phase 3 scaffolding.
+ * OAST (out-of-band security testing) canary hostnames, Phase 3 scaffolding.
  *
  * A canary is a unique hostname per scan, e.g. `a1b2c3d4-9f8e.oast.example.com`.
  * Blind-payload probes embed the canary; if the target's backend ever resolves
@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
  * high-severity finding ("blind XSS/SSRF confirmed out-of-band").
  *
  * INFRA TODO: OAST_DOMAIN must point at infrastructure you operate (wildcard
- * DNS + DNS/HTTP listeners — see docs/oast.md). Until then canaries generate
+ * DNS + DNS/HTTP listeners, see docs/oast.md). Until then canaries generate
  * fine but are inert: nothing listens for them.
  */
 

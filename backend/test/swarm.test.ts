@@ -1,5 +1,5 @@
 /**
- * Integration test for POST /api/swarm/scans — the head-agent/worker swarm
+ * Integration test for POST /api/swarm/scans, the head-agent/worker swarm
  * wired into the scan lifecycle: auth → authorization record → credit quota →
  * scan record → inline swarm run (mock provider) → persisted findings →
  * scan completed.

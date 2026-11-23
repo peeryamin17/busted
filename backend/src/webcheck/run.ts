@@ -54,7 +54,7 @@ function extractScriptUrls(html: string, base: string): string[] {
       const u = new URL(m[1] as string, base);
       if (u.protocol === 'http:' || u.protocol === 'https:') urls.push(u.toString());
     } catch {
-      /* unparseable src — not a file we can patrol */
+      /* unparseable src, not a file we can patrol */
     }
     if (urls.length >= 4) break;
   }
@@ -154,7 +154,7 @@ export async function runWebPatrol(
     scripts.push({ url: `${finalUrl}#inline-${i + 1}`, body: code });
   });
 
-  /* Source maps: comment pointer first, then the served .map guess. */
+  /* Source maps: comment pointer first, then the served.map guess. */
   const sourceMaps: Array<{ scriptUrl: string; mapUrl: string }> = [];
   for (const script of scripts.slice(0, 4)) {
     if (script.url.includes('#inline')) continue;
@@ -219,7 +219,7 @@ export async function runWebPatrol(
   });
 
   /* The trust layer reads the same page the checks did: is it a trap?
-     It never adds findings and never moves the score — verdict only. */
+     It never adds findings and never moves the score, verdict only. */
   const titleMatch = /<title[^>]*>([^<]{0,200})<\/title>/i.exec(page.body);
   const pageTitle = titleMatch ? (titleMatch[1] as string).trim() || null : null;
   // Independent tails, one wait: server geo, security.txt, trust.

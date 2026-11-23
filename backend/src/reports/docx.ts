@@ -50,7 +50,7 @@ const SEV_COLORS: Record<string, string> = {
 };
 
 /**
- * DOCX report generator — same content contract as the PDF generator
+ * DOCX report generator, same content contract as the PDF generator
  * (executive summary, CVSS estimates, repro steps, remediation, appendix).
  */
 export async function generateDocxReport(input: ReportInput): Promise<Buffer> {
@@ -221,7 +221,7 @@ export async function generateDocxReport(input: ReportInput): Promise<Buffer> {
     children.push(p('Remediation:', { bold: true }), p(f.remediation));
     if (f.suggestedFix) {
       children.push(
-        p('Suggested fix (AI-generated — review before applying):', { bold: true }),
+        p('Suggested fix (review before applying):', { bold: true }),
         p(f.suggestedFix)
       );
     }

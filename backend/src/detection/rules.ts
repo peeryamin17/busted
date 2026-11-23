@@ -1,5 +1,5 @@
 /**
- * Detection rules (Thread 5, DEFENSIVE) — pure functions over events.
+ * Detection rules (Thread 5, DEFENSIVE), pure functions over events.
  *
  * Every rule takes an explicit window and threshold so tests can drive
  * them with crafted events and no clock. Rules return candidates; the
@@ -107,7 +107,7 @@ export function failedLoginVelocityRule(
 
 /**
  * Password spray: one password hash across many accounts from one IP.
- * Detected by HASH EQUALITY only — plaintext passwords are never stored
+ * Detected by HASH EQUALITY only, plaintext passwords are never stored
  * or compared (see events.ts).
  */
 export function passwordSprayRule(
@@ -319,7 +319,7 @@ export function probePatternRule(
   return out;
 }
 
-/** Run every rule over the events. Pure — no I/O. */
+/** Run every rule over the events. Pure, no I/O. */
 export function runAllRules(
   events: SecurityEvent[],
   baseline: ApiKeyBaseline | null = null,

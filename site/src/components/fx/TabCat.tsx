@@ -10,7 +10,7 @@ import { usePathname } from '../../lib/router';
 
 /**
  * The BugSeek cat: a little line-figure hunter drawn in the crowd's own
- * language (fx/CrowdCanvas) — filled round head, triangle ears, thin
+ * language (fx/CrowdCanvas), filled round head, triangle ears, thin
  * white stroke body, legs and tail. Faceless, like the people.
  *
  * It lives in the header and runs the top boundary of the nav: on
@@ -25,13 +25,13 @@ import { usePathname } from '../../lib/router';
  * data-cat-tab, the brand with data-cat-brand and the pill with
  * data-cat-pill, and the cat re-reads those boxes on active change,
  * resize, route change and pill morphs. Reduced motion: no hops, no
- * idle sway — the cat just sits where it belongs.
+ * idle sway, the cat just sits where it belongs.
  */
 
 type TabKey = 'connect' | 'what' | 'swarm' | 'how' | 'pricing' | 'faq';
 
 const SECTION_KEYS: TabKey[] = ['what', 'swarm', 'how', 'pricing', 'faq'];
-const CAT = 34; // px — the tap target and the drawing share one box
+const CAT = 34; // px, the tap target and the drawing share one box
 
 interface Perch {
   /** centre x of the perch, relative to the header container */
@@ -72,7 +72,7 @@ export function TabCat({
   const activeKey: TabKey = pathname === '/app/check' ? 'connect' : spyKey;
   const perchKey = tabsMode ? activeKey : 'brand';
 
-  /* ——— measurement ——— */
+  /* --- measurement --- */
 
   const measure = useCallback(() => {
     const container = containerRef.current;
@@ -84,7 +84,7 @@ export function TabCat({
       const r = el.getBoundingClientRect();
       return {
         cx: r.left + (centreOffset ?? r.width / 2) - cRect.left,
-        // feet ON the element's top edge — the cat runs the boundary
+        // feet ON the element's top edge, the cat runs the boundary
         // line of the tabs, never inside them (1px sink so paws touch)
         feet: r.top + 1 - cRect.top,
       };
@@ -115,7 +115,7 @@ export function TabCat({
     yv.set(restYRef.current);
   }, [measure, xv, yv]);
 
-  /* ——— movement ——— */
+  /* --- movement --- */
 
   const hopTo = useCallback(
     (p: Perch, key: string) => {
@@ -176,7 +176,7 @@ export function TabCat({
     });
   }, [reduce, yv, syv]);
 
-  /* ——— which tab is active ——— */
+  /* --- which tab is active --- */
 
   // Scroll-spy over the MemberSite sections. A thin band across the
   // middle of the viewport decides which section the reader is "in";
@@ -204,7 +204,7 @@ export function TabCat({
     return () => spy.disconnect();
   }, [variant, pathname]);
 
-  /* ——— perch tracking ——— */
+  /* --- perch tracking --- */
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 1024px)');
@@ -230,7 +230,7 @@ export function TabCat({
         ? 'what'
         : 'brand';
     if (key === perchedKeyRef.current) {
-      // same perch — just stay glued to it
+      // same perch, just stay glued to it
       xv.set(p.cx - CAT / 2);
       restYRef.current = p.feet - CAT;
       if (!hoppingRef.current) yv.set(restYRef.current);
@@ -272,7 +272,7 @@ export function TabCat({
     };
   }, [refresh, containerRef]);
 
-  /* ——— the cat itself ——— */
+  /* --- the cat itself --- */
 
   return (
     <div aria-hidden={false} className="pointer-events-none absolute inset-0 z-30">
@@ -295,7 +295,7 @@ export function TabCat({
                 animate={reduce ? undefined : { y: [0, -1.1, 0] }}
                 transition={{ duration: 3.4, repeat: Infinity, ease: 'easeInOut' }}
               >
-                {/* tail — sways around its base at the body's rear */}
+                {/* tail, sways around its base at the body's rear */}
                 <motion.g
                   style={{ transformBox: 'fill-box', transformOrigin: '92% 96%' }}
                   animate={reduce ? undefined : { rotate: [-7, 9, -7] }}

@@ -2,7 +2,7 @@ import { Component, type ReactNode } from 'react';
 
 /**
  * Last-resort error boundary: if anything in the tree ever throws at
- * render time, the visitor gets a branded fallback with a reload —
+ * render time, the visitor gets a branded fallback with a reload,
  * never a blank black void. (Added after a missing env var on the
  * host took the whole page down via an unguarded auth component.)
  */

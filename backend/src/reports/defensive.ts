@@ -2,14 +2,14 @@
  * Defensive "aftermath" report section (Thread 5, DEFENSIVE).
  *
  * For each attack class, states whether the site detected it, blocked it,
- * logged it, alerted on it, or was blind — with concrete remediation per
+ * logged it, alerted on it, or was blind, with concrete remediation per
  * gap. This is a NEW section builder; existing report files are untouched
  * and the coordinator wires this section into the report assembly.
  *
  * Honest limits, printed in the section itself: "logged" and "alerted"
  * can only be confirmed from server-side logs or the runtime detection
  * layer. When the input says "unknown" for those, the report says the
- * site may have logged the attempt without any visible trace — it does
+ * site may have logged the attempt without any visible trace, it does
  * NOT claim a blind spot that may not exist.
  */
 
@@ -120,7 +120,7 @@ const CLASS_BY_TAG: Record<string, DefensiveClassInput['attackClass']> = {
 
 /**
  * Title prefixes the defense probes generate (stable strings from
- * src/active/defenseProbes.ts). Used only when tags are absent — backend
+ * src/active/defenseProbes.ts). Used only when tags are absent, backend
  * findings lose tags at ingestion because the findings table has no tags
  * column. If a probe title changes, this mapping must change with it.
  */
@@ -154,7 +154,7 @@ function classOf(f: DefenseFindingLike): DefensiveClassInput['attackClass'] | nu
 
 /**
  * Derive defensive classes from defense-verification findings. Signals are
- * deliberately coarse — they come from what the probes could observe from
+ * deliberately coarse, they come from what the probes could observe from
  * outside: a defense visibly engaging, a payload class passing through, or
  * nothing reacting at all. `logged`/`alerted` are always `unknown` here;
  * only server-side logs or the runtime detection layer can confirm those.
@@ -196,7 +196,7 @@ export function defensiveClassesFromFindings(findings: DefenseFindingLike[]): De
       detected = 'unknown';
       blocked = 'unknown';
     } else if (clean) {
-      // Probed and nothing was there to exploit — defended for this class.
+      // Probed and nothing was there to exploit, defended for this class.
       detected = 'not-observed';
       blocked = 'observed';
     } else if (exposed || nothingReacted) {

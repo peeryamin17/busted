@@ -1,21 +1,22 @@
 /**
- * Commerce tester (Phase 4, AUTHORISED active tier only).
+ * Commerce tester (authorised active tier only).
  *
- * Maps the money surface of a store and checks the class of bugs that make
- * headlines — "booked without paying" — WITHOUT ever placing an order or
- * mutating state:
+ * Maps the money surface of a store and checks the class of bugs that
+ * make headlines, "booked without paying", without ever placing an
+ * order or mutating state:
  *
- *   1. Client-side price trust: price/amount/total values carried in form
- *      fields the shopper controls (hidden inputs, data attributes). If the
- *      server trusts them, checkout is negotiable. Confirming exploitation
- *      requires a state-changing request, so this module reports the surface
- *      with exact manual-verification steps instead of firing the exploit.
- *   2. Commerce endpoint map: cart / checkout / order / coupon / payment
- *      endpoints discovered on the origin, with the standard business-logic
- *      checklist (coupon reuse & stacking, negative/zero quantity, currency
- *      switching, price re-validation at payment time).
+ *   1. Client-side price trust: price/amount/total values carried in
+ *      form fields the shopper controls (hidden inputs, data
+ *      attributes). If the server trusts them, checkout is negotiable.
+ *      Confirming it needs a state-changing request, so this reports
+ *      the surface with exact manual-verification steps instead.
+ *   2. Commerce endpoint map: cart / checkout / order / coupon /
+ *      payment endpoints on the origin, with the standard
+ *      business-logic checklist (coupon reuse and stacking,
+ *      negative/zero quantity, currency switching, price re-validation
+ *      at payment time).
  *
- * Only GET requests are made (cart/checkout page fetches), through the
+ * Only GET requests (cart/checkout page fetches), through the
  * scope-checked, rate-limited ActiveHttpClient like every other tester.
  */
 import type { ActiveHttpClient } from './httpClient';
@@ -161,7 +162,7 @@ export async function testCommerce(
         });
       }
     } catch {
-      /* unreachable commerce page — the map finding already covers the surface */
+      /* unreachable commerce page, the map finding already covers the surface */
     }
   }
 
@@ -190,7 +191,7 @@ export async function testCommerce(
         seenPayParams.set('stripe-session-in-path', u.pathname);
       }
     } catch {
-      /* malformed URL — skip */
+      /* malformed URL, skip */
     }
   }
   for (const [name, path] of [...seenPayParams.entries()].slice(0, 6)) {
@@ -270,7 +271,7 @@ export async function testCommerce(
       });
     }
   } catch {
-    /* cookies API unavailable in this context — surface checks above still apply */
+    /* cookies API unavailable in this context, surface checks above still apply */
   }
 
   return { findings };

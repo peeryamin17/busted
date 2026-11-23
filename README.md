@@ -181,4 +181,4 @@ BugSeek AI strictly enforces legal and safety constraints at both the client and
 
 ## 📜 License
 
-UNLICENSED — Proprietary software. Built for authorized security researchers, bug bounty hunters, and internal AppSec teams.
+UNLICENSED, Proprietary software. Built for authorized security researchers, bug bounty hunters, and internal AppSec teams.

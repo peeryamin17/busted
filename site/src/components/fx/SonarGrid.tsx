@@ -10,7 +10,7 @@ interface Ring {
 
 /**
  * Sonar Grid (after 21st.dev's @n1m4mz/sonar-grid): a canvas dot-grid
- * that behaves like a sonar scope — rings expand from ambient pings,
+ * that behaves like a sonar scope, rings expand from ambient pings,
  * dots flare and swell as each wavefront passes, and tapping anywhere
  * fires your own ping. Monochrome white on black. Canvas, zero deps.
  * Rendered ONCE per page as a fixed full-viewport background layer, so

@@ -18,7 +18,7 @@ interface Props {
  * Expandable Tabs (after 21st.dev's @victorwelander/expandable-tabs):
  * an icon-only pill bar where the selected tab springs open to reveal
  * its label. Clicking anywhere outside collapses the bar back to icons
- * — the selection (and the content it drives) stays put.
+ *, the selection (and the content it drives) stays put.
  */
 export function ExpandableTabs({ tabs, active, onChange, ariaLabel }: Props) {
   const [expanded, setExpanded] = useState(true);

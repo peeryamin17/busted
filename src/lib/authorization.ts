@@ -1,5 +1,5 @@
 /**
- * Authorization records for active testing (product plan §8 — legal guardrails).
+ * Authorization records for active testing (product plan §8, legal guardrails).
  *
  * Active testing is LOCKED until the user completes the explicit confirmation
  * flow in the popup: they state their authorization basis (bug bounty program,
@@ -117,7 +117,7 @@ export function scopeCheck(
   return null;
 }
 
-/** Throw when the URL is out of scope — the single choke point for probes. */
+/** Throw when the URL is out of scope, the single choke point for probes. */
 export function assertInScope(
   rawUrl: string,
   rec: AuthorizationRecord,

@@ -263,7 +263,7 @@ export async function runWorker(
       ...hpAssessment.signals,
     ];
 
-    // OBSERVE (redacted, truncated — never raw bodies to the model)
+    // OBSERVE (redacted, truncated, never raw bodies to the model)
     const observation = {
       test: test.name,
       tool: test.tool,
@@ -277,7 +277,7 @@ export async function runWorker(
       honeypotSignals: combinedSignals,
     };
 
-    // TRIAGE (routine tier — cheap filter)
+    // TRIAGE (routine tier, cheap filter)
     let triage: Triage;
     try {
       const triageCompletion = await completeWithTimeout(provider, {
@@ -297,7 +297,7 @@ export async function runWorker(
     }
     if (triage.triage !== 'candidate') continue;
 
-    // ESCALATE (reasoning tier — only for candidates, capped)
+    // ESCALATE (reasoning tier, only for candidates, capped)
     if (report.escalations >= def.maxEscalations) {
       report.notes.push(`escalation cap reached; candidate "${test.name}" recorded as note`);
       continue;

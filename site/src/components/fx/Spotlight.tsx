@@ -2,7 +2,7 @@ import { useRef, type ReactNode, type MouseEvent } from 'react';
 
 /**
  * Spotlight card (Magic UI magic-card): a soft white light follows the
- * cursor across the surface. Pointer-only paint effect — the card itself
+ * cursor across the surface. Pointer-only paint effect, the card itself
  * stays a solid panel, so no translucent-on-translucent stacking.
  */
 export function Spotlight({

@@ -1,25 +1,25 @@
-# BugSeek AI — Responsible Disclosure Policy
+# BugSeek AI, Responsible Disclosure Policy
 
-> **DRAFT — requires review by a qualified lawyer before publication.** This policy covers (a) how *users of BugSeek AI* should disclose vulnerabilities they find, and (b) how *external researchers* can report vulnerabilities in BugSeek AI itself.
+> **DRAFT, requires review by a qualified lawyer before publication.** This policy covers (a) how *users of BugSeek AI* should disclose vulnerabilities they find, and (b) how *external researchers* can report vulnerabilities in BugSeek AI itself.
 
 ---
 
-## Part A — For BugSeek AI users: disclosing what you find
+## Part A, For BugSeek AI users: disclosing what you find
 
 If BugSeek AI helps you discover a vulnerability in a third-party system:
 
 1. **Check authorization first.** Only test and report within a scope you are authorized for (bug bounty program, contract, or your own systems). See Terms of Service §2.
 2. **Do not exploit beyond proof.** Validate with the minimum proof-of-concept needed to demonstrate impact. Do not access, modify, or delete data beyond what the program rules allow. Do not pivot to out-of-scope systems.
-3. **Report through the owner's channel.** Use the bug bounty platform's submission flow (HackerOne, Bugcrowd, Immunefi) or the vendor's published security contact. BugSeek AI formats the draft — **you** review and submit it.
+3. **Report through the owner's channel.** Use the bug bounty platform's submission flow (HackerOne, Bugcrowd, Immunefi) or the vendor's published security contact. BugSeek AI formats the draft, **you** review and submit it.
 4. **Protect sensitive data.** Redact credentials, tokens, and personal data from reports and evidence. Findings describe the vulnerability; they don't reproduce the loot.
 5. **Give the owner time.** Follow the program's disclosure timeline. Do not publicly disclose before the owner has had a reasonable opportunity to remediate (programs typically specify 30–90 days).
-6. **Traps are not trophies.** If BugSeek flags a finding as a likely honeypot, do not submit it as a genuine vulnerability — and do not attempt to "test" the trap operator's infrastructure in retaliation.
+6. **Traps are not trophies.** If BugSeek flags a finding as a likely honeypot, do not submit it as a genuine vulnerability, and do not attempt to "test" the trap operator's infrastructure in retaliation.
 
-**Safe-harbor commitment to our users:** BugSeek AI will not terminate your account or share your scan data with third parties *solely* because you conducted authorized testing in good faith and complied with this policy and our Terms. (This is a policy commitment, not legal immunity — only the target owner or a court can grant that.)
+**Safe-harbor commitment to our users:** BugSeek AI will not terminate your account or share your scan data with third parties *solely* because you conducted authorized testing in good faith and complied with this policy and our Terms. (This is a policy commitment, not legal immunity, only the target owner or a court can grant that.)
 
 ---
 
-## Part B — For external researchers: reporting vulnerabilities in BugSeek AI
+## Part B, For external researchers: reporting vulnerabilities in BugSeek AI
 
 Found a security issue in BugSeek AI itself (the extension, the backend API, or our infrastructure)? We want to hear from you.
 
@@ -60,13 +60,13 @@ Attachments: [screenshots / PoC code — redact any sensitive data]
 
 ### Contact
 
-- Security reports: **[security@bugseek.ai — TO BE CREATED]**
+- Security reports: **[security@bugseek.ai, TO BE CREATED]**
 - Expected response: acknowledgment within **3 business days**; triage update within **10 business days**.
 - We do not currently operate a paid bounty program. We will credit researchers (with permission) in release notes and maintain a public hall of thanks.
 
 ---
 
-## Part C — Vulnerability handling commitments (our side)
+## Part C, Vulnerability handling commitments (our side)
 
 1. Every in-scope report gets a human triage owner.
 2. Critical issues in the extension or API: patch target **14 days**; the extension update is pushed through the Chrome Web Store immediately on release.

@@ -3,7 +3,6 @@ import type { Finding } from '../types.js';
 
 /**
  *
- *
  * For medium/high/critical findings, provides a CONCRETE "Fix-in-IDE" prompt
  * with vulnerable pattern → fixed pattern snippets for developers to paste
  * directly into their AI-assisted IDE (Cursor, Claude Code, GitHub Copilot).

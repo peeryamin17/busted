@@ -21,7 +21,7 @@ body {
   color: #050505;
 }
 
-/* Glass material — translucent white-on-black layer, bright top edge
+/* Glass material, translucent white-on-black layer, bright top edge
    catching the light. Never stack one translucent surface on another. */
 .glass {
   background: rgba(16, 16, 16, 0.62);
@@ -41,7 +41,7 @@ body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-/* Nav material — heavier than card glass: floating chrome sits over
+/* Nav material, heavier than card glass: floating chrome sits over
    moving page content, so it gets a deeper tint and a stronger blur.
    Content sliding underneath must dissolve, never ghost through. */
 .nav-material {
@@ -63,7 +63,7 @@ body {
 
 /* ------------------------------------------------------------------ */
 /* Liquid glass (Designali liquid-glass-button energy): a glossy,     */
-/* refractive-feeling material — specular top edge, deep inner glow,  */
+/* refractive-feeling material, specular top edge, deep inner glow,  */
 /* and a sheen that sweeps across on hover. Two variants: translucent  */
 /* glass (dark) and solid glass (white). Transform/opacity motion via  */
 /* Framer on the element itself.                                       */
@@ -168,7 +168,7 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
-/* Effect library — all monochrome now. Transform/opacity only where  */
+/* Effect library, all monochrome now. Transform/opacity only where  */
 /* animated continuously; every loop dies under reduced motion.       */
 /* ------------------------------------------------------------------ */
 
@@ -213,7 +213,7 @@ body {
   animation: shine-text 4.5s linear infinite;
 }
 
-/* Rotating conic border beam / shine border — white light */
+/* Rotating conic border beam / shine border, white light */
 @property --beam-angle {
   syntax: '<angle>';
   initial-value: 0deg;

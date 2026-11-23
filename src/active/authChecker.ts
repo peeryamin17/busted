@@ -1,23 +1,19 @@
 /**
- * Authentication checks (active testing).
+ * Authentication checks (active testing). Two tiers, strictly gated:
  *
- * Two tiers, strictly gated:
+ * Observational (base authorization grant): login form inventory from
+ * the DOM, session token handling observations (JWT-shaped cookies,
+ * cookie metadata only).
  *
- *  OBSERVATIONAL (always allowed under the base authorization grant):
- *   - login form inventory from the DOM collection
- *   - session token handling observations (JWT-shaped cookies, tokens in
- *     storage is out of scope for the content script — cookie metadata only)
+ * Probing (separate `allowAuthProbes` grant, never implied):
+ * default-credential probes against detected login forms (small,
+ * well-known list, rate-limited, max 6 attempts) and brute-force
+ * protection indicators (a few sequential failed logins, looking for
+ * 429 / Retry-After / CAPTCHA / lockout signals).
  *
- *  PROBING (requires the SEPARATE allowAuthProbes grant in the authorization
- *  record — never implied):
- *   - default-credential probes against detected login forms (small,
- *     well-known list; rate-limited; max 6 attempts)
- *   - brute-force protection indicators (a few sequential failed logins,
- *     looking for 429 / Retry-After / CAPTCHA / lockout signals)
- *
- * Password VALUES are never persisted; only the well-known pair labels
- * (e.g. "admin/admin") appear in findings, since the pair itself IS the
- * vulnerability being reported.
+ * Password values are never persisted; only the well-known pair labels
+ * (e.g. "admin/admin") appear in findings, since the pair itself is
+ * the vulnerability being reported.
  */
 import { scoreFinding } from '../lib/cvss';
 import type { AuthorizationRecord, DomScanData, Finding } from '../lib/types';
@@ -45,7 +41,7 @@ function cvssFields(presetKey: string): Pick<
 }
 
 /**
- * Well-known default credential pairs (public knowledge — shipped in every
+ * Well-known default credential pairs (public knowledge, shipped in every
  * scanner wordlist; NOT secrets). Kept minimal and ordered by likelihood.
  * Exported so bruteForce.ts can de-duplicate against pairs already probed
  * here instead of trying the same pair twice in one scan.
@@ -244,7 +240,7 @@ export async function checkAuthentication(
         succeeded = [user, pass];
         break;
       }
-      // Stop early on lockout/CAPTCHA signals — don't hammer.
+      // Stop early on lockout/CAPTCHA signals, don't hammer.
       if (res.status === 429 || CAPTCHA_HINT_RE.test(res.bodyText.slice(0, 4000))) break;
     } catch {
       break;

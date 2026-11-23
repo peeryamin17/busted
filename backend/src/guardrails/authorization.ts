@@ -3,7 +3,7 @@ import type { Database } from '../db/db.js';
 import type { AuthorizationRecord, AuthzType } from '../types.js';
 
 /**
- * LEGAL GUARDRAIL — explicit authorization verification (product plan §8).
+ * LEGAL GUARDRAIL, explicit authorization verification (product plan §8).
  *
  * Before ANY active testing, the user must confirm they have authorization
  * via a bug bounty program, pentest contract, or target ownership. The

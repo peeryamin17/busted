@@ -15,7 +15,7 @@ import type { TlsInfo } from './types.js';
 /**
  * The patrol's guarded fetcher.
  *
- * Every request — the original URL and each redirect hop — is gated
+ * Every request, the original URL and each redirect hop, is gated
  * through the SSRF guard, and the socket connects to the exact address
  * set the guard approved (custom DNS lookup), so a host cannot pass
  * the check and then rebind to 127.0.0.1. GET only, capped body,

@@ -16,17 +16,17 @@ import type { Confidence, PlanTier, Severity } from '../types.js';
 /**
  * Open-source engine routes (Phase 5).
  *
- *   GET  /api/engines/status    — which bundled engines exist on this host.
- *   POST /api/engines/scans     — run WhatWeb/Nikto/Nuclei against an
+ *   GET  /api/engines/status, which bundled engines exist on this host.
+ *   POST /api/engines/scans, run WhatWeb/Nikto/Nuclei against an
  *                                 AUTHORISED target (Hunter plan, recorded
- *                                 authorisation, 10 credits — engines burn
+ *                                 authorisation, 10 credits, engines burn
  *                                 no LLM tokens but are premium compute).
- *   POST /api/import/findings   — import a ZAP/Nuclei/Nikto/SQLMap report
+ *   POST /api/import/findings, import a ZAP/Nuclei/Nikto/SQLMap report
  *                                 file's contents; normalised, deduped,
  *                                 CVSS-scored, persisted as a scan.
  *
  * Imported findings are labelled with their source tool in the finding
- * itself — provenance is never laundered into "BugSeek found this".
+ * itself, provenance is never laundered into "BugSeek found this".
  */
 
 const ENGINE_CREDIT_COST = 10;
@@ -40,7 +40,7 @@ const importSchema = z.object({
 const engineScanSchema = z.object({
   engine: z.enum(['whatweb', 'nikto', 'nuclei']),
   targetUrl: z.string().min(1).max(2000),
-  authorization: z.unknown(), // REQUIRED — validated by verifyAndRecordAuthorization
+  authorization: z.unknown(), // REQUIRED, validated by verifyAndRecordAuthorization
 });
 
 type Db = RouteDeps['db'];

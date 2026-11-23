@@ -1,7 +1,7 @@
 import type { Confidence, Severity } from '../types.js';
 
 /**
- * Report importers (Phase 5) — convert open-source scanner output into
+ * Report importers (Phase 5), convert open-source scanner output into
  * BugSeek findings so external results get the same treatment as native
  * ones: dedupe, CVSS, trap review and remediation enrichment downstream.
  *
@@ -10,11 +10,11 @@ import type { Confidence, Severity } from '../types.js';
  *   - Nuclei JSONL                   (nuclei -jsonl)
  *   - Nikto JSON                     (nikto -Format json)
  *   - SQLMap JSON report             (sqlmap --report-json)
- *   - WhatWeb JSON log               (whatweb --log-json) — used by the
+ *   - WhatWeb JSON log               (whatweb --log-json), used by the
  *                                      bundled-engine runner, same shape.
  *
  * Parsers are pure and defensive: unknown shapes yield zero findings or a
- * thrown Error('unrecognised …') — never a crash. Evidence is truncated
+ * thrown Error('unrecognised …'), never a crash. Evidence is truncated
  * here and re-redacted by the route before persistence.
  */
 
@@ -196,7 +196,7 @@ function parseNiktoXml(raw: string): ImportedFinding[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* SQLMap (--report-json) — walked defensively; shapes vary by version */
+/* SQLMap (--report-json), walked defensively; shapes vary by version */
 /* ------------------------------------------------------------------ */
 /* ------------------------------------------------------------------ */
 
@@ -211,7 +211,7 @@ export function parseSqlmap(raw: string): ImportedFinding[] {
     }
     if (!node || typeof node !== 'object') return;
     const o = node as Record<string, unknown>;
-    // Injection point: { parameter, place, dbms, data: [{title, payload, ...}] }
+    // Injection point: { parameter, place, dbms, data: [{title, payload...}] }
     if (typeof o['parameter'] === 'string' && Array.isArray(o['data'])) {
       const param = s(o['parameter'], 100);
       const place = s(o['place'], 50);
@@ -301,7 +301,7 @@ export function detectFormat(raw: string): ImportFormat {
     if (Array.isArray(j) && j.length > 0 && typeof j[0] === 'object' && j[0] !== null && 'plugins' in (j[0] as object)) return 'whatweb';
     if ('data' in j || 'success' in j) return 'sqlmap';
   } catch {
-    /* not single JSON — nuclei JSONL handled above; fall through */
+    /* not single JSON, nuclei JSONL handled above; fall through */
   }
   if (t.startsWith('{') && t.includes('"vulnerabilities"')) return 'nikto';
   throw new Error('Could not detect the report format — specify zap, nuclei, nikto or sqlmap');

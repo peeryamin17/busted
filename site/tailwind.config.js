@@ -4,7 +4,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Black & white system — mostly black. The old accent token names
+        // Black & white system, mostly black. The old accent token names
         // remain, but every value is now monochrome: white is the accent.
         ink: '#050505',
         panel: '#101010',
@@ -14,7 +14,7 @@ export default {
         paper: '#FAFAFA',
         body: '#CFCFCF',
         slate2: '#8B8B8B',
-        // Vivid DATA tones — reserved for scan findings and scores so the
+        // Vivid DATA tones, reserved for scan findings and scores so the
         // evidence pops against the monochrome interface around it.
         amber2: '#FFD60A',
         hot: '#FF9F1C',

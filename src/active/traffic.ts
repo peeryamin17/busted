@@ -4,12 +4,12 @@
  * Two sources feed the TrafficLog:
  *  1. The page's own requests, observed passively via webRequest while a
  *     capture session is open for the tab (headers, methods, status codes,
- *     content types — never bodies).
+ *     content types, never bodies).
  *  2. The active probe requests sent by ActiveHttpClient, logged manually
  *     (service-worker fetch has no tabId, so webRequest can't attribute it).
  *
  * Privacy: request/response BODIES are never stored. Query/form parameter
- * VALUES are never stored — only parameter names. Response headers are
+ * VALUES are never stored, only parameter names. Response headers are
  * filtered to a small security-relevant allowlist.
  */
 
@@ -22,7 +22,7 @@ export interface TrafficEntry {
   url: string;
   host: string;
   path: string;
-  /** Query/form parameter NAMES only — values are never recorded. */
+  /** Query/form parameter NAMES only, values are never recorded. */
   paramNames: string[];
   statusCode?: number;
   contentType?: string;
@@ -56,7 +56,7 @@ const KEPT_RESPONSE_HEADERS = new Set([
   'ratelimit-limit',
   'ratelimit-remaining',
   'allow',
-  'set-cookie', // presence only — value replaced with '(present)'
+  'set-cookie', // presence only, value replaced with '(present)'
 ]);
 
 /** Query parameter names that suggest sensitive material (values redacted). */
@@ -139,7 +139,7 @@ function pendingBodyParamNames(
   if (body.formData) {
     for (const k of Object.keys(body.formData)) names.add(k);
   }
-  // raw bodies are never inspected — values could be credentials.
+  // raw bodies are never inspected, values could be credentials.
   return [...names];
 }
 

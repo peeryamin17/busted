@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 /**
- * LEGAL GUARDRAIL — rate limiting on ALL active requests (product plan §8).
+ * LEGAL GUARDRAIL, rate limiting on ALL active requests (product plan §8).
  *
  * The tool should never send enough requests to impact the target's
  * availability. Every active-testing tool acquires a token before sending a

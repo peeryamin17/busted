@@ -1,13 +1,13 @@
--- BugSeek AI — initial schema (Supabase-compatible PostgreSQL)
+-- BugSeek AI, initial schema (Supabase-compatible PostgreSQL)
 --
 -- How to apply to a Supabase project:
 --   1. Supabase Dashboard → your project → SQL Editor → New query
 --   2. Paste this entire file and Run.
---   3. Set DATABASE_URL in the backend .env to the connection string from
+--   3. Set DATABASE_URL in the backend.env to the connection string from
 --      Project Settings → Database → Connection string (URI).
 --
 -- The backend also runs fully without a database (in-memory mode) when
--- DATABASE_URL is unset — data is lost on restart in that mode.
+-- DATABASE_URL is unset, data is lost on restart in that mode.
 
 -- Enable pgcrypto for gen_random_uuid() (usually already enabled on Supabase)
 create extension if not exists "pgcrypto";
@@ -69,7 +69,7 @@ create table if not exists scans (
 create index if not exists scans_user_idx on scans (user_id, created_at desc);
 create index if not exists scans_status_idx on scans (status);
 
--- ── Findings (evidence column holds REDACTED snippets only — plan §8) ─────
+-- ── Findings (evidence column holds REDACTED snippets only, plan §8) ─────
 create table if not exists findings (
   id               uuid primary key default gen_random_uuid(),
   scan_id          uuid not null references scans (id) on delete cascade,

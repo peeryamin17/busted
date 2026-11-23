@@ -23,7 +23,7 @@ interface NavTab {
   page?: string;
 }
 
-/** Everything the mobile brand menu lists — the desktop tabs, in order. */
+/** Everything the mobile brand menu lists, the desktop tabs, in order. */
 const TABS: NavTab[] = [
   { label: 'Connect site', connect: true },
   { label: 'Tasks', page: '/tasks' },
@@ -48,7 +48,7 @@ function scrollToHash(hash: string) {
  *
  * Below lg the section tabs vanish, so the brand itself becomes the
  * menu: tapping the mark opens a glass dropdown of the same tabs. On
- * the landing variant the tabs are locked doors — every one of them
+ * the landing variant the tabs are locked doors, every one of them
  * routes to /signin. From lg up the brand is the plain scroll-to-top
  * mark it has always been.
  *
@@ -179,7 +179,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
             scrolled ? 'mt-6 max-w-3xl rounded-full' : 'mt-6 max-w-6xl rounded-3xl'
           }`}
         >
-          {/* desktop brand — the plain scroll-to-top mark */}
+          {/* desktop brand, the plain scroll-to-top mark */}
           <a
             href="#top"
             onClick={goHome}
@@ -192,7 +192,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
               BugSeek <span className="text-white/50">AI</span>
             </span>
           </a>
-          {/* mobile brand — under lg the mark is the menu trigger */}
+          {/* mobile brand, under lg the mark is the menu trigger */}
           <button
             ref={brandBtnRef}
             type="button"
@@ -242,7 +242,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
                 ))}
               </nav>
             )}
-            {/* account slot — nothing renders until the session probe
+            {/* account slot, nothing renders until the session probe
                 answers, so the wrong state never flashes */}
             {!loading &&
               (user ? (
@@ -284,10 +284,10 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
               ))}
           </div>
         </div>
-        {/* the cat — perches on the active tab, or the brand mark where
+        {/* the cat, perches on the active tab, or the brand mark where
             there are no tabs; measured, never guessed (fx/TabCat) */}
         <TabCat variant={variant} containerRef={headerRef} />
-        {/* mobile tab dropdown — mirrors the pill above, mobile only */}
+        {/* mobile tab dropdown, mirrors the pill above, mobile only */}
         <AnimatePresence>
           {menuOpen && (
             <motion.nav

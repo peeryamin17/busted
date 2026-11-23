@@ -102,9 +102,9 @@ function loadConfig(): AppConfig {
       'LLM_PROVIDER=claude requires ANTHROPIC_API_KEY to be set (env var only, never hardcoded)'
     );
   }
-  // Note: LLM_PROVIDER=gemini WITHOUT a key does NOT throw here — the
-  // provider factory falls back to the mock provider with a warning, so
-  // `npm run dev` keeps working with zero infrastructure/keys.
+  // LLM_PROVIDER=gemini without a key does not throw here. The provider
+  // factory falls back to the mock provider with a warning, so
+  // `npm run dev` keeps working with no keys or infrastructure.
 
   const allowPrivateTargets = bool('ALLOW_PRIVATE_TARGETS', false);
   if (allowPrivateTargets && isProd) {

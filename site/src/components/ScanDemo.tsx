@@ -71,7 +71,7 @@ const SEV_STYLE: Record<Sev, { label: string; chip: string; bar: string }> = {
 };
 
 /**
- * Interactive mock scan — a glass card styled like the extension popup.
+ * Interactive mock scan, a glass card styled like the extension popup.
  * Findings pop in on springs as the "scan" progresses. Re-runnable.
  * Fully static when the user prefers reduced motion.
  */

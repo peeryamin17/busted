@@ -43,7 +43,7 @@ export interface SwarmTaskContext {
 }
 
 /**
- * Multi-agent system ("super agent") — shared types.
+ * Multi-agent system ("super agent"), shared types.
  *
  * Architecture:
  *   HeadAgent (head.ts)

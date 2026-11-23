@@ -31,7 +31,7 @@ export function Reveal({
   );
 }
 
-/** Masked line reveal for display type — lines slide up from behind a mask. */
+/** Masked line reveal for display type, lines slide up from behind a mask. */
 export function MaskedLine({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
   const reduce = useReducedMotion();
   if (reduce) {

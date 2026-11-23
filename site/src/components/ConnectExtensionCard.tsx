@@ -3,7 +3,7 @@ import { Check, Copy, KeyRound, Link2, Puzzle, Trash2 } from 'lucide-react';
 import { Reveal } from './Reveal';
 
 /**
- * "Connect the extension" — the members'-site half of extension sign-in
+ * "Connect the extension", the members'-site half of extension sign-in
  * sync. The extension carries a tiny relay that runs only on this origin:
  * it announces itself to the page, and on the user's click this card
  * mints a fresh API key (shown once, hashed server-side) and hands it

@@ -64,14 +64,14 @@ const TIERS: Tier[] = [
   },
 ];
 
-/** Credits visualised against the Pro ceiling — log-ish, honest, labelled. */
+/** Credits visualised against the Pro ceiling, log-ish, honest, labelled. */
 function meterWidth(amount: number) {
   return `${Math.max(4, Math.round((Math.log10(amount) / Math.log10(1500)) * 100))}%`;
 }
 
 /**
  * Pricing with a shine-border hero card (Magic UI shine-border) and a
- * credit meter per tier — same honest numbers, louder suit.
+ * credit meter per tier, same honest numbers, louder suit.
  */
 export function Pricing() {
   return (

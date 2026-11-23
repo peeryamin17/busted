@@ -10,7 +10,7 @@ import type { Severity } from '../types.js';
  */
 
 export interface CvssEstimate {
-  score: number; // 0.0 – 10.0, rounded to 1 decimal
+  score: number; // 0.0 - 10.0, rounded to 1 decimal
   vector: string; // CVSS:3.1/... vector string
 }
 

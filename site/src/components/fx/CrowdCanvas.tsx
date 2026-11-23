@@ -14,7 +14,7 @@ interface Figure {
  * Canvas Crowd (after 21st.dev's @reuno-ui/skiper39 "Canvas Crowd"):
  * a strip of tiny monochrome hunters endlessly walking the beat in
  * both directions, drawn on canvas. Figures near the cursor light up
- * and hop. Pure decoration — reduced motion gets a single still frame.
+ * and hop. Pure decoration, reduced motion gets a single still frame.
  */
 export function CrowdCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);

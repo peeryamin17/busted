@@ -7,7 +7,7 @@
  *  3. Attempt introspection; enumerate query/mutation/subscription fields.
  *  4. Flag exposed dangerous mutations and batch-query support.
  *
- * Only introspection-shaped queries are sent — no destructive mutations are
+ * Only introspection-shaped queries are sent, no destructive mutations are
  * ever executed.
  */
 import { scoreFinding } from '../lib/cvss';
@@ -133,7 +133,7 @@ export async function probeGraphql(
       const res = await http.postJson(url, { query: INTROSPECTION_QUERY });
       if (res.status === 200) schema = summarizeSchema(res.bodyText);
     } catch {
-      /* introspection failed — endpoint still confirmed */
+      /* introspection failed, endpoint still confirmed */
     }
 
     if (schema) {

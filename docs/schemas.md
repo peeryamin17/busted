@@ -1,4 +1,4 @@
-# BugSeek AI — Canonical JSON Schemas
+# BugSeek AI, Canonical JSON Schemas
 
 These are the shared data contracts between the extension (Phase 1 + Phase 2)
 and the backend. **Backward-compatibility rule:** fields may be ADDED, but
@@ -113,13 +113,13 @@ reproduction steps, remediation, references), and a methodology/legal appendix.
 
 ---
 
-## Appendix E — Extension-side additions (Worker 3, Phase 2 active testing)
+## Appendix E, Extension-side additions (Worker 3, Phase 2 active testing)
 
 The extension (`bugseek/src/lib/types.ts`) keeps every field above with the
 same names and meaning, and adds the following OPTIONAL fields. They are
 extension-side only unless the backend adopts them.
 
-### Finding — extension additions
+### Finding, extension additions
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -138,7 +138,7 @@ Extension `Finding.category` additions: `network` · `cors` · `api` · `xss` ·
 
 Opt-in devtools-level traffic visibility via `chrome.debugger` (CDP). The
 `debugger` permission is OPTIONAL in the manifest and is requested at runtime
-only when the user ticks "Deep inspect" — never at install time. Attach
+only when the user ticks "Deep inspect", never at install time. Attach
 happens only after a valid authorization record exists, and only on the
 single target tab.
 
@@ -181,7 +181,7 @@ Safety contract (enforced in `src/active/deepInspect.ts`):
 - Auth: `auth`, `default-creds`, `default-creds-rejected`, `auth-anomaly`, `auth-login-form`, `auth-jwt-cookie`, `auth-probes-skipped`, `auth-no-form`, `no-bruteforce-protection`, `bruteforce-protected`
 - Network: `sensitive-query-param`, `mixed-content`, `unusual-method`, `auth-header-usage`
 
-### AuthorizationRecord — extension additions
+### AuthorizationRecord, extension additions
 
 Stored per target host in `chrome.storage.local` under `authz:<host>`.
 No active request is sent before a record exists.
@@ -205,7 +205,7 @@ No active request is sent before a record exists.
 | `cvssScore?` | `number` | Highest member CVSS. |
 | `aiDeepened?` | `boolean` | True after the backend AI agent verified/deepened the chain. |
 
-### ScanResult — extension additions
+### ScanResult, extension additions
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -225,6 +225,6 @@ No active request is sent before a record exists.
 ### Extension redaction conventions (in addition to the contract above)
 
 - 8-char prefix convention from `src/lib/regexes.ts` (`redactSecret`) applies to all evidence, including active findings (`httpClient.redactedSnippet`).
-- Traffic capture stores parameter NAMES only — never values; request/response bodies are never stored.
+- Traffic capture stores parameter NAMES only, never values; request/response bodies are never stored.
 - IDOR evidence lists JSON field names only, never values.
 - Default-credential findings name the well-known pair (e.g. `admin/admin`) because the pair itself is the vulnerability; these are public wordlist entries, not private credentials.

@@ -8,13 +8,13 @@ import type { RouteDeps } from './health.js';
 /**
  * Runtime-detection routes (Thread 5, DEFENSIVE).
  *
- *   GET /api/detections      — my detections, newest first.
- *   GET /api/detections/:id  — one of my detections.
+ *   GET /api/detections, my detections, newest first.
+ *   GET /api/detections/:id, one of my detections.
  *
  * Member-authenticated (session cookie / API key / Bearer, same as the
  * other member routes). Read-only: detections are produced by the rule
  * engine (backend/src/detection/), never by clients. A user only ever
- * sees their own detections — the queries are scoped by user id.
+ * sees their own detections, the queries are scoped by user id.
  *
  * Registration: `detectionRoutes` is registered in server.ts next to the
  * other route registrations. Analysis is on-demand: listing runs the rules

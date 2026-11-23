@@ -13,9 +13,9 @@ import {
 /**
  * Agent tool interface. Every tool that touches the network goes through
  * `guardedFetch`, which enforces (in order):
- *   1. scope check — never test outside the user-defined scope (plan §8)
- *   2. rate limit  — never DoS-like (plan §8)
- *   3. SSRF guard  — never touch private/internal addresses (plan §8)
+ *   1. scope check, never test outside the user-defined scope (plan §8)
+ *   2. rate limit, never DoS-like (plan §8)
+ *   3. SSRF guard, never touch private/internal addresses (plan §8)
  *
  * Tools only READ responses; payloads are benign canaries (reflection checks),
  * never destructive input. Sensitive values are redacted before they reach
@@ -96,7 +96,7 @@ interface GuardedFetchInit {
 }
 
 const MAX_REDIRECT_HOPS = 5;
-/** Cap on response bytes read into memory (DoS guard — see audit). */
+/** Cap on response bytes read into memory (DoS guard, see audit). */
 export const MAX_BODY_BYTES = 1_000_000;
 
 export async function guardedFetch(

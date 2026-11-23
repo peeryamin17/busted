@@ -9,7 +9,7 @@ interface Props {
 }
 
 /**
- * The "are you sure" standing in front of sign-out. Purely a gate —
+ * The "are you sure" standing in front of sign-out. Purely a gate,
  * the logout flow in lib/auth runs untouched, exactly as before, once
  * Sign out is confirmed here.
  *

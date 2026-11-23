@@ -8,7 +8,7 @@ import { useAuth } from '../lib/auth';
 import { springQuiet } from '../lib/motion';
 import { navigate } from '../lib/router';
 
-/** The Google "G" — the one splash of brand colour allowed on the page. */
+/** The Google "G", the one splash of brand colour allowed on the page. */
 function GoogleMark({ className = '' }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden>
@@ -39,7 +39,7 @@ const PERKS = [
 ];
 
 /**
- * Sign-in: a split glass card in black & white — brand story on the
+ * Sign-in: a split glass card in black & white, brand story on the
  * left, one Google button on the right. GOOGLE ONLY: no email field,
  * no password, nothing to phish or forget. The button hands the whole
  * browser to our backend's /api/auth/google, which starts the Google
@@ -66,7 +66,7 @@ export function SignIn() {
   return (
     <div ref={catRoofRef} className="relative flex min-h-screen flex-col bg-ink">
       <SonarGrid />
-      {/* the cat keeps watch over the door too — brand perch, no tabs here */}
+      {/* the cat keeps watch over the door too, brand perch, no tabs here */}
       <TabCat variant="landing" containerRef={catRoofRef} />
 
       {/* top bar */}

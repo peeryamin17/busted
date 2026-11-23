@@ -12,7 +12,7 @@ interface Props {
   size?: 'sm' | 'md' | 'lg';
   className?: string;
   ariaLabel?: string;
-  /** renders inert and dimmed while true — e.g. a form mid-submit */
+  /** renders inert and dimmed while true, e.g. a form mid-submit */
   disabled?: boolean;
 }
 
@@ -24,7 +24,7 @@ const SIZES = {
 
 /**
  * Liquid Glass Button (after 21st.dev's @designali-in liquid-glass-button):
- * glossy monochrome glass — specular top edge, deep inner glow, and a
+ * glossy monochrome glass, specular top edge, deep inner glow, and a
  * sheen that sweeps the surface on hover. Press feedback is instant
  * (scale 0.97 on pointer-down, Apple-style), springs everywhere.
  */

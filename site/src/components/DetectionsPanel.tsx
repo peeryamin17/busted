@@ -28,11 +28,11 @@ const PATTERN_LABEL: Record<string, string> = {
 };
 
 /**
- * Runtime detections panel (Thread 5, DEFENSIVE).
+ * Runtime detections panel.
  *
  * Lists what BugSeek's own backend detection layer has spotted hitting
- * your account — failed-login velocity, spray patterns, API-key
- * anomalies, probing — newest first. Read-only: detections are produced
+ * your account, failed-login velocity, spray patterns, API-key
+ * anomalies, probing, newest first. Read-only: detections are produced
  * by the rule engine, never by clients.
  */
 export function DetectionsPanel() {
@@ -45,7 +45,7 @@ export function DetectionsPanel() {
         const res = await fetch('/api/detections?limit=20', { credentials: 'include' });
         if (!res.ok) {
           if (res.status === 404) {
-            // Route not registered yet (coordinator wires server.ts) —
+            // Route not registered yet (coordinator wires server.ts),
             // the panel stays quiet instead of erroring.
             setDetections([]);
             return;

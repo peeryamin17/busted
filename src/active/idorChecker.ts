@@ -2,7 +2,7 @@
  * IDOR / predictable-resource-ID checks (active testing).
  *
  *  1. Find candidate object references: numeric path segments, numeric query
- *     params (id, user_id, order_id…), and UUIDs — from discovered endpoints
+ *     params (id, user_id, order_id…), and UUIDs, from discovered endpoints
  *     and traffic.
  *  2. For SEQUENTIAL numeric IDs, request the immediate neighbors (id±1)
  *     through the rate-limited client, strictly inside the authorized scope.
@@ -13,7 +13,7 @@
  * This test is unauthenticated-by-design from the extension (the service
  * worker cannot and will not replay the user's session cookies). A neighbor
  * returning another record's shape is therefore a strong broken-access
- * signal, reported with field names only — never values.
+ * signal, reported with field names only, never values.
  */
 import { scoreFinding } from '../lib/cvss';
 import type { Finding } from '../lib/types';
@@ -44,7 +44,7 @@ function cvssFields(presetKey: string): Pick<
 
 /** Numeric path segment, e.g. /users/12345 */
 const NUMERIC_SEGMENT_RE = /\/(\d{1,10})(?=\/|$)/;
-/** UUID-looking segment — unguessable, a positive signal. */
+/** UUID-looking segment, unguessable, a positive signal. */
 const UUID_RE = /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\/|$)/i;
 /** Query params that usually reference objects. */
 const ID_PARAM_RE = /^(id|user_id|userid|account_id|order_id|customer_id|doc_id|file_id|record_id)$/i;
@@ -61,7 +61,7 @@ interface IdTarget {
 /**
  * Findings are stored and reported, so identifiers are described, not
  * retained: sequential IDs show their shape (length, last digits) and
- * opaque IDs are masked at both ends — never the full value.
+ * opaque IDs are masked at both ends, never the full value.
  */
 export function maskIdValue(v: string): string {
   if (/^\d+$/.test(v)) {
@@ -260,7 +260,7 @@ export async function checkIdor(
       continue;
     }
 
-    // Neighbors served record-shaped data — check for PII field names.
+    // Neighbors served record-shaped data, check for PII field names.
     const piiFields = [...new Set(served.flatMap((r) => r.fields))].filter((f) =>
       PII_FIELD_RE.test(f),
     );

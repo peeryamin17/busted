@@ -5,11 +5,11 @@ import path from 'node:path';
 import { parseImport, type ImportedFinding } from './importers.js';
 
 /**
- * Bundled open-source engines (Phase 5) — the backend shells out to
+ * Bundled open-source engines (Phase 5), the backend shells out to
  * WhatWeb / Nikto / Nuclei when their binaries exist on the host.
  *
  * Safety contract:
- *  - execFile with FIXED argument arrays — user input only ever lands in
+ *  - execFile with FIXED argument arrays, user input only ever lands in
  *    the single target-URL slot, never in a shell string.
  *  - Engines run ONLY from the authorised engines route (Hunter plan +
  *    recorded authorisation), against the one declared target URL.
@@ -101,7 +101,7 @@ const SPECS: Record<EngineId, RunSpec> = {
   nikto: {
     timeoutMs: 300_000,
     build: async (_bin, target, tmpDir) => {
-      // Nikto 2.1.x has no JSON format — XML to a file is its structured
+      // Nikto 2.1.x has no JSON format, XML to a file is its structured
       // output (2.5+ JSON is handled by the same parser downstream).
       const outFile = path.join(tmpDir, 'nikto.xml');
       return {
@@ -161,7 +161,7 @@ export async function runEngine(engine: EngineId, targetUrl: string): Promise<Im
       child.on('close', (code) => {
         clearTimeout(timer);
         const out = Buffer.concat(chunks).toString('utf8');
-        // Engines exit non-zero when they FIND things — output is what matters.
+        // Engines exit non-zero when they FIND things, output is what matters.
         if (out) return resolve(out);
         if (code !== 0) return reject(new Error(`${engine} exited with code ${code} and no output`));
         resolve('');

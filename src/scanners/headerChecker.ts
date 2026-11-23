@@ -1,5 +1,5 @@
 /**
- * HTTP security header checker — evaluates captured response headers
+ * HTTP security header checker, evaluates captured response headers
  * against OWASP best practices.
  */
 import type { Finding } from '../lib/types';

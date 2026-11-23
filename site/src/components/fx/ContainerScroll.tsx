@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 /**
  * Container scroll (21st.dev container-scroll-animation, rebuilt): the
  * wrapped visual starts tipped back in 3D and straightens as it scrolls
- * into place — rotateX eases to zero while a slight overscale settles.
+ * into place, rotateX eases to zero while a slight overscale settles.
  * Transform-only, so layout never moves; touch scroll drives it like
  * any other scroll. Small screens tilt less, and under reduced motion
  * the visual simply sits flat from the start.
@@ -23,7 +23,7 @@ export function ContainerScroll({
   innerClassName?: string;
   /** peak backward tip (deg) before it flattens; small screens use ~55% */
   maxTilt?: number;
-  /** sideways tip (deg) that settles to 0 — negative leans left */
+  /** sideways tip (deg) that settles to 0, negative leans left */
   tiltY?: number;
   /** camera distance (px); lower reads more dramatically 3D */
   perspective?: number;

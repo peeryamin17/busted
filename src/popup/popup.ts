@@ -1,5 +1,5 @@
 /**
- * BugSeek AI popup UI — two panes:
+ * BugSeek AI popup UI, two panes:
  *  - "Passive recon": always available (Phase 1 behavior, unchanged).
  *  - "Active testing": locked behind the authorization confirmation flow
  *    (see active.ts); visually distinct and clearly marked.

@@ -32,13 +32,13 @@ function RedirectTo({ to }: { to: string }) {
 
 /**
  * Route table:
- *   /            the public teaser (hero, ticker, a door) — the full
+ *   /            the public teaser (hero, ticker, a door), the full
  *                site lives inside, behind sign-in
  *   /signin      the Google sign-in page
  *   /signup      → /signin (one door for new and returning members)
  *   /app         the guarded members' home (the whole main site)
  *   /app/check   the guarded web demo (patrol a site you own)
- *   /tasks       the task list + exploration-graph detail (Phase B; the
+ *   /tasks       the task list + exploration-graph detail (the
  *                page itself doors signed-out visitors to /signin)
  *   anything else (old /app/connect, /welcome, …) → /
  */
@@ -50,13 +50,13 @@ export default function App() {
     try {
       sessionStorage.setItem(INTRO_KEY, '1');
     } catch {
-      /* private mode — the intro will simply replay next visit */
+      /* private mode, the intro will simply replay next visit */
     }
     setShowIntro(false);
   };
 
   // Arriving with a hash (e.g. /#download, or /app#pricing from the
-  // demo's plan card) — scroll to the anchor once sections exist.
+  // demo's plan card), scroll to the anchor once sections exist.
   useEffect(() => {
     if ((path === '/' || path === '/app') && window.location.hash) {
       const hash = window.location.hash;

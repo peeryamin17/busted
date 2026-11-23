@@ -2,11 +2,11 @@
  * API endpoint discovery (active testing).
  *
  * Three sources, in order of signal quality:
- *  1. JavaScript bundles — fetch/XHR call strings and route patterns mined
+ *  1. JavaScript bundles, fetch/XHR call strings and route patterns mined
  *     from the page's own scripts (same-origin, capped).
- *  2. Network traffic — paths observed in the TrafficLog.
+ *  2. Network traffic, paths observed in the TrafficLog.
  *  3. A small built-in wordlist of common API paths (no blind fuzzing:
- *     a fixed, conservative list — each candidate is one GET request).
+ *     a fixed, conservative list, each candidate is one GET request).
  *
  * Every candidate is requested once via the rate-limited client and
  * classified by status code. Findings are aggregated so the report stays
@@ -39,7 +39,7 @@ function cvssFields(presetKey: string): Pick<
   };
 }
 
-/** Conservative built-in wordlist — common API paths only, no recursion. */
+/** Conservative built-in wordlist, common API paths only, no recursion. */
 const COMMON_API_PATHS = [
   '/api', '/api/v1', '/api/v2', '/api/v3', '/v1', '/v2',
   '/rest', '/rest/v1', '/api/rest',
@@ -130,7 +130,7 @@ export async function discoverApiEndpoints(
 ): Promise<ApiDiscoveryResult> {
   const candidates = new Map<string, 'js' | 'traffic' | 'wordlist'>();
 
-  // 1. Mine JS bundles (same-origin only — enforced by caller filtering).
+  // 1. Mine JS bundles (same-origin only, enforced by caller filtering).
   const scripts = scriptUrls.slice(0, MAX_SCRIPTS);
   for (const src of scripts) {
     try {
@@ -177,7 +177,7 @@ export async function discoverApiEndpoints(
         });
       }
     } catch {
-      /* unreachable — not an endpoint */
+      /* unreachable, not an endpoint */
     }
   }
   const requestsSpent = http.limiter.getStats().requestsMade - before;

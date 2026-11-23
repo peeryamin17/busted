@@ -1,14 +1,14 @@
 /**
- * Active HTTP client — the SINGLE choke point for every active request.
+ * Active HTTP client, the SINGLE choke point for every active request.
  *
  * Every request goes through, in order:
- *  1. Scope enforcement (authorization.assertInScope) — out-of-scope URLs
+ *  1. Scope enforcement (authorization.assertInScope), out-of-scope URLs
  *     throw before any network activity.
- *  2. Rate limiting (RateLimiter.acquire) — conservative fixed gap, with a
+ *  2. Rate limiting (RateLimiter.acquire), conservative fixed gap, with a
  *     per-scan cap that aborts the scan rather than hammering the target.
  *  3. The fetch itself, with a timeout and redirects followed manually
  *     (so redirect targets are scope-checked too).
- *  4. Traffic logging — method, URL, status, content type, and security
+ *  4. Traffic logging, method, URL, status, content type, and security
  *     headers only. Bodies are truncated to a small redacted snippet for
  *     evidence; parameter VALUES are never logged.
  */
@@ -140,7 +140,7 @@ export class ActiveHttpClient {
       bodyBytes = text.length;
       bodyText = text.slice(0, MAX_BODY_CHARS);
     } catch {
-      /* body unreadable — keep metadata only */
+      /* body unreadable, keep metadata only */
     }
 
     const u = new URL(finalUrl);

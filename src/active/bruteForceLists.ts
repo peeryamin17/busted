@@ -1,23 +1,17 @@
 /**
  * Curated credential lists for the guardrailed brute-force module
- * (src/active/bruteForce.ts).
+ * (src/active/bruteForce.ts). Public knowledge only: well-known
+ * defaults shipped in every scanner wordlist, and the weakest
+ * passwords in common use. Not secrets, breached data, or leaks.
  *
- * These lists are PUBLIC KNOWLEDGE — well-known default credentials shipped
- * in every scanner wordlist, and the weakest passwords in common use. They
- * are NOT secrets, breached data, or leaked credentials.
+ * Limits, enforced by the module: defaults only, per detected tech,
+ * never stuffing with breached lists. Weak passwords: at most 15
+ * entries, one username only, no spraying. Total attempts per scan
+ * hard-capped (~20). No high-throughput guessing, no OTP/session-token
+ * guessing, no rate-limit evasion of any kind.
  *
- * HARD LIMITS (enforced by the module, not just by convention):
- *  - Default credentials only, per detected technology — never credential
- *    stuffing with breached or leaked lists.
- *  - Weak passwords: at most 15 entries, tried against ONE username only
- *    (no password spraying across many accounts).
- *  - Total attempts per scan are hard-capped by the module (~20).
- *  - No high-throughput guessing, no OTP/session-token guessing, and no
- *    rate-limit evasion of any kind (no IP rotation, header spoofing, or
- *    distributed workers).
- *
- * Keep this file short and reviewable: anyone auditing what the scanner
- * tries should only need to read this file.
+ * Keep this file short and reviewable: anyone auditing what the
+ * scanner tries should only need to read this file.
  */
 
 export type LoginTech = 'wordpress' | 'tomcat' | 'jenkins' | 'router' | 'generic';
@@ -64,7 +58,7 @@ export const TECH_DEFAULT_CREDENTIALS: Record<
 };
 
 /**
- * Short weak-password list (15 entries — do not grow without review).
+ * Short weak-password list (15 entries, do not grow without review).
  * Tried against ONE username only (WEAK_PASSWORD_TARGET_USER). This is a
  * weak-password check, not a dictionary attack and not password spraying.
  */

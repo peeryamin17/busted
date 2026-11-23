@@ -19,7 +19,7 @@ const STATS = [
 /**
  * The showpiece: a live sonar grid behind a flip-words headline, and
  * the interactive scan demo framed by a travelling border beam.
- * Tap the black anywhere — the sonar answers.
+ * Tap the black anywhere, the sonar answers.
  */
 export function Hero({ memberName, teaser = false }: { memberName?: string; teaser?: boolean }) {
   const reduce = useReducedMotion();

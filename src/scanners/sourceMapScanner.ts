@@ -1,8 +1,8 @@
 /**
- * Passive source-map check (Phase 3).
+ * Passive source-map check.
  *
  * Production JavaScript bundles sometimes ship with their source maps exposed
- * (app.js.map), handing attackers the original unminified sources — complete
+ * (app.js.map), handing attackers the original unminified sources, complete
  * with developer comments, hidden routes and occasionally hardcoded secrets.
  *
  * For each same-origin script we try the sourceMappingURL comment first, then
@@ -46,7 +46,7 @@ async function fetchWithTimeout(url: string): Promise<Response> {
 
 /**
  * Try to locate and parse source maps for same-origin scripts.
- * Only GETs static .map files — no different from what the browser itself
+ * Only GETs static .map files, no different from what the browser itself
  * would fetch for DevTools.
  */
 export async function fetchSourceMaps(
@@ -74,7 +74,7 @@ export async function fetchSourceMaps(
       try {
         candidates.push(new URL(m[1], script.url).toString());
       } catch {
-        /* unresolvable — use the conventional location */
+        /* unresolvable, use the conventional location */
       }
     }
     const conventional = script.url + '.map';
@@ -108,7 +108,7 @@ export async function fetchSourceMaps(
         });
         break; // one map per script is enough
       } catch {
-        /* unreachable — try the next candidate */
+        /* unreachable, try the next candidate */
       }
     }
   }

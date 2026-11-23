@@ -7,7 +7,7 @@ const waitlistSchema = z.object({
 });
 
 /**
- * POST /api/waitlist — the "Coming soon" list from the site's drop
+ * POST /api/waitlist, the "Coming soon" list from the site's drop
  * section. Public on purpose (it is a pre-launch signup), validated
  * and normalised here, deduped by the unique email constraint. There
  * is deliberately no way to read the list back over the API.

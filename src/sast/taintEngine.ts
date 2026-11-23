@@ -93,7 +93,7 @@ const DANGEROUS_CALL_SINKS = new Set([
 /**
  * Framework-aware sinks. These are HEURISTICS, not guarantees: the engine
  * sees plain JS, not framework templates, so a match means "this pattern is
- * how the framework reaches a dangerous sink" — a human still has to confirm
+ * how the framework reaches a dangerous sink", a human still has to confirm
  * the data really is attacker-controlled in that framework's binding.
  */
 const FRAMEWORK_SINKS = new Set([
@@ -154,7 +154,7 @@ function resolveSink(calleeOrProp: string): { name: string; frameworkHeuristic: 
   return null;
 }
 
-/** XHR `.open(method, url)` — matched when the receiver looks like an XHR. */
+/** XHR `.open(method, url)`, matched when the receiver looks like an XHR. */
 function isXhrOpen(callee: string): boolean {
   if (!callee.endsWith('.open')) return false;
   const recv = callee.slice(0, -'.open'.length);
@@ -328,7 +328,7 @@ export class DeepTaintEngine {
         }
       } else if (node.type === 'ObjectExpression') {
         // React: `{ __html: <tainted> }` feeds dangerouslySetInnerHTML.
-        // Framework heuristic — the object may never reach React.
+        // Framework heuristic, the object may never reach React.
         for (const prop of node.properties ?? []) {
           if (prop?.key?.name !== REACT_HTML_KEY && prop?.key?.value !== REACT_HTML_KEY) continue;
           const d = exprDeps(prop.value);
@@ -552,13 +552,13 @@ export class DeepTaintEngine {
       } else if (stmt.type === 'FunctionDeclaration') {
         // Top-level function bodies: analyse with the enclosing env copied
         // (closures can capture tainted outer variables). Parameters stay
-        // untainted — inter-procedural flow goes through the summaries.
+        // untainted, inter-procedural flow goes through the summaries.
         this.walkFunctionBody(stmt, taintEnv, filename);
       } else if (stmt.type === 'ExpressionStatement') {
         const expr = stmt.expression;
 
         if (expr?.type === 'AssignmentExpression') {
-          // `x.onmessage = function (e) { ... }` — analyse the handler body.
+          // `x.onmessage = function (e) { ... }`, analyse the handler body.
           if (
             expr.right?.type === 'FunctionExpression' ||
             expr.right?.type === 'ArrowFunctionExpression'
@@ -591,7 +591,7 @@ export class DeepTaintEngine {
           }
         } else if (expr?.type === 'CallExpression') {
           const callee = memberExprToString(expr.callee);
-          // `addEventListener('message', handler)` — analyse the handler
+          // `addEventListener('message', handler)`, analyse the handler
           // body; `event.data` / `e.data` inside it is a direct source.
           if (
             callee.endsWith('addEventListener') &&
@@ -661,7 +661,7 @@ export class DeepTaintEngine {
  * The AST engine cannot see Vue templates, so this is a separate regex pass
  * over the raw source: it flags `v-html="<expr>"` bindings whose expression
  * mentions a variable the taint engine already found tainted in this file.
- * It is a HEURISTIC, not a proof — a binding may be sanitized upstream, or
+ * It is a HEURISTIC, not a proof, a binding may be sanitized upstream, or
  * the variable may be tainted only on a branch the template never takes.
  * Returns at most `maxHits` flows, lowest confidence (0.65).
  */

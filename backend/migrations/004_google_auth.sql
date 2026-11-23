@@ -1,7 +1,7 @@
 -- Google sign-in identity (replaces the Clerk link from 002).
 --
 -- A BugSeek user can be backed by a Google account. `sub` is the stable
--- Google subject id — the identity key. Email stays the human-facing
+-- Google subject id, the identity key. Email stays the human-facing
 -- unique address; name/avatar come from the Google profile. Users who
 -- registered with a password link automatically on first Google sign-in
 -- with the same email. password_hash stays '' for Google-only users.
@@ -24,6 +24,5 @@ create table if not exists sessions (
 create index if not exists sessions_user_idx on sessions (user_id);
 create index if not exists sessions_token_hash_idx on sessions (token_hash);
 
--- Note: users.clerk_user_id (002) is now legacy and unread by the
--- backend. It is left in place; dropping account-link history is a
--- separate decision.
+-- users.clerk_user_id (002) is legacy and unread by the backend.
+-- It stays in place; dropping account-link history is a separate decision.

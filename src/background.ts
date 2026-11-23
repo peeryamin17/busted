@@ -117,14 +117,14 @@ async function runScan(tabId: number): Promise<void> {
     ];
     const secretFindings: Finding[] = scanSecrets(scriptSources);
 
-    // Secret-shaped key NAMES in web storage / cookies (names only — values
+    // Secret-shaped key NAMES in web storage / cookies (names only, values
     // are never read). Correlate every secret finding into a per-key trail.
     try {
       let cookieNames: string[] = [];
       try {
         cookieNames = (await chrome.cookies.getAll({ url })).map((c) => c.name);
       } catch {
-        /* cookie read unavailable — storage names still checked */
+        /* cookie read unavailable, storage names still checked */
       }
       secretFindings.push(...scanSecretKeyNames(dom.storage, cookieNames, url));
       // No traffic observations in a passive scan (tab capture runs only
@@ -221,7 +221,7 @@ async function runScan(tabId: number): Promise<void> {
 }
 
 /**
- * White-box analysis over already-fetched code only (passive — no new
+ * White-box analysis over already-fetched code only (passive, no new
  * requests except same-origin .wasm fetches, size-capped):
  *  1. cross-file taint analysis over inline + external scripts
  *     (single-file flows, cross-bundle flows, shared-helper links);
