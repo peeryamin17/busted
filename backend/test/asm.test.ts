@@ -6,15 +6,11 @@
  * Run:  npx tsx test/asm.test.ts   (from backend/)
  */
 import Fastify from 'fastify';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { MemoryDatabase } from '../src/db/db.js';
 import { generateSessionToken, hashSessionToken } from '../src/auth/session.js';
 import { MemoryGraphStore } from '../src/graph/store.js';
 import type { AssetKind } from '../src/graph/types.js';
 import {
-  JsonFileAdapter,
   ScopeSentryAdapter,
   validateRawAssets,
   type RawAsset,
@@ -80,51 +76,39 @@ async function main() {
     check('validate: good row passes through', ok.length === 1 && ok[0].kind === 'domain');
   }
 
-  // ── 2. JsonFileAdapter: good file, bad kind, bad shape ──
+  // ── 2. json-file adapter removed: inline assets only, validated up front ──
   {
-    const dir = await mkdtemp(join(tmpdir(), 'bugseek-asm-'));
-    const good = join(dir, 'good.json');
-    await writeFile(good, JSON.stringify({ assets: [{ kind: 'domain', value: 'example.com' }] }));
-    const listed = await new JsonFileAdapter(good).listAssets();
-    check('json-file: good file lists its assets', listed.length === 1 && listed[0].value === 'example.com');
-
-    const badKind = join(dir, 'bad-kind.json');
-    await writeFile(badKind, JSON.stringify({ assets: [{ kind: 'host', value: 'example.com' }] }));
+    // The disk-reading adapter is gone: the backend never reads a
+    // caller-named path off its own disk. The json-file route now takes
+    // inline rows and validates them before import.
     let threw = false;
     try {
-      await new JsonFileAdapter(badKind).listAssets();
+      validateRawAssets([{ kind: 'host', value: 'example.com' }]);
     } catch (e) {
       threw = /invalid_asset_kind/.test((e as Error).message);
     }
-    check('json-file: bad kind rejected', threw);
+    check('json-file: bad kind rejected by validation', threw);
 
-    const badShape = join(dir, 'bad-shape.json');
-    await writeFile(badShape, JSON.stringify({ items: [] }));
     let threw2 = false;
     try {
-      await new JsonFileAdapter(badShape).listAssets();
+      validateRawAssets({ items: [] });
     } catch (e) {
-      threw2 = /unexpected_shape/.test((e as Error).message);
+      threw2 = /assets must be an array/.test((e as Error).message);
     }
-    check('json-file: wrong top-level shape rejected', threw2);
+    check('json-file: non-array assets rejected by validation', threw2);
 
-    const badJson = join(dir, 'bad.json');
-    await writeFile(badJson, '{not json');
     let threw3 = false;
     try {
-      await new JsonFileAdapter(badJson).listAssets();
+      validateRawAssets([{ kind: 'domain', value: '   ' }]);
     } catch (e) {
-      threw3 = /invalid_json/.test((e as Error).message);
+      threw3 = /must be a non-empty string/.test((e as Error).message);
     }
-    check('json-file: invalid JSON rejected', threw3);
+    check('json-file: empty value rejected by validation', threw3);
 
-    let threw4 = false;
-    try {
-      await new JsonFileAdapter(join(dir, 'missing.json')).listAssets();
-    } catch (e) {
-      threw4 = /unreadable/.test((e as Error).message);
-    }
-    check('json-file: missing file rejected', threw4);
+    const ok = validateRawAssets([
+      { kind: 'domain', value: 'example.com', parent: 'example.com', meta: { src: 'x' } },
+    ]);
+    check('json-file: good rows pass validation', ok.length === 1 && ok[0].kind === 'domain');
   }
 
   // ── 3. Import dedup: within-batch and re-import ──

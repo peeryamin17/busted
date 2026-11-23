@@ -90,10 +90,24 @@ export function redactWireBody(body: string): string {
   out = out.replace(/^(x-api-key\s*:\s*).*$/gim, '$1[REDACTED]');
   // Bearer tokens anywhere else in the body.
   out = out.replace(/Bearer\s+[A-Za-z0-9\-._~+/=]{8,}/gi, 'Bearer [REDACTED]');
-  // Google API keys (AIza…) and OpenAI-style keys (sk-…, sk_live_…).
+  // Google API keys (AIza…) and the current AQ.-prefixed AI Studio auth
+  // keys, GitHub / Slack / GitLab tokens, OpenAI project keys, and bare
+  // AWS secrets (40 mixed-case base64 chars, no key name next to them).
   out = out.replace(/AIza[0-9A-Za-z\-_]{20,}/g, '[REDACTED:google-api-key]');
+  out = out.replace(/\bAQ\.[A-Za-z0-9_\-]{20,}\b/g, '[REDACTED:google-auth-key]');
+  out = out.replace(/\b(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, '[REDACTED:github-token]');
+  out = out.replace(/\bxox[baprs]-[0-9A-Za-z-]{10,}/g, '[REDACTED:slack-token]');
+  out = out.replace(/\bgl(?:pat|dt|rt)-[A-Za-z0-9\-_]{20}\b/g, '[REDACTED:gitlab-token]');
+  out = out.replace(/\bsk-proj-[A-Za-z0-9\-_]{20,}\b/g, '[REDACTED:api-key]');
+  // OpenAI-style keys (sk-…, sk_live_…).
   out = out.replace(/\bsk_(live|test)_[A-Za-z0-9]{16,}/g, '[REDACTED:api-key]');
   out = out.replace(/\bsk-(?:proj-|live-|test-)?[A-Za-z0-9\-_]{16,}/g, '[REDACTED:api-key]');
+  // Bare AWS secrets last: the sk- shapes above must go first, or this
+  // pattern would match only the body of a sk- key and leave its prefix.
+  out = out.replace(
+    /(?<![A-Za-z0-9/+=])(?=[A-Za-z0-9/+=]*[A-Z])(?=[A-Za-z0-9/+=]*[a-z])(?=[A-Za-z0-9/+=]*[0-9])[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])/g,
+    '[REDACTED:aws-secret]',
+  );
   return out;
 }
 

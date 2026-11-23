@@ -1,5 +1,12 @@
+import http from 'node:http';
+import https from 'node:https';
 import type { ScopePolicy } from '../types.js';
-import { assertPublicHost, assertUrlAllowed } from '../guardrails/scope.js';
+import {
+  assertUrlAllowed,
+  resolvePublicAddresses,
+  type ResolvedHostAddress,
+} from '../guardrails/scope.js';
+import { pinnedLookup } from '../webcheck/fetch.js';
 import { TokenBucketRateLimiter } from '../guardrails/ratelimit.js';
 import { redactHeaders, redactText } from '../guardrails/redact.js';
 import { assessmentHeaders } from '../guardrails/identityHeader.js';
@@ -99,6 +106,86 @@ const MAX_REDIRECT_HOPS = 5;
 /** Cap on response bytes read into memory (DoS guard, see audit). */
 export const MAX_BODY_BYTES = 1_000_000;
 
+/**
+ * One HTTP(S) request over node:http, connecting only to an address the
+ * SSRF guard already approved (pinned lookup). The global fetch cannot
+ * take a custom lookup, so a checked hostname could rebind between the
+ * check and the connect; this transport closes that window. Returns a
+ * real Response (body capped at MAX_BODY_BYTES) with url set to the
+ * hop URL, so callers see the same shape fetch gave them.
+ */
+async function pinnedRequest(
+  url: URL,
+  addresses: ResolvedHostAddress[],
+  init: GovernedFetchInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const isHttps = url.protocol === 'https:';
+  const lib = isHttps ? https : http;
+  const body = init.body !== undefined ? Buffer.from(init.body, 'utf8') : null;
+  const headers: Record<string, string> = { ...(init.headers ?? {}) };
+  if (body) headers['content-length'] = String(body.length);
+  return new Promise((resolve, reject) => {
+    const req = lib.request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port ? Number(url.port) : isHttps ? 443 : 80,
+        path: `${url.pathname}${url.search}`,
+        method: init.method ?? 'GET',
+        agent: false,
+        lookup: pinnedLookup(addresses),
+        headers,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        let total = 0;
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          const headersOut: Record<string, string> = {};
+          for (const [k, v] of Object.entries(res.headers)) {
+            if (typeof v === 'string') headersOut[k.toLowerCase()] = v;
+            else if (Array.isArray(v)) headersOut[k.toLowerCase()] = v.join(', ');
+          }
+          const out = new Response(
+            res.statusCode === 204 || res.statusCode === 304
+              ? null
+              : Buffer.concat(chunks),
+            {
+              status: res.statusCode ?? 0,
+              headers: headersOut,
+            },
+          );
+          Object.defineProperty(out, 'url', { value: url.toString() });
+          resolve(out);
+        };
+        res.on('data', (chunk: Buffer) => {
+          total += chunk.length;
+          if (total <= MAX_BODY_BYTES) {
+            chunks.push(chunk);
+          } else if (Buffer.concat(chunks).length < MAX_BODY_BYTES) {
+            const room = MAX_BODY_BYTES - Buffer.concat(chunks).length;
+            if (room > 0) chunks.push(chunk.subarray(0, room));
+          }
+          if (total >= MAX_BODY_BYTES) {
+            res.destroy();
+            finish();
+          }
+        });
+        res.on('end', finish);
+        res.on('error', () => finish());
+      },
+    );
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Timed out after ${Math.round(timeoutMs / 1000)}s`));
+    });
+    req.on('error', reject);
+    req.end(body ?? undefined);
+  });
+}
+
 export async function guardedFetch(
   urlStr: string,
   ctx: ToolExecutionContext,
@@ -124,7 +211,9 @@ export async function guardedFetch(
       await ctx.rateLimiter.take();
       // 3. SSRF guard, refuse private/internal hosts (re-resolved every hop,
       //    so a redirect to a DNS-rebinding or privately-resolving host is caught).
-      await assertPublicHost(url.hostname, ctx.allowPrivateTargets);
+      // The approved addresses are pinned for the connect, so the host
+      // cannot pass the check and then rebind to a private address.
+      const addresses = await resolvePublicAddresses(url.hostname, ctx.allowPrivateTargets);
 
       // 4. Noise governor (per hop): per-host token + in-flight slot +
       //    jitter, plus one Retry-After retry for this hop only. The
@@ -132,18 +221,20 @@ export async function guardedFetch(
       //    header can never strip it, guardedFetch is active-testing
       //    traffic only, which is exactly what the header is for.
       const doHop = (u: string, hopInit: GovernedFetchInit): Promise<Response> =>
-        fetch(u, {
-          method: hopInit.method ?? 'GET',
-          headers: {
-            'user-agent': 'BugSeekAI/0.2 (authorized security scan)',
-            ...(hopInit.headers ?? {}),
-            ...assessmentHeaders(ctx.taskId),
+        pinnedRequest(
+          new URL(u),
+          addresses,
+          {
+            method: hopInit.method ?? 'GET',
+            headers: {
+              'user-agent': 'BugSeekAI/0.2 (authorized security scan)',
+              ...(hopInit.headers ?? {}),
+              ...assessmentHeaders(ctx.taskId),
+            },
+            body: hop === 0 ? hopInit.body : undefined,
           },
-          body: hop === 0 ? hopInit.body : undefined,
-          // Handle redirects manually so each hop is scope- and SSRF-checked.
-          redirect: 'manual',
-          signal: AbortSignal.timeout(ctx.fetchTimeoutMs),
-        });
+          ctx.fetchTimeoutMs,
+        );
       const hopInit: GovernedFetchInit = {
         method: init.method ?? 'GET',
         ...(init.headers ? { headers: init.headers } : {}),

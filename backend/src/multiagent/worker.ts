@@ -138,6 +138,12 @@ export async function runWorker(
         report.notes.push('cancelled by user');
         return false;
       }
+      // A scan paused forever must not hold its worker forever: the
+      // deadline still applies while paused.
+      if (Date.now() > ctx.deadline) {
+        event('guardrail', `${def.name}: time budget exhausted while paused — stopping`);
+        return false;
+      }
       await sleep(1000);
     }
   };
@@ -202,7 +208,16 @@ export async function runWorker(
     // GATE, standing rules, then the LLM judge, then the
     // operator. A denied step is skipped, never silently retried, and
     // never re-requested: the per-run cache remembers the verdict.
-    // Ungated runs (no task queue attached) proceed exactly as before.
+    // A task that carries an owner or an approval queue claims
+    // supervision, so a half-wired context (one without the other)
+    // refuses to run rather than proceeding ungated. A recording-only
+    // context (graph/coverage/evidence, no owner, no queue) proceeds
+    // exactly as before.
+    if (ctx.task && Boolean(ctx.task.userId) !== Boolean(ctx.task.approvals)) {
+      throw new Error(
+        `${def.name}: task context is missing its approval queue — refusing to run ungated`,
+      );
+    }
     if (ctx.task?.approvals && ctx.task?.userId) {
       const remainingMs = ctx.deadline - Date.now();
       if (remainingMs <= 0) {

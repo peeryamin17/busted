@@ -22,6 +22,16 @@ const PATTERNS: RedactionPattern[] = [
   { kind: 'bearer-token', re: /bearer\s+[A-Za-z0-9\-._~+/=]{16,}/gi },
   { kind: 'jwt', re: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
   { kind: 'api-key', re: /\b(sk|pk|rk|whsec)_(live|test)_[A-Za-z0-9]{16,}/g },
+  { kind: 'api-key', re: /\bsk-proj-[A-Za-z0-9\-_]{20,}/g },
+  { kind: 'github-token', re: /\b(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g },
+  { kind: 'slack-token', re: /\bxox[baprs]-[0-9A-Za-z-]{10,}\b/g },
+  { kind: 'gitlab-token', re: /\bgl(?:pat|dt|rt)-[A-Za-z0-9\-_]{20}\b/g },
+  { kind: 'google-api-key', re: /\bAIza[0-9A-Za-z\-_]{20,}\b/g },
+  // Google AI Studio auth keys: the current format, replacing legacy AIza.
+  { kind: 'google-auth-key', re: /\bAQ\.[A-Za-z0-9_\-]{20,}\b/g },
+  // Bare AWS secret key: 40 base64 chars, mixed case + digit, not part
+  // of a longer run. Assigned secrets are caught by generic-secret.
+  { kind: 'aws-secret', re: /(?<![A-Za-z0-9/+=])(?=[A-Za-z0-9/+=]*[A-Z])(?=[A-Za-z0-9/+=]*[a-z])(?=[A-Za-z0-9/+=]*[0-9])[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])/g },
   { kind: 'generic-secret', re: /(?<=(password|passwd|pwd|secret|token|api[_-]?key|client[_-]?secret)\s*["':=]\s*["']?)[^"'&\s;]{8,}/gi },
   { kind: 'card-number', re: /\b(?:\d[ -]*?){13,19}\b/g },
   { kind: 'email', re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
@@ -89,6 +99,14 @@ export function redactFindingEvidence<T extends { evidence?: string; location?: 
     const v = (finding as Record<string, unknown>)[key];
     if (typeof v === 'string' && v) {
       out[key] = redactText(v, key === 'title' ? 300 : 5000);
+    }
+  }
+  // Free-text arrays: a secret pasted into repro steps or a reference
+  // must not reach the database or a report unredacted either.
+  for (const key of ['reproSteps', 'references', 'chainWith'] as const) {
+    const v = (finding as Record<string, unknown>)[key];
+    if (Array.isArray(v)) {
+      out[key] = v.map((s) => (typeof s === 'string' ? redactText(s, 5000) : s));
     }
   }
   return out as T;

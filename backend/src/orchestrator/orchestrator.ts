@@ -9,6 +9,21 @@ import { createToolContext, defaultTools, type AgentTool } from '../agent/tools.
 import { runAgentScan } from '../agent/engine.js';
 import { redactFindingEvidence } from '../guardrails/redact.js';
 import { estimateCvss } from '../reports/cvss.js';
+import {
+  buildPhaseCContext,
+  buildPinCheck,
+  type PhaseCStores,
+} from '../multiagent/head.js';
+import type { SwarmTaskContext } from '../multiagent/types.js';
+import { NoiseGovernor } from '../egress/noise.js';
+import { gateToolCall } from '../approvals/gate.js';
+import { DEFAULT_APPROVAL_TIMEOUT_MS } from '../approvals/service.js';
+import type { GraphStore } from '../graph/store.js';
+import type { CoverageStore } from '../coverage/ledger.js';
+import type { EvidenceStore } from '../evidence/snapshots.js';
+import type { ApprovalStore } from '../approvals/store.js';
+import type { ApprovalRuleStore } from '../approvals/rules.js';
+import type { PinStore } from '../guardrails/pins.js';
 import type {
   Finding,
   PlanTier,
@@ -37,6 +52,88 @@ export interface OrchestratorDeps {
    * these tools instead of the default network tools.
    */
   toolOverrides?: AgentTool[];
+  /**
+   * Phase C stores (tasks, coverage, evidence, approvals, rules, pins).
+   * Usually attached after boot via setPhaseCStores (server.ts); when
+   * absent the legacy paths run as before, without supervision.
+   */
+  graph?: GraphStore;
+  coverage?: CoverageStore;
+  evidence?: EvidenceStore;
+  approvals?: ApprovalStore;
+  approvalRules?: ApprovalRuleStore;
+  pins?: PinStore;
+}
+
+/**
+ * Wrap one default tool with the Phase C gate the swarm workers go
+ * through: pin check on the tool's URL, then the approval gate
+ * (standing rules, judge, operator), then the noise governor around
+ * the call. A refused step returns a failed result instead of throwing,
+ * so the agent loop records it and moves on.
+ */
+function wrapToolWithPhaseC(
+  tool: AgentTool,
+  input: {
+    provider: LLMProvider;
+    task: SwarmTaskContext;
+    userId: string;
+    targetUrl: string;
+    scope: ScopePolicy;
+    noise: NoiseGovernor;
+    deadline: number;
+  },
+): AgentTool {
+  return {
+    name: tool.name,
+    description: tool.description,
+    run: async (args, ctx) => {
+      const rawUrl = typeof args['url'] === 'string' ? args['url'] : input.targetUrl;
+      let host: string;
+      try {
+        const u = new URL(rawUrl, input.targetUrl);
+        host = u.hostname;
+        if (input.task.pinCheck) {
+          const pin = input.task.pinCheck(u);
+          if (pin.decision === 'blocked') {
+            return { ok: false, error: `Target blocked: ${pin.reason}` };
+          }
+          if (pin.decision === 'ask') {
+            return { ok: false, error: `Target needs human approval: ${pin.reason}` };
+          }
+        }
+      } catch {
+        return { ok: false, error: `Invalid tool URL: ${String(rawUrl).slice(0, 200)}` };
+      }
+      const remainingMs = input.deadline - Date.now();
+      if (remainingMs <= 0) {
+        return { ok: false, error: 'Time budget exhausted — stopping' };
+      }
+      const gate = await gateToolCall({
+        provider: input.provider,
+        approvals: input.task.approvals,
+        approvalRules: input.task.approvalRules,
+        graph: input.task.graph,
+        taskId: input.task.taskId,
+        userId: input.userId,
+        tool: tool.name,
+        args: args ?? {},
+        targetUrl: input.targetUrl,
+        scope: input.scope,
+        timeoutMs: Math.min(DEFAULT_APPROVAL_TIMEOUT_MS, remainingMs),
+        cache: input.task.gateCache,
+      });
+      if (!gate.proceed) {
+        return { ok: false, error: `Skipped by approval gate: ${gate.reason}` };
+      }
+      await input.noise.acquire(host);
+      try {
+        return await tool.run(args, ctx);
+      } finally {
+        input.noise.release(host);
+      }
+    },
+  };
 }
 
 const VALID_TRANSITIONS: Record<ScanStatus, ScanStatus[]> = {
@@ -59,8 +156,30 @@ export class ScanOrchestrator {
   private seq = new Map<string, number>();
   private pausedScans = new Set<string>();
   private cancelledScans = new Set<string>();
+  private phaseC?: PhaseCStores;
 
   constructor(private deps: OrchestratorDeps) {}
+
+  /** Attach the Phase C stores (called by server.ts once they exist). */
+  setPhaseCStores(stores: PhaseCStores): void {
+    this.phaseC = stores;
+  }
+
+  /** The attached Phase C stores, or undefined when only partly wired. */
+  private phaseCStores(): PhaseCStores | undefined {
+    const s = this.phaseC ?? {
+      graph: this.deps.graph,
+      coverage: this.deps.coverage,
+      evidence: this.deps.evidence,
+      approvals: this.deps.approvals,
+      approvalRules: this.deps.approvalRules,
+      pins: this.deps.pins,
+    };
+    if (!s.graph || !s.coverage || !s.evidence || !s.approvals || !s.approvalRules || !s.pins) {
+      return undefined;
+    }
+    return s as PhaseCStores;
+  }
 
   // ── Creation (validation + guardrails) ──────────────────────────────────
 
@@ -256,6 +375,11 @@ export class ScanOrchestrator {
   /**
    * Active scan: full agent loop. Guardrails (scope, rate limit, SSRF,
    * authorization) are enforced inside the tools and at creation.
+   * When the Phase C stores are attached, the run is supervised like a
+   * swarm run: a task with the pin gate and approval queue, and every
+   * default tool wrapped with that gate plus the noise governor.
+   * Supervision setup failure aborts the scan instead of running it
+   * ungated. Tool overrides (tests) are never wrapped.
    */
   private async runActive(scan: Scan): Promise<void> {
     if (!scan.authorizationId) {
@@ -264,6 +388,33 @@ export class ScanOrchestrator {
       throw new Error('Active scan blocked: no authorization record (plan §8)');
     }
     const target = new URL(scan.targetUrl);
+    // Private targets are never allowed in production, whatever the caller asked for.
+    const allowPrivate =
+      this.deps.config.nodeEnv !== 'production' && this.deps.config.allowPrivateTargets;
+    const stores = this.phaseCStores();
+    let tools = this.deps.toolOverrides;
+    if (stores && !tools) {
+      const built = await buildPhaseCContext(stores, {
+        userId: scan.userId,
+        target,
+        scope: scan.scope,
+        scanId: scan.id,
+        authorizationId: scan.authorizationId,
+      });
+      const noise = new NoiseGovernor('balanced');
+      const deadline = Date.now() + this.deps.config.agentMaxDurationMs;
+      tools = defaultTools().map((tool) =>
+        wrapToolWithPhaseC(tool, {
+          provider: this.deps.provider,
+          task: built.task,
+          userId: scan.userId,
+          targetUrl: scan.targetUrl,
+          scope: scan.scope,
+          noise,
+          deadline,
+        }),
+      );
+    }
     const outcome = await runAgentScan({
       scan,
       provider: this.deps.provider,
@@ -274,9 +425,9 @@ export class ScanOrchestrator {
         maxDurationMs: this.deps.config.agentMaxDurationMs,
         requestsPerSecond: scan.scope.maxRequestsPerSecond,
       },
-      allowPrivateTargets: this.deps.config.allowPrivateTargets,
+      allowPrivateTargets: allowPrivate,
       hooks: {
-        tools: this.deps.toolOverrides,
+        tools,
         onEvent: (e) => {
           this.emit(scan.id, e.kind === 'finding' ? 'finding' : e.kind === 'done' ? 'status' : 'step', e.message, e.data);
           if (e.kind === 'act' || e.kind === 'done') {
@@ -334,7 +485,15 @@ export class ScanOrchestrator {
    */
   private async runPassive(scan: Scan): Promise<void> {
     const target = new URL(scan.targetUrl);
-    const ctx = createToolContext(target, scan.scope, this.deps.config.allowPrivateTargets);
+    // The passive checks only ever fetch the target URL itself, so the
+    // pin gate allows exactly that host; anything else needs a human.
+    // Private targets are never allowed in production.
+    const allowPrivate =
+      this.deps.config.nodeEnv !== 'production' && this.deps.config.allowPrivateTargets;
+    const ctx = createToolContext(target, scan.scope, allowPrivate, {
+      pinCheck: buildPinCheck(target),
+      noise: new NoiseGovernor('balanced'),
+    });
     const tools = this.deps.toolOverrides ?? defaultTools();
     const headerTool = tools.find((t) => t.name === 'check_security_headers');
     const fetchTool = tools.find((t) => t.name === 'fetch_url');

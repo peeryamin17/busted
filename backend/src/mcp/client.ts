@@ -5,7 +5,13 @@
  * BugSeek's gates, and tool results are untrusted data. stdio is out of
  * scope: no worker host exists to spawn a local server yet.
  */
+import http from 'node:http';
+import https from 'node:https';
 import { Buffer } from 'node:buffer';
+import { Readable } from 'node:stream';
+import { config } from '../config.js';
+import { resolvePublicAddresses, type ResolvedHostAddress } from '../guardrails/scope.js';
+import { pinnedLookup } from '../webcheck/fetch.js';
 
 /** Only 'http' and 'sse'. stdio is not supported here. */
 export type McpTransport = 'http' | 'sse';
@@ -90,6 +96,93 @@ interface SseEvent {
   event: string;
   data: string;
   id?: string;
+}
+
+/**
+ * A McpFetchResponse backed by a node:http response stream. The body
+ * stays a live stream (SSE needs it); text() drains it once and caches.
+ */
+class NodeMcpResponse implements McpFetchResponse {
+  readonly status: number;
+  readonly body: ReadableStream<Uint8Array> | null;
+  readonly headers: { get(name: string): string | null };
+  private readonly headerMap: Map<string, string>;
+  private textCache: string | null = null;
+
+  constructor(status: number, headers: Map<string, string>, stream: Readable | null) {
+    this.status = status;
+    this.headerMap = headers;
+    this.headers = { get: (name: string) => this.headerMap.get(name.toLowerCase()) ?? null };
+    this.body = stream
+      ? (Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>)
+      : null;
+  }
+
+  async text(): Promise<string> {
+    if (this.textCache !== null) return this.textCache;
+    if (!this.body) return '';
+    const reader = this.body.getReader();
+    const chunks: Uint8Array[] = [];
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) chunks.push(value);
+    }
+    reader.releaseLock();
+    this.textCache = Buffer.concat(chunks).toString('utf8');
+    return this.textCache;
+  }
+}
+
+/**
+ * The default transport: one node:http request that connects only to an
+ * address the SSRF guard approved for this URL (pinned lookup). The
+ * global fetch cannot take a custom lookup, so a checked hostname could
+ * rebind between the check and the connect; this closes that window.
+ * Every call re-resolves and re-validates, redirect hops included.
+ */
+async function nodeFetchPinned(
+  url: URL,
+  addresses: ResolvedHostAddress[],
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<McpFetchResponse> {
+  const isHttps = url.protocol === 'https:';
+  const lib = isHttps ? https : http;
+  const headersIn = (init.headers ?? {}) as Record<string, string>;
+  const body = typeof init.body === 'string' ? Buffer.from(init.body, 'utf8') : null;
+  const headers: Record<string, string> = { ...headersIn };
+  if (body) headers['content-length'] = String(body.length);
+  return new Promise((resolve, reject) => {
+    const req = lib.request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port ? Number(url.port) : isHttps ? 443 : 80,
+        path: `${url.pathname}${url.search}`,
+        method: init.method ?? 'GET',
+        agent: false,
+        lookup: pinnedLookup(addresses),
+        headers,
+      },
+      (res) => {
+        const headersOut = new Map<string, string>();
+        for (const [k, v] of Object.entries(res.headers)) {
+          if (typeof v === 'string') headersOut.set(k.toLowerCase(), v);
+          else if (Array.isArray(v)) headersOut.set(k.toLowerCase(), v.join(', '));
+        }
+        resolve(new NodeMcpResponse(res.statusCode ?? 0, headersOut, res as unknown as Readable));
+      },
+    );
+    const onAbort = () => req.destroy(new Error('mcp_timeout: request aborted'));
+    if (init.signal) {
+      if (init.signal.aborted) onAbort();
+      else init.signal.addEventListener('abort', onAbort, { once: true });
+    }
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('mcp_timeout: request timed out')));
+    req.on('error', reject);
+    req.end(body ?? undefined);
+  });
 }
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -300,6 +393,8 @@ export class McpClient {
   private readonly fetchFn: McpFetchFn;
   private readonly timeoutMs: number;
   private readonly maxResponseBytes: number;
+  /** Private targets are refused on the default transport unless allowed in non-production. */
+  private readonly allowPrivate: boolean;
   private nextId = 1;
   private sessionId: string | null = null;
   private negotiatedVersion: string | null = null;
@@ -312,9 +407,21 @@ export class McpClient {
     this.url = parsed.toString();
     this.transport = opts.transport ?? 'http';
     this.headers = { ...(opts.headers ?? {}) };
-    this.fetchFn = opts.fetchFn ?? (fetch as unknown as McpFetchFn);
+    this.allowPrivate = config.nodeEnv !== 'production' && config.allowPrivateTargets;
+    // An injected fetch owns its transport (tests); the default transport
+    // resolves, validates and pins the host on every request.
+    this.fetchFn =
+      opts.fetchFn ??
+      ((url: string, init?: RequestInit) => this.defaultFetch(url, init));
     this.timeoutMs = opts.timeoutMs ?? MCP_DEFAULT_TIMEOUT_MS;
     this.maxResponseBytes = opts.maxResponseBytes ?? MCP_MAX_RESPONSE_BYTES;
+  }
+
+  /** Default transport: SSRF-check the URL, then fetch it pinned to the approved addresses. */
+  private async defaultFetch(url: string, init?: RequestInit): Promise<McpFetchResponse> {
+    const parsed = new URL(url);
+    const addresses = await resolvePublicAddresses(parsed.hostname, this.allowPrivate);
+    return nodeFetchPinned(parsed, addresses, init ?? {}, this.timeoutMs);
   }
 
   /** Protocol version the server negotiated at initialize, null before then. */

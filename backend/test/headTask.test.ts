@@ -16,7 +16,6 @@
  * a hint at POE 0. GraphQL is never spawned, so it must read untested.
  */
 import { createServer, type Server } from 'node:http';
-import { runHeadAgent } from '../src/multiagent/head.js';
 import { MockProvider } from '../src/llm/mock.js';
 import { MemoryGraphStore } from '../src/graph/store.js';
 import { MemoryCoverageStore, coverageSummary } from '../src/coverage/ledger.js';
@@ -32,6 +31,12 @@ function check(name: string, cond: boolean, extra?: unknown) {
 }
 
 async function main() {
+  // Local target on 127.0.0.1: the head agent reads the SSRF guard config
+  // at import time, so set the allowance before importing it. The guard
+  // stays off by default everywhere else.
+  process.env['ALLOW_PRIVATE_TARGETS'] = '1';
+  const { runHeadAgent } = await import('../src/multiagent/head.js');
+
   // Local target: echoes any query-param value unencoded in the body
   // (so the canary reflects), serves no security headers, no cookies,
   // no CORS headers, no Server header.

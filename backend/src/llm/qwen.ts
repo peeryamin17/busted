@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { redactText } from '../guardrails/redact.js';
 import {
   makeCompletion,
   type LLMCompletion,
@@ -362,7 +363,14 @@ export class QwenProvider implements LLMProvider {
         return (await res.json()) as any;
       }
       const rawPayload = await res.text().catch(() => '');
-      const err = new Error(`Qwen API error ${res.status}: ${rawPayload.slice(0, 300)}`);
+      // Never surface the raw provider body: it can echo key material
+      // or request details. Same treatment as Gemini (key= stripped,
+      // then the shared redactor scrubs secret shapes and truncates).
+      const sanitizedPayload = redactText(
+        rawPayload.replace(/([?&]key=)[^&"'\s]+/gi, '$1REDACTED'),
+        300,
+      );
+      const err = new Error(`Qwen API error ${res.status}: ${sanitizedPayload}`);
       (err as any).status = res.status;
       lastError = err;
       if (res.status !== 429 && res.status < 500) break; // non-transient, don't retry

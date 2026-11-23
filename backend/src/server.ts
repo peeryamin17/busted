@@ -57,6 +57,8 @@ import { MemoryApprovalRuleStore, PostgresApprovalRuleStore, type ApprovalRuleSt
 import { MemoryPinStore, PostgresPinStore, type PinStore } from './guardrails/pins.js';
 import { createToolContext } from './agent/tools.js';
 import { createDepthProber } from './multiagent/depthLadder.js';
+import { buildPinCheck } from './multiagent/head.js';
+import { NoiseGovernor } from './egress/noise.js';
 import { retestFinding } from './multiagent/retester.js';
 import { buildAuthenticate } from './middleware/auth.js';
 import type { Finding, ScopePolicy } from './types.js';
@@ -256,7 +258,9 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
    * task's own target + scope (same enforcement as the swarm, scope,
    * rate limit, SSRF on every request) and re-runs the finding's proof
    * with a fresh benign canary. Never throws: retestFinding degrades
-   * every failure to 'inconclusive'.
+   * every failure to 'inconclusive'. The pin gate allows only the
+   * authorised target host, and the noise governor paces the probes;
+   * retests never touch private targets.
    */
   const runRetest = async (
     finding: Finding,
@@ -275,9 +279,18 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
         maxRequestsPerSecond: 2,
       },
       false,
+      {
+        pinCheck: buildPinCheck(target),
+        noise: new NoiseGovernor('balanced'),
+      },
     );
     return retestFinding({ finding, targetUrl, prober: createDepthProber(toolCtx) });
   };
+
+  // The legacy scan paths run supervised too: the orchestrator builds a
+  // Phase C task for active scans and gates every default tool through
+  // it (see orchestrator.ts runActive/runPassive).
+  deps.orchestrator.setPhaseCStores({ graph, coverage, evidence, approvals, approvalRules, pins });
 
   app.register(async (instance) => {
     await healthRoutes(instance, routeDeps);

@@ -4,6 +4,7 @@ import {
   type AgentTool,
 } from '../agent/tools.js';
 import { redactText } from '../guardrails/redact.js';
+import { maskApiKey } from '../lib/crypto.js';
 
 /**
  * Extra tools for the multi-agent specialists, built on the same guarded
@@ -117,7 +118,7 @@ const fetchJs: AgentTool = {
       let sm: RegExpExecArray | null;
       const sre = new RegExp(SECRET_SHAPE_RE.source, 'g');
       while ((sm = sre.exec(code)) !== null && secretShapes.size < 10) {
-        secretShapes.add(sm[1].slice(0, 8) + '…(redacted)');
+        secretShapes.add(maskApiKey(sm[1]));
       }
       const result = await readResult(res, ctx);
       result.data = {
@@ -222,7 +223,7 @@ const fetchSourcemap: AgentTool = {
           const sre = new RegExp(SECRET_SHAPE_RE.source, 'g');
           let sm: RegExpExecArray | null;
           while ((sm = sre.exec(corpus)) !== null && secretShapes.size < 10) {
-            secretShapes.add(sm[1].slice(0, 8) + '…(redacted)');
+            secretShapes.add(maskApiKey(sm[1]));
           }
           const interestingPaths = [...new Set(sources.filter((s) => INTERESTING_PATH_RE.test(s)))].slice(0, 20);
           const result = await readResult(res, ctx);

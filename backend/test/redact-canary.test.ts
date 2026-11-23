@@ -64,6 +64,21 @@ function main(): void {
   const trunc = redactText(long, 20);
   check('redact: truncation still applies', trunc.length <= 20 + '…[truncated]'.length && trunc.endsWith('…[truncated]'), trunc);
 
+  // New secret shapes (Batch 2) are redacted even next to a canary,
+  // while the canary itself still survives.
+  const shaped = `canary ${digitHeavy} plus ghp_AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIj end`;
+  const shapedOut = redactText(shaped, 1000);
+  check('redact: ghp_ token next to a canary is redacted', !shapedOut.includes('ghp_'), shapedOut);
+  check('redact: canary next to a ghp_ token survives', shapedOut.includes(digitHeavy), shapedOut);
+  const aq = `key AQ.AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUv and ${digitHeavy}`;
+  const aqOut = redactText(aq, 1000);
+  check('redact: AQ. token next to a canary is redacted', !aqOut.includes('AQ.'), aqOut);
+  check('redact: canary next to an AQ. token survives', aqOut.includes(digitHeavy), aqOut);
+  const proj = `sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUv near ${digitHeavy}`;
+  const projOut = redactText(proj, 1000);
+  check('redact: sk-proj- token next to a canary is redacted', !projOut.includes('sk-proj-'), projOut);
+  check('redact: canary next to a sk-proj- token survives', projOut.includes(digitHeavy), projOut);
+
   if (failures > 0) {
     console.error(`${failures} REDACT-CANARY TEST(S) FAILED`);
     process.exit(1);

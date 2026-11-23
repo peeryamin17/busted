@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { buildAuthenticate, requireUser } from '../middleware/auth.js';
 import { isAdminEmail } from '../auth/session.js';
-import { PLAN_QUOTAS, monthStartIso } from '../auth/usage.js';
+import { PLAN_QUOTAS, SCAN_CREDIT_COST, monthStartIso } from '../auth/usage.js';
 import { verifyAndRecordAuthorization } from '../guardrails/authorization.js';
 import { normalizeTargetUrl } from '../guardrails/scope.js';
 import { redactFindingEvidence } from '../guardrails/redact.js';
@@ -35,6 +35,7 @@ const importSchema = z.object({
   format: z.enum(['auto', 'zap', 'nuclei', 'nikto', 'sqlmap']).default('auto'),
   content: z.string().min(2).max(12_000_000),
   targetUrl: z.string().min(1).max(2000),
+  authorization: z.unknown(), // REQUIRED, validated by verifyAndRecordAuthorization
 });
 
 const engineScanSchema = z.object({
@@ -105,19 +106,53 @@ export async function engineRoutes(app: FastifyInstance, deps: RouteDeps): Promi
     if (!body.success) {
       return reply.status(400).send({ error: body.error.issues[0]?.message ?? 'Invalid input' });
     }
+    const d = body.data;
+    const isOp = isAdminEmail(user.email);
+    const plan: PlanTier = isOp ? 'enterprise' : user.plan;
+    const quota = PLAN_QUOTAS[plan];
+    if (!isOp && !quota.activeTesting) {
+      return reply.status(403).send({ error: 'Active testing requires the Hunter plan or higher' });
+    }
+
+    let target: URL;
+    try {
+      target = normalizeTargetUrl(d.targetUrl);
+    } catch (err) {
+      return reply.status(400).send({ error: (err as Error).message });
+    }
+
+    let authorizationId: string;
+    try {
+      const record = await verifyAndRecordAuthorization(db, user.id, d.authorization);
+      authorizationId = record.id;
+    } catch (err) {
+      const status = (err as { statusCode?: number }).statusCode ?? 400;
+      return reply.status(status).send({ error: (err as Error).message });
+    }
+
+    const creditCost = SCAN_CREDIT_COST.passive;
+    const used = await db.sumUsageSince(user.id, 'scan', monthStartIso());
+    if (!isOp && used + creditCost > quota.creditsPerMonth) {
+      return reply.status(429).send({
+        error: `Monthly credit quota exceeded (${used}/${quota.creditsPerMonth} credits used on the ${plan} plan; this scan costs ${creditCost})`,
+      });
+    }
+
     let imported: ImportedFinding[];
     try {
-      imported = parseImport(body.data.format, body.data.content);
+      imported = parseImport(d.format, d.content);
     } catch (err) {
       return reply.status(400).send({ error: `Could not parse report: ${(err as Error).message}` });
     }
     const scan = await db.createScan({
       userId: user.id,
-      targetUrl: body.data.targetUrl,
+      targetUrl: target.toString(),
       mode: 'passive',
       scope: { mode: 'page', includeSubdomains: false, excludedHosts: [], excludedPaths: [], maxRequestsPerSecond: 1 },
+      authorizationId,
       techStack: [],
     });
+    await db.recordUsage(user.id, 'scan', creditCost, scan.id);
     const findings = await persistFindings(db, scan.id, imported);
     await db.updateScan(scan.id, { status: 'completed' });
     return reply.send({

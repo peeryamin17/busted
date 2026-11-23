@@ -1,7 +1,14 @@
-import type { FindingVerification, TechEntry } from '../types.js';
+import type { FindingVerification, ScopePolicy, TechEntry } from '../types.js';
+import { config } from '../config.js';
 import { defaultTools, createToolContext } from '../agent/tools.js';
 import { NoiseGovernor } from '../egress/noise.js';
-import { checkTargetPin } from '../guardrails/pins.js';
+import { checkTargetPin, type TargetPin, type TargetRule } from '../guardrails/pins.js';
+import type { GraphStore } from '../graph/store.js';
+import type { CoverageStore } from '../coverage/ledger.js';
+import type { EvidenceStore } from '../evidence/snapshots.js';
+import type { ApprovalStore } from '../approvals/store.js';
+import type { ApprovalRuleStore } from '../approvals/rules.js';
+import type { PinStore } from '../guardrails/pins.js';
 import { requestApproval } from '../approvals/service.js';
 import { extraTools } from './extraTools.js';
 import { getSpecialist, allSpecialists, ALWAYS_SPAWN, CONDITIONAL_SPAWN } from './specialists.js';
@@ -36,6 +43,7 @@ import type {
   MultiAgentOptions,
   MultiAgentOutcome,
   SpecialistId,
+  SwarmTaskContext,
   WorkerContext,
   WorkerFinding,
   WorkerReport,
@@ -110,6 +118,107 @@ function dedupeFindings(reports: WorkerReport[]): WorkerFinding[] {
 }
 
 /**
+ * Per-request pin gate, shared by every path that fetches a target.
+ * The authorised target host is always allowed; any other host goes
+ * through the task's pins + rules when they exist, and otherwise needs
+ * a human decision (ask) instead of being tested silently.
+ */
+export function buildPinCheck(
+  target: URL,
+  opts?: { taskId?: string; pins?: TargetPin[]; rules?: TargetRule[] },
+): NonNullable<SwarmTaskContext['pinCheck']> {
+  return (url: URL) => {
+    if (url.hostname.toLowerCase() === target.hostname.toLowerCase()) {
+      return { decision: 'allowed', reason: 'authorised target host' };
+    }
+    if (opts?.taskId && opts?.pins && opts?.rules) {
+      return checkTargetPin({
+        taskId: opts.taskId,
+        host: url.hostname,
+        port: url.port ? Number(url.port) : null,
+        url: url.toString(),
+        pins: opts.pins,
+        rules: opts.rules,
+      });
+    }
+    return { decision: 'ask', reason: 'host not pinned for this run' };
+  };
+}
+
+export interface PhaseCStores {
+  graph: GraphStore;
+  coverage: CoverageStore;
+  evidence: EvidenceStore;
+  approvals: ApprovalStore;
+  approvalRules: ApprovalRuleStore;
+  pins: PinStore;
+}
+
+export interface PhaseCContextInput {
+  userId: string;
+  target: URL;
+  scope: ScopePolicy;
+  scanId?: string;
+  authorizationId?: string;
+  goalText?: string;
+}
+
+export interface PhaseCContext {
+  task: SwarmTaskContext;
+  taskId: string;
+  pinCheck: NonNullable<SwarmTaskContext['pinCheck']>;
+}
+
+/**
+ * Build the supervised task context for a run: task row, auto-pin of
+ * the authorised target host, and the per-request pin check. Throws
+ * when the task cannot be created or the pins/rules cannot load, so a
+ * run never proceeds with no gate instead of failing loudly.
+ */
+export async function buildPhaseCContext(
+  stores: PhaseCStores,
+  input: PhaseCContextInput,
+): Promise<PhaseCContext> {
+  const task = await stores.graph.createTask({
+    userId: input.userId,
+    goalText: input.goalText ?? `Test ${input.target.toString()} for security vulnerabilities`,
+    targetUrl: input.target.toString(),
+    scope: { ...input.scope },
+    ...(input.scanId ? { scanId: input.scanId } : {}),
+    ...(input.authorizationId ? { authorizationId: input.authorizationId } : {}),
+  });
+  // Auto-pin the authorised target host. A failure here is not fatal:
+  // the pin check below allows the target host by name regardless.
+  await stores.pins
+    .addPin({
+      taskId: task.id,
+      host: input.target.hostname,
+      port: input.target.port ? Number(input.target.port) : null,
+      pinnedBy: input.userId,
+    })
+    .catch(() => undefined);
+  const pins = await stores.pins.listPins(task.id);
+  const rules = await stores.pins.listRules(input.userId, task.id);
+  const pinCheck = buildPinCheck(input.target, { taskId: task.id, pins, rules });
+  return {
+    task: {
+      taskId: task.id,
+      graph: stores.graph,
+      coverage: stores.coverage,
+      evidence: stores.evidence,
+      approvals: stores.approvals,
+      approvalRules: stores.approvalRules,
+      pins: stores.pins,
+      userId: input.userId,
+      pinCheck,
+      gateCache: new Map(),
+    },
+    taskId: task.id,
+    pinCheck,
+  };
+}
+
+/**
  * Head agent run: recon → plan specialists → spawn workers (bounded
  * concurrency, shared rate limiter) → dedupe → trap review → chaining →
  * executive synthesis.
@@ -144,7 +253,10 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
   // governed automatically. Direct callers (tests, CLI) without a
   // profile run ungoverned, as before.
   const noise = limits.noiseProfile ? new NoiseGovernor(limits.noiseProfile) : undefined;
-  const toolCtx = createToolContext(target, scope, limits.allowPrivateTargets, {
+  // Private targets are never allowed in production, whatever the caller asked for.
+  const allowPrivate =
+    config.nodeEnv !== 'production' && config.allowPrivateTargets && limits.allowPrivateTargets;
+  const toolCtx = createToolContext(target, scope, allowPrivate, {
     ...(opts.task?.taskId ? { taskId: opts.task.taskId } : {}),
     ...(opts.task?.pinCheck ? { pinCheck: opts.task.pinCheck } : {}),
     ...(noise ? { noise } : {}),

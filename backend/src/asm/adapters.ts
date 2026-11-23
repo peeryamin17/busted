@@ -4,7 +4,8 @@
  * a mismatched response fails loudly instead of silently coercing data.
  * Credentials are never stored here.
  */
-import { readFile } from 'node:fs/promises';
+import { config as appConfig } from '../config.js';
+import { assertPublicHost } from '../guardrails/scope.js';
 
 export type RawAssetKind = 'domain' | 'subdomain' | 'ip' | 'port' | 'site' | 'endpoint';
 
@@ -80,39 +81,47 @@ export function validateRawAssets(rows: unknown): RawAsset[] {
   return rows.map((row, i) => validateRawAsset(row, `assets[${i}]`));
 }
 
-// ── JSON file adapter ────────────────────────────────────────────────────
+// ── ScopeSentry-style adapter (contract-only) ────────────────────────────
 
-/**
- * Reads a local JSON file of shape `{assets: RawAsset[]}`.
- * The file is data, never code: it is parsed as JSON and every row is
- * validated, a bad kind or value anywhere rejects the whole file.
- */
-export class JsonFileAdapter implements AssetSourceAdapter {
-  readonly name = 'json-file';
+/** Per-request timeout for ScopeSentry listing calls. */
+export const SCOPESENTRY_TIMEOUT_MS = 30_000;
+/** Cap on one ScopeSentry response body: asset lists are small. */
+export const SCOPESENTRY_MAX_BODY_BYTES = 5_000_000;
 
-  constructor(private readonly filePath: string) {}
-
-  async listAssets(): Promise<RawAsset[]> {
-    let text: string;
+/** Read a JSON response body with a hard byte cap, streaming when possible. */
+async function readCappedJson(res: Response, maxBytes: number): Promise<unknown> {
+  let text: string;
+  if (res.body) {
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
     try {
-      text = await readFile(this.filePath, 'utf8');
-    } catch {
-      throw new Error(`json_file_unreadable: ${this.filePath}`);
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel().catch(() => undefined);
+          throw new Error(`scopesentry_response_too_large: response exceeded ${maxBytes} bytes`);
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
     }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text) as unknown;
-    } catch {
-      throw new Error(`json_file_invalid_json: ${this.filePath}`);
+    text = Buffer.concat(chunks).toString('utf8');
+  } else {
+    text = await res.text();
+    if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+      throw new Error(`scopesentry_response_too_large: response exceeded ${maxBytes} bytes`);
     }
-    if (!isRecord(parsed) || !Array.isArray(parsed['assets'])) {
-      throw new Error(`json_file_unexpected_shape: ${this.filePath} (expected {assets: [...]})`);
-    }
-    return validateRawAssets(parsed['assets']);
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new Error('scopesentry_unexpected_response_shape: response is not JSON');
   }
 }
-
-// ── ScopeSentry-style adapter (contract-only) ────────────────────────────
 
 export interface ScopeSentryAdapterConfig {
   /** Base URL of the ASM API, e.g. `https://scopesentry.example.com`. */
@@ -166,28 +175,51 @@ export class ScopeSentryAdapter implements AssetSourceAdapter {
   readonly name = 'scopesentry';
 
   private readonly baseUrl: string;
+  private readonly baseUrlObj: URL;
   private readonly apiKey: string;
   private readonly project: string;
   private readonly listPath: string;
   private readonly fetchFn: typeof fetch;
   private readonly maxPages: number;
+  /** True when the caller did not inject a fetch: the production path, SSRF-checked. */
+  private readonly usesDefaultFetch: boolean;
+  /** Private targets are refused on the default fetch unless allowed in non-production. */
+  private readonly allowPrivate: boolean;
 
   constructor(config: ScopeSentryAdapterConfig) {
     if (!config.baseUrl?.trim()) throw new Error('scopesentry_base_url_required');
+    let parsed: URL;
+    try {
+      parsed = new URL(config.baseUrl.trim());
+    } catch {
+      throw new Error('scopesentry_invalid_base_url');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('scopesentry_invalid_base_url');
+    }
     if (!config.apiKey?.trim()) throw new Error('scopesentry_api_key_required');
     if (!config.project?.trim()) throw new Error('scopesentry_project_required');
-    this.baseUrl = config.baseUrl.replace(/\/+$/, '');
+    this.baseUrl = parsed.toString().replace(/\/+$/, '');
+    this.baseUrlObj = parsed;
     this.apiKey = config.apiKey;
     this.project = config.project;
     this.listPath = config.listPath ?? DEFAULT_SCOPESENTRY_LIST_PATH;
     this.fetchFn = config.fetchFn ?? fetch;
     this.maxPages = config.maxPages ?? 50;
+    this.usesDefaultFetch = !config.fetchFn;
+    this.allowPrivate = appConfig.nodeEnv !== 'production' && appConfig.allowPrivateTargets;
   }
 
   async listAssets(input?: Record<string, unknown>): Promise<RawAsset[]> {
     const project = typeof input?.['project'] === 'string' && input['project'].trim()
       ? (input['project'] as string)
       : this.project;
+    // The base host is caller-supplied: refuse private targets before
+    // the API key goes anywhere. An injected fetch owns its transport
+    // (tests), so the check runs on the default fetch only.
+    if (this.usesDefaultFetch) {
+      await assertPublicHost(this.baseUrlObj.hostname, this.allowPrivate);
+    }
     const out: RawAsset[] = [];
     // UNVERIFIED: pagination is assumed to be a `page` query param
     // plus a `nextPage` token in the response (see class comment).
@@ -198,7 +230,10 @@ export class ScopeSentryAdapter implements AssetSourceAdapter {
         `?project=${encodeURIComponent(project)}&page=${encodeURIComponent(page)}`;
       let res: Response;
       try {
-        res = await this.fetchFn(url, { headers: { 'X-API-Key': this.apiKey } });
+        res = await this.fetchFn(url, {
+          headers: { 'X-API-Key': this.apiKey },
+          signal: AbortSignal.timeout(SCOPESENTRY_TIMEOUT_MS),
+        });
       } catch (err) {
         throw new Error(`scopesentry_request_failed: ${(err as Error).message}`);
       }
@@ -206,12 +241,7 @@ export class ScopeSentryAdapter implements AssetSourceAdapter {
         throw new Error('scopesentry_auth_failed');
       }
       if (!res.ok) throw new Error(`scopesentry_http_${res.status}`);
-      let body: unknown;
-      try {
-        body = (await res.json()) as unknown;
-      } catch {
-        throw new Error('scopesentry_unexpected_response_shape: response is not JSON');
-      }
+      const body = await readCappedJson(res, SCOPESENTRY_MAX_BODY_BYTES);
       // The response shape is asserted, never coerced: anything that
       // is not `{assets: [...]}` is a hard failure.
       if (!isRecord(body) || !Array.isArray(body['assets'])) {

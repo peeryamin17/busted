@@ -4,7 +4,6 @@ import { buildAuthenticate, requireUser } from '../middleware/auth.js';
 import type { Database } from '../db/db.js';
 import type { GraphStore } from '../graph/store.js';
 import {
-  JsonFileAdapter,
   ScopeSentryAdapter,
   validateRawAssets,
   type AssetSourceAdapter,
@@ -36,14 +35,8 @@ const jsonFileImportSchema = z.object({
   adapter: z.literal('json-file'),
   companyId: z.string().min(1).max(500),
   taskId: z.string().uuid(),
-  /** Inline assets (the JSON-file adapter's `{assets: [...]}` shape). */
-  assets: z.array(z.unknown()).optional(),
-  /**
-   * A server-side file path to read instead of inline assets. Only
-   * honoured when `assets` is absent, the file must already exist on
-   * the machine running the backend.
-   */
-  filePath: z.string().min(1).max(2000).optional(),
+  /** Inline assets only (the JSON-file `{assets: [...]}` shape, capped). */
+  assets: z.array(z.unknown()).max(500),
 });
 
 const scopeSentryImportSchema = z.object({
@@ -71,7 +64,7 @@ export async function asmRoutes(app: FastifyInstance, deps: AsmRouteDeps): Promi
         {
           name: 'json-file',
           verified: true,
-          description: 'Local JSON file of shape {assets: [...]} — fully testable offline.',
+          description: 'Inline JSON assets of shape {assets: [...]} — fully testable offline.',
         },
         {
           name: 'scopesentry',
@@ -98,22 +91,16 @@ export async function asmRoutes(app: FastifyInstance, deps: AsmRouteDeps): Promi
 
     let adapter: AssetSourceAdapter;
     if (body.data.adapter === 'json-file') {
-      if (body.data.filePath && !body.data.assets) {
-        adapter = new JsonFileAdapter(body.data.filePath);
-      } else if (body.data.assets) {
-        // Inline assets: validate the rows up front with the same
-        // validator the file adapter uses, then hand them to the
-        // import as a one-shot adapter.
-        let assets: RawAsset[];
-        try {
-          assets = validateRawAssets(body.data.assets);
-        } catch (err) {
-          return reply.status(400).send({ error: (err as Error).message });
-        }
-        adapter = { name: 'json-file', listAssets: async () => assets };
-      } else {
-        return reply.status(400).send({ error: 'Provide assets or filePath' });
+      // Inline assets only: the backend never reads a caller-named
+      // path off its own disk. Rows are validated up front, then
+      // handed to the import as a one-shot adapter.
+      let assets: RawAsset[];
+      try {
+        assets = validateRawAssets(body.data.assets);
+      } catch (err) {
+        return reply.status(400).send({ error: (err as Error).message });
       }
+      adapter = { name: 'json-file', listAssets: async () => assets };
     } else {
       try {
         adapter = new ScopeSentryAdapter({

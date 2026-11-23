@@ -49,7 +49,7 @@ export interface GuardedFetchOptions {
 
 export type GuardedFetcher = (url: string, opts?: GuardedFetchOptions) => Promise<FetchedResponse>;
 
-function pinnedLookup(addresses: ResolvedAddress[]): LookupFunction {
+export function pinnedLookup(addresses: ResolvedAddress[]): LookupFunction {
   return (_hostname, options, callback) => {
     if ((options as { all?: boolean }).all) {
       callback(null, addresses);
@@ -60,17 +60,53 @@ function pinnedLookup(addresses: ResolvedAddress[]): LookupFunction {
   };
 }
 
-function decodeBody(raw: Buffer, contentEncoding: string | undefined): string {
-  try {
-    if (!contentEncoding) return raw.toString('utf8');
-    const enc = contentEncoding.toLowerCase();
-    if (enc.includes('gzip') || enc.includes('x-gzip')) return zlib.gunzipSync(raw).toString('utf8');
-    if (enc.includes('deflate')) return zlib.inflateSync(raw).toString('utf8');
-    if (enc.includes('br')) return zlib.brotliDecompressSync(raw).toString('utf8');
-    return raw.toString('utf8');
-  } catch {
-    return '';
-  }
+/** Hard cap on decompressed body size. A small compressed bomb must not expand without bound. */
+export const MAX_DECOMPRESSED_BYTES = 10_000_000;
+
+/**
+ * Decode a possibly compressed body, streaming the decompression so a
+ * bomb is cut off at the cap instead of expanding fully in memory.
+ * Returns '' when the encoding is unknown, the data is corrupt, or the
+ * decompressed size exceeds the cap.
+ */
+export async function decodeBody(
+  raw: Buffer,
+  contentEncoding: string | undefined,
+  maxBytes: number = MAX_DECOMPRESSED_BYTES,
+): Promise<string> {
+  if (!contentEncoding) return raw.toString('utf8');
+  const enc = contentEncoding.toLowerCase();
+  let stream: zlib.Gunzip | zlib.Inflate | zlib.BrotliDecompress | null = null;
+  if (enc.includes('gzip') || enc.includes('x-gzip')) stream = zlib.createGunzip();
+  else if (enc.includes('deflate')) stream = zlib.createInflate();
+  else if (enc.includes('br')) stream = zlib.createBrotliDecompress();
+  else return raw.toString('utf8');
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let done = false;
+    const finish = (value: string) => {
+      if (done) return;
+      done = true;
+      resolve(value);
+    };
+    stream.on('data', (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        stream.destroy();
+        finish('');
+        return;
+      }
+      chunks.push(chunk);
+    });
+    stream.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
+    stream.on('error', () => finish(''));
+    try {
+      stream.end(raw);
+    } catch {
+      finish('');
+    }
+  });
 }
 
 function requestOnce(
@@ -112,7 +148,7 @@ function requestOnce(
         const chunks: Buffer[] = [];
         let received = 0;
         let settled = false;
-        const finish = () => {
+        const finish = async () => {
           if (settled) return;
           settled = true;
           const raw = Buffer.concat(chunks);
@@ -127,7 +163,7 @@ function requestOnce(
             status: res.statusCode ?? 0,
             headers,
             setCookie: res.headers['set-cookie'] ?? [],
-            body: decodeBody(raw, typeof encoding === 'string' ? encoding : undefined),
+            body: await decodeBody(raw, typeof encoding === 'string' ? encoding : undefined),
             bytes: received,
             ttfbMs,
             totalMs: Date.now() - started,

@@ -6,7 +6,6 @@
  */
 import Fastify from 'fastify';
 import { createServer } from 'node:http';
-import { swarmRoutes } from '../src/routes/multiagent.js';
 import { MockProvider } from '../src/llm/mock.js';
 
 let failures = 0;
@@ -60,16 +59,41 @@ function makeDb(plan: 'free' | 'hunter' | 'pro' = 'pro', seedUsage: UsageEvent[]
   return db;
 }
 
+async function loadSwarmRoutes() {
+  // The swarm route reads the SSRF guard config at import time, and this
+  // suite's target is a local 127.0.0.1 server. Set the allowance first,
+  // then import the route, so the guard stays off by default everywhere else.
+  process.env['ALLOW_PRIVATE_TARGETS'] = '1';
+  return (await import('../src/routes/multiagent.js')).swarmRoutes;
+}
+
 async function buildApp(db: any) {
   const app = Fastify();
+  const swarmRoutes = await loadSwarmRoutes();
   await swarmRoutes(app as any, { db, queue: {} as any, provider: new MockProvider() });
   return app;
 }
 
 async function main() {
+  // Fake secret-shaped tokens, planted in the target's Server header so
+  // the swarm's server-disclosure finding carries them through the
+  // redaction path. Letter-only bodies: no digit run for the phone or
+  // card-number patterns to chew on, so only a real secret-shape pattern
+  // can scrub them. These are test fixtures, never real credentials.
+  const SECRET_TOKENS = [
+    'ghp_AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIj',
+    'github_pat_AbCdEfGhIjKlMnOpQrStUv_AbCdEfGhIjKlMnOpQrStUvWxYzAbCd',
+    'xoxb-AbCdEfGhIjKl-AbCdEfGhIjKl-AbCdEfGhIjKlMnOpQrStUvWx',
+    'AIzaAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhI',
+    'AQ.AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUv',
+    'sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUv',
+  ];
+  const SECRET_SHAPES = ['ghp_', 'github_pat_', 'xoxb-', 'AIza', 'AQ.', 'sk-proj-'];
+
   // Local target for the mock-provider swarm run.
   const target = createServer((_req, res) => {
     res.setHeader('content-type', 'text/html');
+    res.setHeader('server', `TestServer/1.0 ${SECRET_TOKENS.join(' ')}`);
     res.end('<html><body><a href="/api/users">users</a></body></html>');
   });
   await new Promise<void>((r) => target.listen(0, '127.0.0.1', r));
@@ -142,7 +166,30 @@ async function main() {
     check('swarm: 25 credits charged', db.usage.some((u: UsageEvent) => u.quantity === 25), db.usage);
     check('swarm: findings persisted to db', db.findings.length === (body.findings?.length ?? -1), db.findings.length);
     check('swarm: scan marked completed', db.scans[0]?.status === 'completed', db.scans[0]?.status);
-    check('swarm: findings redacted (no raw secrets)', JSON.stringify(body.findings ?? []).length >= 0, null);
+    const serialized = JSON.stringify(body.findings ?? []);
+    // The planted Server header must have produced a disclosure finding,
+    // or the checks below would pass on empty output and prove nothing.
+    check(
+      'swarm: secret-bearing target produced a disclosure finding',
+      (body.findings ?? []).some(
+        (f: any) => f.category === 'tech' && String(f.title ?? '').startsWith('Server technology disclosed'),
+      ),
+      (body.findings ?? []).map((f: any) => f.title),
+    );
+    // No planted token, whole or by shape prefix, may survive in the
+    // serialized findings: evidence, title, description, or location.
+    for (const token of SECRET_TOKENS) {
+      check(`swarm: planted token absent from findings (${token.slice(0, 8)})`, !serialized.includes(token), serialized.slice(0, 300));
+    }
+    for (const shape of SECRET_SHAPES) {
+      check(`swarm: no ${shape} secret shape in findings`, !serialized.includes(shape), serialized.slice(0, 300));
+    }
+    // reproSteps is not scrubbed by redactFindingEvidence (review H12),
+    // so it gets its own check: a secret pasted there must never leak.
+    const reproStepsText = (body.findings ?? []).flatMap((f: any) => f.reproSteps ?? []).join('\n');
+    for (const shape of SECRET_SHAPES) {
+      check(`swarm: no ${shape} secret shape in reproSteps`, !reproStepsText.includes(shape), reproStepsText.slice(0, 300));
+    }
     console.log(`     scan=${body.scanId} findings=${body.findings?.length} workers=${body.workerReports?.length} tokens=${JSON.stringify(body.tokensUsed)}`);
 
     // 6. Asynchronous 202 Accepted + Polling endpoint test
@@ -178,7 +225,8 @@ async function main() {
         throw new Error('Gemini API error 400: Bad Request (Invalid Argument)');
       },
     };
-    await swarmRoutes(failingApp as any, { db: failingDb, queue: {} as any, provider: failingProvider as any });
+    const failingRoutes = await loadSwarmRoutes();
+    await failingRoutes(failingApp as any, { db: failingDb, queue: {} as any, provider: failingProvider as any });
 
     const rFailing = await failingApp.inject({
       method: 'POST', url: '/api/swarm/scans?sync=true',

@@ -15,7 +15,7 @@ import { GeminiProvider } from '../llm/gemini.js';
 import { config } from '../config.js';
 import { getUserDecryptedAiKey, resolveQwenBaseUrl } from './aiKey.js';
 import { parseNoiseProfile } from '../egress/noise.js';
-import { checkTargetPin } from '../guardrails/pins.js';
+import { buildPhaseCContext } from '../multiagent/head.js';
 import type { RouteDeps } from './health.js';
 import { runMultiAgentScan } from '../multiagent/orchestrator.js';
 import type { SwarmTaskContext } from '../multiagent/types.js';
@@ -104,14 +104,17 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
         ? request.headers['x-qwen-api-key'].trim()
         : undefined;
 
-    const userKey = headerGeminiKey || (await getUserDecryptedAiKey(db, user.id));
     // The stored BYOK key's provider (ai_provider column) decides whether
-    // the decrypted key is a Gemini key or a DashScope (Qwen) key. A
-    // per-request x-qwen-api-key header wins over the stored key.
+    // the decrypted key is a Gemini key or a DashScope (Qwen) key. The
+    // stored key wins over a per-request header for the same provider; a
+    // header only fills in when nothing is stored for that provider.
     const storedAiKey = await db.getAiKey(user.id).catch(() => null);
     const storedProvider = storedAiKey?.aiProvider ?? 'gemini';
+    const storedKey = await getUserDecryptedAiKey(db, user.id);
+    const userKey =
+      storedProvider === 'gemini' ? storedKey ?? headerGeminiKey : headerGeminiKey;
     const qwenKey =
-      headerQwenKey ?? (!headerGeminiKey && storedProvider === 'qwen' ? userKey : undefined);
+      storedProvider === 'qwen' ? storedKey ?? headerQwenKey : headerQwenKey;
     // The popup sends the Qwen base URL (region / workspace) alongside a
     // local Qwen key. It is re-validated against the DashScope allowlist;
     // a bad value is ignored with a warning (the provider then fails fast
@@ -127,7 +130,7 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       if ('baseUrl' in resolved) qwenBaseUrl = resolved.baseUrl;
       else app.log.warn(`[swarm] ignoring invalid x-qwen-base-url header: ${resolved.error}`);
     }
-    const hasByok = Boolean(userKey || headerQwenKey);
+    const hasByok = Boolean(userKey || qwenKey);
 
     // 1. Feature gating: swarm = active testing → Hunter+ or BYOK AI key.
     if (!isOp && !hasByok && !quota.activeTesting) {
@@ -190,78 +193,58 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     }
 
     // 5b. task: the swarm run becomes a first-class task with an
-    // exploration graph, coverage ledger and evidence store. Best-effort:
-    // a task-store failure never blocks the scan.
+    // exploration graph, coverage ledger and evidence store, plus the
+    // pin gate and approval queue. Setup is fail-closed: a task-store
+    // or pin-store failure aborts the scan instead of running it
+    // with no gate. (No task stores wired, e.g. tests, runs as before.)
     const goalText =
       d.goalText?.trim() || `Test ${target.toString()} for security vulnerabilities`;
     let taskId: string | null = null;
     let taskCtx: SwarmTaskContext | undefined;
     const noiseProfile = parseNoiseProfile(d.noiseProfile);
     if (deps.graph && deps.coverage && deps.evidence) {
+      if (!deps.approvals || !deps.approvalRules || !deps.pins) {
+        await db
+          .updateScan(scan.id, {
+            status: 'failed',
+            finishedAt: new Date().toISOString(),
+            error: 'Swarm task stores are only partly configured',
+          })
+          .catch(() => undefined);
+        return reply.status(500).send({ error: 'Swarm task stores are only partly configured' });
+      }
       try {
-        const task = await deps.graph.createTask({
-          userId: user.id,
-          goalText,
-          targetUrl: target.toString(),
-          scope: { ...scope },
-          scanId: scan.id,
-          authorizationId,
-        });
-        taskId = task.id;
-        taskCtx = {
-          taskId: task.id,
-          graph: deps.graph,
-          coverage: deps.coverage,
-          evidence: deps.evidence,
-          approvals: deps.approvals,
-          approvalRules: deps.approvalRules,
-          pins: deps.pins,
-          userId: user.id,
-          gateCache: new Map(),
-        };
-        // auto-pin the authorised target host, the
-        // authorization record covers it, so the pin gate lets the
-        // swarm work without an extra human step for the target
-        // itself. Best-effort: a pin-store failure never blocks a scan.
-        if (deps.pins) {
-          await deps.pins
-            .addPin({
-              taskId: task.id,
-              host: target.hostname,
-              port: target.port ? Number(target.port) : null,
-              pinnedBy: user.id,
-            })
-            .catch((err) => app.log.warn({ err }, 'Target auto-pin failed; pin gate may ask for the target host'));
-          // Build the per-request pin check once, from the task's pins
-          // + rules. The authorised target host is always allowed; any
-          // other host goes through the pin gate (pinned → allowed,
-          // blocked → refused, otherwise → human approval).
-          try {
-            const pins = await deps.pins.listPins(task.id);
-            const rules = await deps.pins.listRules(user.id, task.id);
-            taskCtx.pinCheck = (url: URL) => {
-              if (url.hostname.toLowerCase() === target.hostname.toLowerCase()) {
-                return { decision: 'allowed', reason: 'authorised target host' };
-              }
-              return checkTargetPin({
-                taskId: task.id,
-                host: url.hostname,
-                port: url.port ? Number(url.port) : null,
-                url: url.toString(),
-                pins,
-                rules,
-              });
-            };
-          } catch (err) {
-            // No pin data, no pin enforcement: the approval queue still
-            // gates tool calls, but an unpinned host would not be
-            // refused per-request until the operator pins it. Logged,
-            // not fatal, the scan must not die on a store hiccup.
-            app.log.warn({ err }, 'Pin data load failed; swarm runs without per-request pin enforcement');
-          }
-        }
+        const built = await buildPhaseCContext(
+          {
+            graph: deps.graph,
+            coverage: deps.coverage,
+            evidence: deps.evidence,
+            approvals: deps.approvals,
+            approvalRules: deps.approvalRules,
+            pins: deps.pins,
+          },
+          {
+            userId: user.id,
+            target,
+            scope: { ...scope },
+            scanId: scan.id,
+            authorizationId,
+            goalText,
+          },
+        );
+        taskId = built.taskId;
+        taskCtx = built.task;
       } catch (err) {
-        app.log.warn({ err }, 'task creation failed; swarm continues without a task');
+        await db
+          .updateScan(scan.id, {
+            status: 'failed',
+            finishedAt: new Date().toISOString(),
+            error: `Swarm task setup failed: ${(err as Error).message}`,
+          })
+          .catch(() => undefined);
+        return reply
+          .status(500)
+          .send({ error: `Swarm task setup failed: ${(err as Error).message}` });
       }
     }
 
@@ -310,6 +293,10 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       request.headers['x-sync'] === 'true' ||
       (request.query as Record<string, string>)?.sync === 'true';
 
+    // Private targets are never allowed in production, whatever the body asked for.
+    const allowPrivate =
+      config.nodeEnv !== 'production' && config.allowPrivateTargets && Boolean(d.allowPrivateTargets);
+
     const runSwarmJob = async () => {
       await db
         .updateScan(scan.id, {
@@ -334,7 +321,7 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
             maxTotalTokens: d.maxTokens,
             maxDurationMs: d.timeoutMinutes ? d.timeoutMinutes * 60_000 : undefined,
             requestsPerSecond: d.requestsPerSecond,
-            allowPrivateTargets: d.allowPrivateTargets,
+            allowPrivateTargets: allowPrivate,
             noiseProfile,
           },
           specialists: d.specialists,

@@ -3,7 +3,10 @@
  * Config only. Credentials live in the secrets store, never here.
  * Transports are http/sse; stdio is rejected, no process host exists yet.
  */
+import net from 'node:net';
 import { randomUUID } from 'node:crypto';
+import { config } from '../config.js';
+import { assertPublicHost, isPrivateIp } from '../guardrails/scope.js';
 import { MCP_TRANSPORTS, type McpTransport } from './client.js';
 
 /** One configured MCP server (config only, no credential, ever). */
@@ -54,6 +57,24 @@ export function assertMcpServerUrl(raw: string): URL {
   return parsed;
 }
 
+/**
+ * SSRF check for a server URL at registration. A literal private IP is
+ * refused everywhere (no DNS involved); a hostname is resolved and
+ * refused in production, where private targets are never allowed. In
+ * non-production a hostname passes here and the client re-checks it on
+ * every request, so a local dev server still registers.
+ */
+export async function assertMcpServerPublic(raw: string): Promise<void> {
+  const parsed = assertMcpServerUrl(raw);
+  const host = parsed.hostname;
+  if (net.isIP(host) && isPrivateIp(host)) {
+    throw new Error(`mcp_private_host: MCP server URL points at a private address (${host})`);
+  }
+  if (config.nodeEnv === 'production') {
+    await assertPublicHost(host, false);
+  }
+}
+
 /** 'http' | 'sse' only. stdio is rejected, not stored: no process host exists yet. */
 export function assertMcpTransport(value: unknown): asserts value is McpTransport {
   if (typeof value !== 'string' || !(MCP_TRANSPORTS as readonly string[]).includes(value)) {
@@ -93,6 +114,7 @@ export class MemoryMcpServerStore implements McpServerStore {
 
   async create(input: CreateMcpServerInput): Promise<McpServerRecord> {
     const clean = validateMcpServerInput(input);
+    await assertMcpServerPublic(clean.url);
     if (!input.userId) throw new Error('mcp_user_required');
     for (const existing of this.servers.values()) {
       if (existing.userId === input.userId && existing.label === clean.label) {
@@ -169,6 +191,7 @@ export class PostgresMcpServerStore implements McpServerStore {
 
   async create(input: CreateMcpServerInput): Promise<McpServerRecord> {
     const clean = validateMcpServerInput(input);
+    await assertMcpServerPublic(clean.url);
     if (!input.userId) throw new Error('mcp_user_required');
     // ON CONFLICT DO NOTHING keeps the (user_id, label) unique index as
     // the final word; a missing row means the label was already taken.
