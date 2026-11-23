@@ -4,6 +4,7 @@ import { Footer } from '../components/Footer';
 import { Nav } from '../components/Nav';
 import { Reveal } from '../components/Reveal';
 import { CoveragePanel, type CoverageEntryView, type CoverageSummary } from '../components/CoveragePanel';
+import { ApprovalsPanel } from '../components/ApprovalsPanel';
 import { useAuth } from '../lib/auth';
 import { navigate } from '../lib/router';
 
@@ -261,14 +262,14 @@ export function TasksPage() {
               {tasks !== null && tasks.length > 0 && (
                 <ul className="divide-y divide-white/8 overflow-hidden rounded-2xl border border-white/10">
                   {tasks.map((task) => {
-                    const open = openId === task.id;
+                    const isOpen = openId === task.id;
                     const d = details[task.id];
                     return (
                       <li key={task.id} className="bg-black/20">
                         <button
                           type="button"
                           onClick={() => void open(task)}
-                          aria-expanded={open}
+                          aria-expanded={isOpen}
                           className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-white/5"
                         >
                           <span className="min-w-0">
@@ -286,7 +287,7 @@ export function TasksPage() {
                           </span>
                         </button>
 
-                        {open && (
+                        {isOpen && (
                           <div className="border-t border-white/8 px-4 py-4">
                             {loadingDetail === task.id && !d && (
                               <p className="font-mono text-[11px] tracking-[0.18em] text-slate2">
@@ -419,6 +420,10 @@ export function TasksPage() {
                                     />
                                   </div>
                                 )}
+
+                                <div className="mt-5">
+                                  <ApprovalsPanel taskId={task.id} />
+                                </div>
                               </>
                             )}
                           </div>
