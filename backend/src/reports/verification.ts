@@ -17,8 +17,17 @@ import type { Finding } from '../types.js';
  * never executes an attack chain.
  */
 
+/**
+ * A finding counts as verified only at POE 3 or higher (see reports/poe.ts).
+ * A record that still carries status 'verified' from before the POE gate,
+ * or with a POE below 3, is a hint, not a verified chain.
+ */
+export function isVerifiedFinding(f: Finding): boolean {
+  return f.verification?.status === 'verified' && assignPoe(f).poe >= 3;
+}
+
 export function verifiedFindings(findings: Finding[]): Finding[] {
-  return findings.filter((f) => f.verification?.status === 'verified');
+  return findings.filter(isVerifiedFinding);
 }
 
 export function fixedFindings(findings: Finding[]): Finding[] {
@@ -27,7 +36,7 @@ export function fixedFindings(findings: Finding[]): Finding[] {
 
 export function hintFindings(findings: Finding[]): Finding[] {
   return findings.filter(
-    (f) => f.verification?.status !== 'verified' && f.verification?.status !== 'fixed',
+    (f) => !isVerifiedFinding(f) && f.verification?.status !== 'fixed',
   );
 }
 
@@ -37,7 +46,7 @@ export function verificationLabel(f: Finding): string {
   if (!v) {
     return `Hint — not verified (no depth-ladder result; treat as unconfirmed), POE ${poe}`;
   }
-  if (v.status === 'verified') {
+  if (v.status === 'verified' && poe >= 3) {
     return (
       `Verified — depth: ${v.depth}, measured impact: ${v.impact}` +
       (v.canaryToken ? `, canary: ${v.canaryToken}` : '') +

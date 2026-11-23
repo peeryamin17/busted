@@ -144,12 +144,15 @@ export function securityScore(
     };
   });
 
-  const cov: CoverageMetrics = {
-    mode: coverage?.mode ?? 'active',
-    endpointsDiscovered: coverage?.endpointsDiscovered ?? Math.max(1, findings.length),
-    endpointsActivelyTested: coverage?.endpointsActivelyTested ?? Math.max(1, findings.length),
-    authenticated: coverage?.authenticated ?? false,
-  };
+  const cov: CoverageMetrics =
+    coverage === undefined
+      ? { mode: 'passive', endpointsDiscovered: 0, endpointsActivelyTested: 0, authenticated: false }
+      : {
+          mode: coverage.mode ?? 'active',
+          endpointsDiscovered: coverage.endpointsDiscovered ?? Math.max(1, findings.length),
+          endpointsActivelyTested: coverage.endpointsActivelyTested ?? Math.max(1, findings.length),
+          authenticated: coverage.authenticated ?? false,
+        };
 
   const report = computeSecurityScore(scoreableFindings, cov);
 
@@ -205,7 +208,7 @@ export interface OntologyScoreReport {
   effectiveGrade: 'A' | 'B' | 'C' | 'D' | 'F' | 'INCOMPLETE';
   matrices: {
     ontologyRiskIndex: number;
-    controlHygieneScore: number; // 0..100
+    controlHygieneScore: number | null; // 0..100, null when nothing was measured
     driftPenalty: number;
     coverageRatio: number;       // 0..1
   };
@@ -228,7 +231,7 @@ const BLAST_ALPHA = 0.25;
 const DRIFT_CONTROL_PENALTY = 12;
 const ONTOLOGY_DECAY_LAMBDA = 0.015;
 
-function computeControlHygiene(ctrl: ControlMatrixInput): number {
+function computeControlHygiene(ctrl: ControlMatrixInput): number | null {
   const ratios: number[] = [];
 
   if (ctrl.totalMutatingEndpoints > 0) {
@@ -241,7 +244,7 @@ function computeControlHygiene(ctrl: ControlMatrixInput): number {
     ratios.push(ctrl.hardenedSessionCookies / ctrl.totalSessionCookies);
   }
 
-  if (ratios.length === 0) return 100;
+  if (ratios.length === 0) return null;
   const mean = ratios.reduce((acc, v) => acc + v, 0) / ratios.length;
   return Math.round(mean * 100);
 }
@@ -332,7 +335,7 @@ export function computeOntologyScore(params: {
   let effectiveGrade: OntologyScoreReport['effectiveGrade'];
   if (coverage.mode === 'passive' || coverageRatio < 0.25) {
     effectiveGrade = postureScore < 60 ? 'D' : 'INCOMPLETE';
-  } else if (postureScore >= 90 && controlHygieneScore >= 85) {
+  } else if (postureScore >= 90 && controlHygieneScore !== null && controlHygieneScore >= 85) {
     effectiveGrade = 'A';
   } else if (postureScore >= 80) {
     effectiveGrade = 'B';

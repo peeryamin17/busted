@@ -81,7 +81,7 @@ async function main() {
       { category: 'xss', title: 'Reflected XSS in search', location: 'http://127.0.0.1:9/search?q=hello' },
       oneParam, baseOpts,
     );
-    check('xss: one param only → verified/confirmed', v.status === 'verified' && v.depth === 'confirmed', v);
+    check('xss: one param only → hint/confirmed (POE 2 stays hint)', v.status === 'hint' && v.depth === 'confirmed' && v.poe === 2, v);
     check('xss: single-context impact', v.impact === 'single-context', v.impact);
   }
   {

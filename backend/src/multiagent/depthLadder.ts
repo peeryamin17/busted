@@ -4,11 +4,13 @@ import {
   type ToolExecutionContext,
 } from '../agent/tools.js';
 import { redactHeaders, redactText } from '../guardrails/redact.js';
+import { assignPoe } from '../reports/poe.js';
 import type {
   DepthEvidence,
   DepthImpact,
   DepthLevel,
   FindingVerification,
+  VerificationStatus,
 } from '../types.js';
 
 /**
@@ -716,8 +718,25 @@ export async function validateFindingWithLadder(
     state.stopReason = `probe budget exhausted (${maxProbes} probes) — ladder stopped`;
   }
   const { impact, summary } = impactFor(depth, kind);
+  const poeLevel = assignPoe({
+    verification: {
+      status: 'verified',
+      depth,
+      impact,
+      impactSummary: summary,
+      evidence: state.evidence,
+      testedAt: now(),
+      method: LADDER_METHOD,
+    },
+  }).poe;
+  const status: VerificationStatus =
+    depth === 'unproven'
+      ? 'hint'
+      : poeLevel >= 3
+        ? 'verified'
+        : 'hint';
   return {
-    status: depth === 'unproven' ? 'hint' : 'verified',
+    status,
     depth,
     impact,
     impactSummary: state.stopReason
@@ -726,6 +745,7 @@ export async function validateFindingWithLadder(
     canaryToken: canary,
     evidence: state.evidence,
     ...(state.stopReason ? { stopReason: state.stopReason } : {}),
+    poe: poeLevel,
     testedAt: now(),
     method: LADDER_METHOD,
   };
