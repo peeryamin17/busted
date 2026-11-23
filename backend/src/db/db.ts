@@ -4,6 +4,8 @@ import type {
   ApiKeyRecord,
   AuthorizationRecord,
   AuthzType,
+  DepthEvidence,
+  DepthLevel,
   Finding,
   PairingCodeRecord,
   PlanTier,
@@ -12,6 +14,7 @@ import type {
   SessionRecord,
   UserRecord,
 } from '../types.js';
+import type { RetestVerification } from '../multiagent/retester.js';
 import type { RequesterOrigin, WebCheckRecord, WebFinding, WebInfo } from '../webcheck/types.js';
 import type { DetectionRecord } from '../detection/types.js';
 
@@ -146,6 +149,30 @@ export interface Database {
   addFindings(items: Array<Omit<Finding, 'id' | 'createdAt'>>): Promise<Finding[]>;
   listFindings(scanId: string): Promise<Finding[]>;
 
+  /**
+   * Persist one retester verdict (see multiagent/retester.ts, migration 020).
+   * `taskId` is the task id as the route received it; `scanId` is the scan
+   * the retest ran against.
+   */
+  recordRetest(input: Omit<RetestRecord, 'id'>): Promise<RetestRecord>;
+  /**
+   * A task's retests, newest first. Matches rows whose task_id OR scan_id
+   * equals the id, until the tasks table exists the route resolves
+   * a task id against scans, so both columns carry the same id.
+   */
+  listRetests(taskId: string): Promise<RetestRecord[]>;
+  /**
+   * Replace a finding's verification JSON with the retester's verdict
+   * (see `applyRetestVerdict`). The verification may carry the new 'fixed'
+   * status, which the JSONB column accepts today; the `Finding` type gains
+   * 'fixed' when `VerificationStatus` in types.ts is extended. Returns null
+   * when no finding with that id exists.
+   */
+  updateFindingVerification(
+    findingId: string,
+    verification: RetestVerification,
+  ): Promise<Finding | null>;
+
   recordUsage(userId: string, kind: string, quantity: number, scanId?: string): Promise<void>;
   countScansSince(userId: string, sinceIso: string): Promise<number>;
   sumUsageSince(userId: string, kind: string, sinceIso: string): Promise<number>;
@@ -217,6 +244,24 @@ export interface WebCheckSummary {
 }
 
 /**
+ * One row of the `retests` table (migration 020): one re-run of a finding's
+ * proof by the retester loop. `taskId` is null until the tasks table
+ * lands and the route can store a real task id.
+ */
+export interface RetestRecord {
+  id: string;
+  taskId: string | null;
+  findingId: string;
+  scanId: string | null;
+  verdict: 'reproduced' | 'fixed' | 'inconclusive';
+  depth: DepthLevel | null;
+  evidence: DepthEvidence[];
+  impactSummary: string;
+  testedAt: string; // ISO
+  method: string;
+}
+
+/**
  * One LLM call's token accounting, in provider-native token counts.
  * Cost is tracked in tokens only, no price tables live here.
  */
@@ -260,6 +305,7 @@ export class MemoryDatabase implements Database {
   private authorizations = new Map<string, AuthorizationRecord>();
   private scans = new Map<string, Scan>();
   private findings = new Map<string, Finding[]>();
+  private retests: RetestRecord[] = [];
   private usage: Array<{ userId: string; kind: string; quantity: number; scanId?: string; at: string }> = [];
   private waitlist = new Set<string>(); // normalised emails
   private webChecks: WebCheckRecord[] = [];
@@ -590,6 +636,33 @@ export class MemoryDatabase implements Database {
     return (this.findings.get(scanId) ?? []).map((f) => ({ ...f }));
   }
 
+  async recordRetest(input: Omit<RetestRecord, 'id'>): Promise<RetestRecord> {
+    const rec: RetestRecord = { ...input, id: randomUUID(), evidence: [...input.evidence] };
+    this.retests.push(rec);
+    return { ...rec, evidence: [...rec.evidence] };
+  }
+
+  async listRetests(taskId: string): Promise<RetestRecord[]> {
+    return this.retests
+      .filter((r) => r.taskId === taskId || r.scanId === taskId)
+      .sort((a, b) => (a.testedAt < b.testedAt ? 1 : -1))
+      .map((r) => ({ ...r, evidence: [...r.evidence] }));
+  }
+
+  async updateFindingVerification(
+    findingId: string,
+    verification: RetestVerification,
+  ): Promise<Finding | null> {
+    for (const list of this.findings.values()) {
+      const f = list.find((x) => x.id === findingId);
+      if (f) {
+        f.verification = verification;
+        return { ...f };
+      }
+    }
+    return null;
+  }
+
   async recordUsage(userId: string, kind: string, quantity: number, scanId?: string): Promise<void> {
     this.usage.push({ userId, kind, quantity, scanId, at: nowIso() });
   }
@@ -818,6 +891,26 @@ export class PostgresDatabase implements Database {
             ? (JSON.parse(row['verification']) as Finding['verification'])
             : (row['verification'] as Finding['verification']),
       createdAt: (row['created_at'] as Date).toISOString(),
+    };
+  }
+
+  private toRetest(row: Record<string, unknown>): RetestRecord {
+    return {
+      id: row['id'] as string,
+      taskId: row['task_id'] == null ? null : (row['task_id'] as string),
+      findingId: row['finding_id'] as string,
+      scanId: row['scan_id'] == null ? null : (row['scan_id'] as string),
+      verdict: row['verdict'] as RetestRecord['verdict'],
+      depth: row['depth'] == null ? null : (row['depth'] as DepthLevel),
+      evidence:
+        row['evidence'] == null
+          ? []
+          : typeof row['evidence'] === 'string'
+            ? (JSON.parse(row['evidence']) as DepthEvidence[])
+            : (row['evidence'] as DepthEvidence[]),
+      impactSummary: (row['impact_summary'] as string) ?? '',
+      testedAt: (row['tested_at'] as Date).toISOString(),
+      method: (row['method'] as string) ?? '',
     };
   }
 
@@ -1344,6 +1437,45 @@ export class PostgresDatabase implements Database {
       [scanId]
     );
     return rows.map((r: Record<string, unknown>) => this.toFinding(r));
+  }
+
+  async recordRetest(input: Omit<RetestRecord, 'id'>): Promise<RetestRecord> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO retests
+         (task_id, finding_id, scan_id, verdict, depth, evidence, impact_summary, tested_at, method)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [
+        input.taskId,
+        input.findingId,
+        input.scanId,
+        input.verdict,
+        input.depth,
+        JSON.stringify(input.evidence),
+        input.impactSummary,
+        input.testedAt,
+        input.method,
+      ]
+    );
+    return this.toRetest(rows[0]);
+  }
+
+  async listRetests(taskId: string): Promise<RetestRecord[]> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM retests WHERE task_id = $1 OR scan_id = $1 ORDER BY tested_at DESC`,
+      [taskId]
+    );
+    return rows.map((r: Record<string, unknown>) => this.toRetest(r));
+  }
+
+  async updateFindingVerification(
+    findingId: string,
+    verification: RetestVerification,
+  ): Promise<Finding | null> {
+    const { rows } = await this.pool.query(
+      `UPDATE findings SET verification = $2::jsonb WHERE id = $1 RETURNING *`,
+      [findingId, JSON.stringify(verification)]
+    );
+    return rows.length === 0 ? null : this.toFinding(rows[0]);
   }
 
   async recordUsage(userId: string, kind: string, quantity: number, scanId?: string): Promise<void> {
