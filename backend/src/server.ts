@@ -20,12 +20,17 @@ import { swarmRoutes } from './routes/multiagent.js';
 import { tasksRoutes } from './routes/tasks.js';
 import { coverageRoutes } from './routes/coverage.js';
 import { retestRoutes } from './routes/retests.js';
+import { approvalsRoutes } from './routes/approvals.js';
+import { pinsRoutes } from './routes/pins.js';
 import { v1CompatRoutes } from './routes/v1compat.js';
 import { waitlistRoutes } from './routes/waitlist.js';
 import { webCheckRoutes } from './routes/webcheck.js';
 import { MemoryGraphStore, PostgresGraphStore, type GraphStore } from './graph/store.js';
 import { MemoryCoverageStore, PostgresCoverageStore, type CoverageStore } from './coverage/ledger.js';
 import { MemoryEvidenceStore, PostgresEvidenceStore, type EvidenceStore } from './evidence/snapshots.js';
+import { MemoryApprovalStore, PostgresApprovalStore, type ApprovalStore } from './approvals/store.js';
+import { MemoryApprovalRuleStore, PostgresApprovalRuleStore, type ApprovalRuleStore } from './approvals/rules.js';
+import { MemoryPinStore, PostgresPinStore, type PinStore } from './guardrails/pins.js';
 import { createToolContext } from './agent/tools.js';
 import { createDepthProber } from './multiagent/depthLadder.js';
 import { retestFinding } from './multiagent/retester.js';
@@ -89,6 +94,25 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
         new PostgresEvidenceStore((sql, params) => (pool as any).query(sql, params))
       : new MemoryEvidenceStore();
 
+  // ── stores (approval queue + rules, target pins) ──
+  // Same pattern as the stores above: memory mode in-process,
+  // Postgres mode over the pool.
+  const approvals: ApprovalStore =
+    deps.db.kind === 'postgres' && pool
+      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        new PostgresApprovalStore((sql, params) => (pool as any).query(sql, params))
+      : new MemoryApprovalStore();
+  const approvalRules: ApprovalRuleStore =
+    deps.db.kind === 'postgres' && pool
+      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        new PostgresApprovalRuleStore((sql, params) => (pool as any).query(sql, params))
+      : new MemoryApprovalRuleStore();
+  const pins: PinStore =
+    deps.db.kind === 'postgres' && pool
+      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        new PostgresPinStore((sql, params) => (pool as any).query(sql, params))
+      : new MemoryPinStore();
+
   /**
    * Production retest runner: rebuilds the guarded tool context from the
    * task's own target + scope (same enforcement as the swarm, scope,
@@ -123,8 +147,10 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
     await googleAuthRoutes(instance, routeDeps);
     await aiKeyRoutes(instance, routeDeps);
     await scanRoutes(instance, routeDeps);
-    await swarmRoutes(instance, { ...routeDeps, graph, coverage, evidence });
+    await swarmRoutes(instance, { ...routeDeps, graph, coverage, evidence, approvals, approvalRules, pins });
     await tasksRoutes(instance, { db: deps.db, graph });
+    await approvalsRoutes(instance, { db: deps.db, graph, approvals, rules: approvalRules });
+    await pinsRoutes(instance, { db: deps.db, graph, pins });
     await coverageRoutes(instance, {
       coverage,
       getTask: async (id, userId) => {

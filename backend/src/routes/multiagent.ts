@@ -14,6 +14,8 @@ import { FailoverProvider } from '../llm/qwen.js';
 import { GeminiProvider } from '../llm/gemini.js';
 import { config } from '../config.js';
 import { getUserDecryptedAiKey, resolveQwenBaseUrl } from './aiKey.js';
+import { parseNoiseProfile } from '../egress/noise.js';
+import { checkTargetPin } from '../guardrails/pins.js';
 import type { RouteDeps } from './health.js';
 import { runMultiAgentScan } from '../multiagent/orchestrator.js';
 import type { SwarmTaskContext } from '../multiagent/types.js';
@@ -71,6 +73,8 @@ const swarmScanSchema = z.object({
     .optional(),
   /** Plain-language goal for the run. */
   goalText: z.string().min(1).max(5000).optional(),
+  /** Noise-governor profile for the run; default 'balanced'. */
+  noiseProfile: z.enum(['off', 'quiet', 'balanced', 'aggressive']).optional(),
 });
 
 export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promise<void> {
@@ -192,6 +196,7 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       d.goalText?.trim() || `Test ${target.toString()} for security vulnerabilities`;
     let taskId: string | null = null;
     let taskCtx: SwarmTaskContext | undefined;
+    const noiseProfile = parseNoiseProfile(d.noiseProfile);
     if (deps.graph && deps.coverage && deps.evidence) {
       try {
         const task = await deps.graph.createTask({
@@ -203,7 +208,58 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
           authorizationId,
         });
         taskId = task.id;
-        taskCtx = { taskId: task.id, graph: deps.graph, coverage: deps.coverage, evidence: deps.evidence };
+        taskCtx = {
+          taskId: task.id,
+          graph: deps.graph,
+          coverage: deps.coverage,
+          evidence: deps.evidence,
+          approvals: deps.approvals,
+          approvalRules: deps.approvalRules,
+          pins: deps.pins,
+          userId: user.id,
+          gateCache: new Map(),
+        };
+        // auto-pin the authorised target host, the
+        // authorization record covers it, so the pin gate lets the
+        // swarm work without an extra human step for the target
+        // itself. Best-effort: a pin-store failure never blocks a scan.
+        if (deps.pins) {
+          await deps.pins
+            .addPin({
+              taskId: task.id,
+              host: target.hostname,
+              port: target.port ? Number(target.port) : null,
+              pinnedBy: user.id,
+            })
+            .catch((err) => app.log.warn({ err }, 'Target auto-pin failed; pin gate may ask for the target host'));
+          // Build the per-request pin check once, from the task's pins
+          // + rules. The authorised target host is always allowed; any
+          // other host goes through the pin gate (pinned → allowed,
+          // blocked → refused, otherwise → human approval).
+          try {
+            const pins = await deps.pins.listPins(task.id);
+            const rules = await deps.pins.listRules(user.id, task.id);
+            taskCtx.pinCheck = (url: URL) => {
+              if (url.hostname.toLowerCase() === target.hostname.toLowerCase()) {
+                return { decision: 'allowed', reason: 'authorised target host' };
+              }
+              return checkTargetPin({
+                taskId: task.id,
+                host: url.hostname,
+                port: url.port ? Number(url.port) : null,
+                url: url.toString(),
+                pins,
+                rules,
+              });
+            };
+          } catch (err) {
+            // No pin data, no pin enforcement: the approval queue still
+            // gates tool calls, but an unpinned host would not be
+            // refused per-request until the operator pins it. Logged,
+            // not fatal, the scan must not die on a store hiccup.
+            app.log.warn({ err }, 'Pin data load failed; swarm runs without per-request pin enforcement');
+          }
+        }
       } catch (err) {
         app.log.warn({ err }, 'task creation failed; swarm continues without a task');
       }
@@ -279,6 +335,7 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
             maxDurationMs: d.timeoutMinutes ? d.timeoutMinutes * 60_000 : undefined,
             requestsPerSecond: d.requestsPerSecond,
             allowPrivateTargets: d.allowPrivateTargets,
+            noiseProfile,
           },
           specialists: d.specialists,
           provider,

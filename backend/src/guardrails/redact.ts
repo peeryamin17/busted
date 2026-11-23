@@ -31,12 +31,37 @@ const PATTERNS: RedactionPattern[] = [
 export const MAX_EVIDENCE_LENGTH = 500;
 
 /**
+ * BugSeek's own benign canary tokens (`bs` + 16 hex chars, see
+ * multiagent/depthLadder.ts `generateCanary`). They are markers, never
+ * secrets, ours, safe to show, and the verbatim receipt check depends
+ * on them surviving redaction: for XSS the canary reflected in bound
+ * proof IS the receipt.
+ */
+const CANARY_RE = /\bbs[0-9a-f]{16}\b/g;
+
+/**
  * Mask secrets/PII in a free-text snippet and truncate it. Idempotent.
+ *
+ * Canaries are lifted out before the patterns run and restored after:
+ * a canary's digit runs otherwise match the phone / card-number
+ * patterns and get mangled (e.g. `bs6a12ded794735159` → 
+ * `bs6a12ded[REDACTED:phone]`), which breaks the receipt check
+ * non-deterministically, only canaries whose hex happens to contain a
+ * long digit run are hit, so the failure looks flaky when it is not.
  */
 export function redactText(input: string, maxLength: number = MAX_EVIDENCE_LENGTH): string {
-  let out = input;
+  const canaries: string[] = [];
+  let out = input.replace(CANARY_RE, (m) => {
+    canaries.push(m);
+    return `\u0000CANARY${canaries.length - 1}\u0000`;
+  });
   for (const p of PATTERNS) {
     out = out.replace(p.re, `[REDACTED:${p.kind}]`);
+  }
+  if (canaries.length > 0) {
+    // The NUL delimiters are part of the match: a literal "CANARY5" in
+    // the original text must never be mistaken for a placeholder.
+    out = out.replace(/\u0000CANARY(\d+)\u0000/g, (_, i) => canaries[Number(i)] ?? '');
   }
   if (out.length > maxLength) {
     out = out.slice(0, maxLength) + '…[truncated]';

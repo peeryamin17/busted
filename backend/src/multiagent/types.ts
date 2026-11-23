@@ -11,6 +11,10 @@ import type { AgentTool, ToolExecutionContext } from '../agent/tools.js';
 import type { GraphStore } from '../graph/store.js';
 import type { CoverageStore } from '../coverage/ledger.js';
 import type { EvidenceSnapshot, EvidenceStore } from '../evidence/snapshots.js';
+import type { ApprovalStore } from '../approvals/store.js';
+import type { ApprovalRuleStore } from '../approvals/rules.js';
+import type { PinStore } from '../guardrails/pins.js';
+import type { NoiseProfileName } from '../egress/noise.js';
 
 /**
  * Optional task context for a swarm run. When present, the head
@@ -18,12 +22,24 @@ import type { EvidenceSnapshot, EvidenceStore } from '../evidence/snapshots.js';
  * ledger and evidence store as it runs; when absent (CLI, tests, older
  * callers) the swarm behaves exactly as before. Recording never breaks
  * a scan, every graph/coverage/evidence write is guarded in head.ts.
+ *
+ * adds the supervision wiring (all optional, absent = ungated
+ * behaviour as before): the approval queue + rules, the pin store, the
+ * task owner's id, a per-run pin-check callback built by the route, and
+ * a per-run cache of gate verdicts so an identical tool call is judged
+ * once per run instead of once per worker.
  */
 export interface SwarmTaskContext {
   taskId: string;
   graph: GraphStore;
   coverage: CoverageStore;
   evidence: EvidenceStore;
+  approvals?: ApprovalStore;
+  approvalRules?: ApprovalRuleStore;
+  pins?: PinStore;
+  userId?: string;
+  pinCheck?: (url: URL) => { decision: 'allowed' | 'ask' | 'blocked'; reason: string };
+  gateCache?: Map<string, 'allowed' | 'denied'>;
 }
 
 /**
@@ -123,6 +139,12 @@ export interface MultiAgentLimits {
   requestsPerSecond: number;
   /** Skip private-target refusal (self-hosted labs like Juice Shop). */
   allowPrivateTargets: boolean;
+  /**
+   * Noise-governor profile for this run. When set, the head
+   * attaches one NoiseGovernor to the shared tool context; when absent
+   * (tests, CLI) requests run ungoverned, as before.
+   */
+  noiseProfile?: NoiseProfileName;
 }
 
 export interface MultiAgentOptions {
@@ -152,6 +174,7 @@ export type MultiAgentEventKind =
   | 'head_review'
   | 'head_synthesis'
   | 'guardrail'
+  | 'approval_needed'
   | 'done';
 
 export interface MultiAgentEvent {
@@ -194,4 +217,6 @@ export interface WorkerContext {
   tokenBudget: { input: number; output: number; max: number };
   shouldContinue?: () => 'run' | 'paused' | 'cancelled';
   onEvent?: (e: MultiAgentEvent) => void;
+  /** task context, carries the approval queue the gate consults. */
+  task?: SwarmTaskContext;
 }

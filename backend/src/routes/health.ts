@@ -5,6 +5,9 @@ import type { LLMProvider } from '../llm/provider.js';
 import type { GraphStore } from '../graph/store.js';
 import type { CoverageStore } from '../coverage/ledger.js';
 import type { EvidenceStore } from '../evidence/snapshots.js';
+import type { ApprovalStore } from '../approvals/store.js';
+import type { ApprovalRuleStore } from '../approvals/rules.js';
+import type { PinStore } from '../guardrails/pins.js';
 
 export interface RouteDeps {
   db: Database;
@@ -14,6 +17,10 @@ export interface RouteDeps {
   graph?: GraphStore;
   coverage?: CoverageStore;
   evidence?: EvidenceStore;
+  /** stores, approval queue, rules, target pins. */
+  approvals?: ApprovalStore;
+  approvalRules?: ApprovalRuleStore;
+  pins?: PinStore;
 }
 
 export async function healthRoutes(app: FastifyInstance, deps: RouteDeps): Promise<void> {

@@ -8,6 +8,8 @@ import type {
 } from './types.js';
 import { assessHoneypotSignals, type BaselineProfile, type ProbeObservation } from './honeypot.js';
 import { codeOwnedTail, dataEnvelope, frameToolOutput } from '../llm/boundary.js';
+import { gateToolCall } from '../approvals/gate.js';
+import { DEFAULT_APPROVAL_TIMEOUT_MS } from '../approvals/service.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -195,6 +197,37 @@ export async function runWorker(
     if (!tool) {
       event('guardrail', `${def.name}: unknown tool "${test.tool}" — skipping`);
       continue;
+    }
+
+    // GATE, standing rules, then the LLM judge, then the
+    // operator. A denied step is skipped, never silently retried, and
+    // never re-requested: the per-run cache remembers the verdict.
+    // Ungated runs (no task queue attached) proceed exactly as before.
+    if (ctx.task?.approvals && ctx.task?.userId) {
+      const remainingMs = ctx.deadline - Date.now();
+      if (remainingMs <= 0) {
+        event('guardrail', `${def.name}: time budget exhausted — stopping`);
+        break;
+      }
+      const gate = await gateToolCall({
+        provider,
+        approvals: ctx.task.approvals,
+        approvalRules: ctx.task.approvalRules,
+        graph: ctx.task.graph,
+        taskId: ctx.task.taskId,
+        userId: ctx.task.userId,
+        tool: test.tool,
+        args: test.args ?? {},
+        targetUrl: ctx.targetUrl,
+        scope: ctx.scope,
+        timeoutMs: Math.min(DEFAULT_APPROVAL_TIMEOUT_MS, remainingMs),
+        cache: ctx.task.gateCache,
+      });
+      if (!gate.proceed) {
+        report.notes.push(`step "${test.name}" skipped: ${gate.reason}`);
+        event('guardrail', `${def.name}: skipped "${test.name}" — ${gate.reason}`);
+        continue;
+      }
     }
 
     // ACT

@@ -2,6 +2,13 @@ import type { ScopePolicy } from '../types.js';
 import { assertPublicHost, assertUrlAllowed } from '../guardrails/scope.js';
 import { TokenBucketRateLimiter } from '../guardrails/ratelimit.js';
 import { redactHeaders, redactText } from '../guardrails/redact.js';
+import { assessmentHeaders } from '../guardrails/identityHeader.js';
+import {
+  coalescedGet,
+  fetchWithGovernor,
+  type GovernedFetchInit,
+  type NoiseGovernor,
+} from '../egress/noise.js';
 
 /**
  * Agent tool interface. Every tool that touches the network goes through
@@ -21,6 +28,22 @@ export interface ToolExecutionContext {
   rateLimiter: TokenBucketRateLimiter;
   allowPrivateTargets: boolean;
   fetchTimeoutMs: number;
+  /**
+   * Task that owns this run, carried only so the assessment-identity
+   * header can name it. Absent for one-off / pre-task callers.
+   */
+  taskId?: string;
+  /**
+   * Target-pin gate for this task, built once by the caller from the
+   * task's pins + rules. Absent = no pin enforcement (pre-Phase-C
+   * callers, e.g. one-off active tests with no task).
+   */
+  pinCheck?: (url: URL) => { decision: 'allowed' | 'ask' | 'blocked'; reason: string };
+  /**
+   * Noise governor for this task run. Absent = ungoverned,
+   * as before, the global rate limiter still applies.
+   */
+  noise?: NoiseGovernor;
 }
 
 export interface ToolResult {
@@ -47,7 +70,12 @@ export interface AgentTool {
 export function createToolContext(
   target: URL,
   scope: ScopePolicy,
-  allowPrivateTargets: boolean
+  allowPrivateTargets: boolean,
+  opts?: {
+    taskId?: string;
+    pinCheck?: ToolExecutionContext['pinCheck'];
+    noise?: NoiseGovernor;
+  },
 ): ToolExecutionContext {
   return {
     target,
@@ -55,6 +83,9 @@ export function createToolContext(
     rateLimiter: new TokenBucketRateLimiter(scope.maxRequestsPerSecond),
     allowPrivateTargets,
     fetchTimeoutMs: 15_000,
+    ...(opts?.taskId ? { taskId: opts.taskId } : {}),
+    ...(opts?.pinCheck ? { pinCheck: opts.pinCheck } : {}),
+    ...(opts?.noise ? { noise: opts.noise } : {}),
   };
 }
 
@@ -73,36 +104,75 @@ export async function guardedFetch(
   ctx: ToolExecutionContext,
   init: GuardedFetchInit = {}
 ): Promise<Response> {
-  let current = urlStr;
-  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
-    // 1. Scope enforcement — throws if out of scope (checked on EVERY hop).
-    const url = assertUrlAllowed(current, ctx.target, ctx.scope);
-    // 2. Rate limiting — wait for a token (never burst/DoS).
-    await ctx.rateLimiter.take();
-    // 3. SSRF guard — refuse private/internal hosts (re-resolved every hop,
-    //    so a redirect to a DNS-rebinding or privately-resolving host is caught).
-    await assertPublicHost(url.hostname, ctx.allowPrivateTargets);
+  const run = async (): Promise<Response> => {
+    let current = urlStr;
+    for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+      // 1. Scope enforcement, throws if out of scope (checked on EVERY hop).
+      const url = assertUrlAllowed(current, ctx.target, ctx.scope);
+      // 1b. Target-pin gate, a host nobody approved is never fetched.
+      // Checked before the rate limiter so a refused host burns no token.
+      if (ctx.pinCheck) {
+        const pin = ctx.pinCheck(url);
+        if (pin.decision === 'blocked') {
+          throw Object.assign(new Error(`Target blocked: ${pin.reason}`), { statusCode: 403 });
+        }
+        if (pin.decision === 'ask') {
+          throw Object.assign(new Error(`Target needs human approval: ${pin.reason}`), { statusCode: 409 });
+        }
+      }
+      // 2. Rate limiting, wait for a token (never burst/DoS).
+      await ctx.rateLimiter.take();
+      // 3. SSRF guard, refuse private/internal hosts (re-resolved every hop,
+      //    so a redirect to a DNS-rebinding or privately-resolving host is caught).
+      await assertPublicHost(url.hostname, ctx.allowPrivateTargets);
 
-    const res = await fetch(url.toString(), {
-      method: init.method ?? 'GET',
-      headers: { 'user-agent': 'BugSeekAI/0.2 (authorized security scan)', ...(init.headers ?? {}) },
-      body: hop === 0 ? init.body : undefined,
-      // Handle redirects manually so each hop is scope- and SSRF-checked.
-      redirect: 'manual',
-      signal: AbortSignal.timeout(ctx.fetchTimeoutMs),
-    });
+      // 4. Noise governor (per hop): per-host token + in-flight slot +
+      //    jitter, plus one Retry-After retry for this hop only. The
+      //    assessment-identity header is merged LAST so a caller-supplied
+      //    header can never strip it, guardedFetch is active-testing
+      //    traffic only, which is exactly what the header is for.
+      const doHop = (u: string, hopInit: GovernedFetchInit): Promise<Response> =>
+        fetch(u, {
+          method: hopInit.method ?? 'GET',
+          headers: {
+            'user-agent': 'BugSeekAI/0.2 (authorized security scan)',
+            ...(hopInit.headers ?? {}),
+            ...assessmentHeaders(ctx.taskId),
+          },
+          body: hop === 0 ? hopInit.body : undefined,
+          // Handle redirects manually so each hop is scope- and SSRF-checked.
+          redirect: 'manual',
+          signal: AbortSignal.timeout(ctx.fetchTimeoutMs),
+        });
+      const hopInit: GovernedFetchInit = {
+        method: init.method ?? 'GET',
+        ...(init.headers ? { headers: init.headers } : {}),
+        ...(hop === 0 && init.body !== undefined ? { body: init.body } : {}),
+      };
+      const res = ctx.noise
+        ? await fetchWithGovernor(ctx.noise, url.toString(), hopInit, doHop)
+        : await doHop(url.toString(), hopInit);
 
-    const location = res.headers.get('location');
-    const isRedirect = res.status >= 300 && res.status < 400 && location;
-    if (!isRedirect) return res;
-    // Drain the redirect response body before following.
-    await res.arrayBuffer().catch(() => undefined);
-    if (hop === MAX_REDIRECT_HOPS) {
-      throw Object.assign(new Error('Too many redirects (SSRF/scope guardrail)'), { statusCode: 400 });
+      const location = res.headers.get('location');
+      const isRedirect = res.status >= 300 && res.status < 400 && location;
+      if (!isRedirect) return res;
+      // Drain the redirect response body before following.
+      await res.arrayBuffer().catch(() => undefined);
+      if (hop === MAX_REDIRECT_HOPS) {
+        throw Object.assign(new Error('Too many redirects (SSRF/scope guardrail)'), { statusCode: 400 });
+      }
+      current = new URL(location, url).toString();
     }
-    current = new URL(location, url).toString();
+    throw Object.assign(new Error('Too many redirects (SSRF/scope guardrail)'), { statusCode: 400 });
+  };
+
+  // GET coalescing wraps the WHOLE redirect loop and keys on the
+  // ORIGINAL url string only, redirect hops are never coalesced
+  // against each other. GET only; anything else runs unshared.
+  if (ctx.noise && (init.method ?? 'GET').toUpperCase() === 'GET') {
+    return coalescedGet(ctx.noise, urlStr, run);
   }
-  throw Object.assign(new Error('Too many redirects (SSRF/scope guardrail)'), { statusCode: 400 });
+  return run();
 }
 
 export async function readResult(res: Response, ctx: ToolExecutionContext): Promise<ToolResult> {

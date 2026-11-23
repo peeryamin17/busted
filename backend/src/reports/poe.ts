@@ -292,7 +292,13 @@ export function isVerified(
 ): VerifiedResult {
   const { poe, rationale } = assignPoe(finding);
   const v = finding.verification;
-  const quotes = v ? extractQuotes(v.evidence) : [];
+  // The canary itself is a receipt quote: a benign canary reflected
+  // verbatim in bound proof is the proof for XSS, where the evidence
+  // carries no double-quoted strings. (head gate did this
+  // explicitly; the records gate must not drop it.)
+  const quotes = v
+    ? [...extractQuotes(v.evidence), ...(v.canaryToken ? [v.canaryToken] : [])]
+    : [];
   const receipt =
     proofRecords !== undefined
       ? receiptCheckRecords(quotes, proofRecords)
@@ -353,7 +359,11 @@ export function verifyWithRecords(
 ): VerifiedResult {
   const { poe, rationale } = assignPoe(finding);
   const v = finding.verification;
-  const quotes = v ? extractQuotes(v.evidence) : [];
+  // Same canary-as-quote rule as isVerified above: the canary reflected
+  // verbatim is the receipt for XSS.
+  const quotes = v
+    ? [...extractQuotes(v.evidence), ...(v.canaryToken ? [v.canaryToken] : [])]
+    : [];
   const receipt = receiptCheckRecords(quotes, records);
   const shape =
     expectedFields !== undefined

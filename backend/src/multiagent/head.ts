@@ -1,5 +1,8 @@
-import type { TechEntry } from '../types.js';
+import type { FindingVerification, TechEntry } from '../types.js';
 import { defaultTools, createToolContext } from '../agent/tools.js';
+import { NoiseGovernor } from '../egress/noise.js';
+import { checkTargetPin } from '../guardrails/pins.js';
+import { requestApproval } from '../approvals/service.js';
 import { extraTools } from './extraTools.js';
 import { getSpecialist, allSpecialists, ALWAYS_SPAWN, CONDITIONAL_SPAWN } from './specialists.js';
 import { buildFixInIdePrompt } from '../reports/remediation.js';
@@ -17,7 +20,7 @@ import {
   readySteps,
   type TodoList,
 } from './todolist.js';
-import { assignPoe, extractQuotes, receiptCheck } from '../reports/poe.js';
+import { verifyWithRecords, type ProofRecord } from '../reports/poe.js';
 import { createSnapshot, type EvidenceSnapshot } from '../evidence/snapshots.js';
 import { wrapPrompt } from '../llm/boundary.js';
 import { redactText } from '../guardrails/redact.js';
@@ -135,7 +138,17 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
     maxRequestsPerSecond: limits.requestsPerSecond,
   };
   const registry = [...defaultTools(), ...extraTools()];
-  const toolCtx = createToolContext(target, scope, limits.allowPrivateTargets);
+  // One noise governor per run (only when the caller set a
+  // profile, the swarm route always does, default 'balanced'). The
+  // depth ladder builds its prober on this same context, so it is
+  // governed automatically. Direct callers (tests, CLI) without a
+  // profile run ungoverned, as before.
+  const noise = limits.noiseProfile ? new NoiseGovernor(limits.noiseProfile) : undefined;
+  const toolCtx = createToolContext(target, scope, limits.allowPrivateTargets, {
+    ...(opts.task?.taskId ? { taskId: opts.task.taskId } : {}),
+    ...(opts.task?.pinCheck ? { pinCheck: opts.task.pinCheck } : {}),
+    ...(noise ? { noise } : {}),
+  });
   const tokenBudget = { input: 0, output: 0, max: limits.maxTotalTokens };
   const deadline = Date.now() + limits.maxDurationMs;
 
@@ -181,7 +194,57 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
     tokenBudget,
     shouldContinue: opts.shouldContinue,
     onEvent: (e) => emit(e),
+    // the worker gate consults the task's approval queue.
+    ...(taskCtx ? { task: taskCtx } : {}),
   });
+
+  // ── surface newly discovered hosts for human approval ──
+  // The per-request pin gate in guardedFetch already refuses unapproved
+  // hosts, so a missed surfacing can never silently test one, this is
+  // the early warning: one pending approval per new host, so the
+  // operator can pin from the UI before workers start hitting 409s.
+  // Hosts already surfaced this run are not re-surfaced.
+  const surfacedHosts = new Set<string>();
+  let pinDataCache: {
+    pins: import('../guardrails/pins.js').TargetPin[];
+    rules: import('../guardrails/pins.js').TargetRule[];
+  } | null = null;
+  const surfaceNewHost = async (host: string): Promise<void> => {
+    if (!taskCtx?.approvals || !taskCtx?.pins || !taskCtx?.userId) return;
+    const h = host.trim().toLowerCase();
+    if (!h || h === target.hostname.toLowerCase() || surfacedHosts.has(h)) return;
+    surfacedHosts.add(h);
+    try {
+      if (!pinDataCache) {
+        const [pins, rules] = await Promise.all([
+          taskCtx.pins.listPins(taskCtx.taskId),
+          taskCtx.pins.listRules(taskCtx.userId, taskCtx.taskId),
+        ]);
+        pinDataCache = { pins, rules };
+      }
+      const verdict = checkTargetPin({
+        taskId: taskCtx.taskId,
+        host: h,
+        pins: pinDataCache.pins,
+        rules: pinDataCache.rules,
+      });
+      if (verdict.decision !== 'ask') return;
+      await requestApproval(taskCtx.approvals, {
+        taskId: taskCtx.taskId,
+        userId: taskCtx.userId,
+        kind: 'new-target',
+        action: `Test new target host ${h} (discovered during the run)`.slice(0, 500),
+        detail: { host: h, source: 'swarm-discovery' },
+        requestedBy: 'pin-gate',
+      });
+      event('approval_needed', `New target host ${h} needs human approval before testing`, { host: h });
+    } catch (err) {
+      // Surfacing must never break a scan, the per-request gate still
+      // enforces, so the worst case is a late approval, not an untested
+      // host slipping through.
+      console.error(`[head] surfacing new host ${h} failed (non-fatal): ${(err as Error).message}`);
+    }
+  };
 
   // ── Phase 0: recon worker first (fast, informs everything else) ──
   event('head_plan', `Head agent starting multi-agent scan of ${opts.targetUrl}`);
@@ -205,6 +268,22 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
     if (f.category === 'tech' && f.title && !techStack.some((t) => t.name === f.title)) {
       techStack.push({ name: f.title.slice(0, 80) });
     }
+  }
+  // Surface any host recon found beyond the authorised target, so the
+  // operator can pin it before Phase 2 workers start hitting the gate.
+  for (const f of reconReport.findings) {
+    if (!f.location) continue;
+    let host: string | null = null;
+    try {
+      host = new URL(f.location).host;
+    } catch {
+      try {
+        host = new URL(f.location, opts.targetUrl).host;
+      } catch {
+        host = null;
+      }
+    }
+    if (host) await surfaceNewHost(host);
   }
   if (opts.osdk && opts.scanId && (!opts.discoveredEndpoints || opts.discoveredEndpoints.length === 0)) {
     try {
@@ -602,6 +681,41 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
     }
   }
 
+  /**
+   * The field set the shape receipt must find, per category, derived
+   * from the finding's ladder evidence (the claim), checked against the
+   * proof records (the live observation), so the check is never
+   * tautological.
+   *
+   * - IDOR: the field list the ladder recorded from the CLAIMED record,
+   *   quoted in the confirm/escalate evidence `observed`
+   *   ("...field names (\"id, name, email\")..."). Parsed out and split.
+   *   Returns undefined when the list cannot be parsed, the gate then
+   *   runs quote-only and the finding stays a hint (safe direction).
+   * - GraphQL: the introspection response is a `data` envelope, so the
+   *   expected top-level shape is ['data']. Weak on its own, it only
+   *   confirms the envelope is in bound proof, but it runs alongside
+   *   the "__schema" quote receipt and POE 3, which carry the real proof.
+   * - CORS / XSS: undefined, the verbatim quote is the receipt (the
+   *   canary origin in a header line / the canary in a body).
+   */
+  const expectedFieldsFor = (verification: FindingVerification): string[] | undefined => {
+    const kinds = new Set(verification.evidence.map((e) => e.kind));
+    if (kinds.has('idor-neighbor-shape') || kinds.has('idor-second-neighbor-shape')) {
+      const entry = verification.evidence.find(
+        (e) => e.kind === 'idor-neighbor-shape' || e.kind === 'idor-second-neighbor-shape',
+      );
+      const m = entry?.observed.match(/"([^"]+)"/);
+      if (!m) return undefined;
+      const fields = m[1].split(',').map((f) => f.trim()).filter(Boolean);
+      return fields.length > 0 ? fields : undefined;
+    }
+    if (kinds.has('graphql-introspection') || kinds.has('graphql-readonly-query')) {
+      return ['data'];
+    }
+    return undefined;
+  };
+
   // ── Phase 4.6: exploit-depth ladder (benign canary, read-only proofs) ──
   // Extends the PoC validator: findings that survived validation are
   // reproduced live where a read-only probe exists (XSS / IDOR / CORS /
@@ -620,14 +734,32 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
         f.verification = untestedVerification('swarm run paused/cancelled before the depth ladder ran.');
         continue;
       }
-      // Collect the (redacted) probe bodies + content-addressed snapshots
-      // for this finding, so the proof gate can check the receipt and the
-      // route can persist the proof against the finding's DB id.
+      // Collect the (redacted) probe bodies + structured proof records +
+      // content-addressed snapshots for this finding, so the proof gate
+      // can check the receipt and the route can persist the proof
+      // against the finding's DB id.
       const proofBodies: string[] = [];
+      const proofRecords: ProofRecord[] = [];
       const snaps: EvidenceSnapshot[] = [];
-      const onProbe = (p: { label: string; url: string; body: string }) => {
+      const onProbe = (p: {
+        label: string;
+        url: string;
+        body: string;
+        status?: number;
+        headers?: Record<string, string>;
+        shape?: string[];
+      }) => {
         const redacted = redactText(p.body, 200_000);
         proofBodies.push(redacted);
+        proofRecords.push({
+          label: p.label,
+          url: p.url,
+          ...(p.status !== undefined ? { status: p.status } : {}),
+          // Headers arrive already redacted by the ladder; body is redacted here.
+          ...(p.headers ? { headers: p.headers } : {}),
+          body: redacted,
+          ...(p.shape ? { shape: p.shape } : {}),
+        });
         snaps.push(
           createSnapshot({
             role: p.label.includes('baseline') ? 'baseline' : 'proof',
@@ -639,29 +771,23 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
       };
       try {
         f.verification = await validateFindingWithLadder(f, prober, { targetUrl: opts.targetUrl, onProbe });
-        // Phase B proof gate: 'verified' only at POE ≥ 3 with a verbatim
-        // receipt (an evidence quote, or the canary itself) in a bound
-        // proof body. Anything else is held as a hint — including
-        // ladder-confirmed findings at POE 2, and escalated findings
-        // whose proof lives in headers/shape rather than a body
-        // (CORS/GraphQL/IDOR today).
-        const poe = assignPoe({ verification: f.verification }).poe;
-        const quotes = [
-          ...extractQuotes(f.verification.evidence),
-          ...(f.verification.canaryToken ? [f.verification.canaryToken] : []),
-        ];
-        const receipt = receiptCheck(quotes, proofBodies);
-        f.verification.poe = poe;
-        f.verification.receiptChecked = receipt.pass;
-        if (f.verification.status === 'verified' && !(poe >= 3 && receipt.pass)) {
+        // Proof gate (records version): 'verified' only at POE ≥ 3 with
+        // a verbatim receipt in a bound proof record, plus the shape
+        // receipt where the category's proof lives in field names (see
+        // expectedFieldsFor below). Anything else is held as a hint.
+        const expectedFields = expectedFieldsFor(f.verification);
+        const gate = verifyWithRecords({ verification: f.verification }, proofRecords, expectedFields);
+        f.verification.poe = gate.poe;
+        f.verification.receiptChecked = gate.receipt;
+        if (f.verification.status === 'verified' && !gate.verified) {
           f.verification.status = 'hint';
           f.verification.impactSummary +=
-            ' Held as a hint by the proof gate: verified needs POE 3+ and a verbatim receipt in bound proof.';
+            ` Held as a hint by the proof gate: ${gate.reason.replace(/^Not verified: /, '')}.`;
         }
         if (snaps.length > 0) proofSnapshotsByFinding.set(f, snaps);
         event(
           'head_review',
-          `Depth ladder: "${f.title}" → ${f.verification.status}/${f.verification.depth} (POE ${poe}, receipt ${receipt.pass ? 'pass' : 'fail'})` +
+          `Depth ladder: "${f.title}" → ${f.verification.status}/${f.verification.depth} (POE ${gate.poe}, receipt ${gate.receipt ? 'pass' : 'fail'}${gate.verified ? '' : ', held as hint'})` +
             (f.verification.stopReason ? ` (stopped: ${f.verification.stopReason})` : ''),
         );
       } catch (err) {
@@ -740,6 +866,9 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
             nodeId: node.id,
             assetId: asset.id,
           });
+          // A specialist found a host recon missed, surface it for
+          // approval the same way (deduped by surfaceNewHost).
+          if (asset.host) await surfaceNewHost(asset.host);
         }
       });
     }
@@ -824,6 +953,8 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
   }
 
   event('done', `Multi-agent scan complete: ${deduped.length} findings, ${testsRun} tests`);
+  // Per-host pacing counters for this run.
+  noise?.logCounters();
 
   return {
     targetUrl: opts.targetUrl,
