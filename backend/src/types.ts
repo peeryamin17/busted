@@ -36,7 +36,7 @@ export type DepthLevel = 'unproven' | 'confirmed' | 'escalated';
 /** Impact measured from OBSERVED depth, never from a model guess. */
 export type DepthImpact = 'not-measured' | 'single-context' | 'cross-context';
 
-export type VerificationStatus = 'verified' | 'hint';
+export type VerificationStatus = 'verified' | 'hint' | 'fixed';
 
 export interface DepthEvidence {
   /** Which rung of the ladder this evidence supports. */
@@ -61,6 +61,16 @@ export interface FindingVerification {
   evidence: DepthEvidence[];
   /** Why the ladder stopped early, if it did (rate limit, error storm, scope refusal…). */
   stopReason?: string;
+  /**
+   * Proof-of-exploitation level 0–4 (Phase B proof gate): 0 unverified
+   * claim, 1 error/timing variation, 2 structural manipulation, 3 data
+   * extracted / cross-context, 4 critical impact (never auto-assigned).
+   * A finding counts as 'verified' only at POE ≥ 3 with a verbatim
+   * receipt in bound proof (see reports/poe.ts).
+   */
+  poe?: number;
+  /** Whether the verbatim-quote receipt check passed against bound proof. */
+  receiptChecked?: boolean;
   testedAt: string; // ISO
   method: string;
 }

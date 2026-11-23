@@ -1,3 +1,4 @@
+import { assignPoe } from './poe.js';
 import type { Finding } from '../types.js';
 
 /**
@@ -20,20 +21,33 @@ export function verifiedFindings(findings: Finding[]): Finding[] {
   return findings.filter((f) => f.verification?.status === 'verified');
 }
 
+export function fixedFindings(findings: Finding[]): Finding[] {
+  return findings.filter((f) => f.verification?.status === 'fixed');
+}
+
 export function hintFindings(findings: Finding[]): Finding[] {
-  return findings.filter((f) => f.verification?.status !== 'verified');
+  return findings.filter(
+    (f) => f.verification?.status !== 'verified' && f.verification?.status !== 'fixed',
+  );
 }
 
 export function verificationLabel(f: Finding): string {
   const v = f.verification;
-  if (!v) return 'Hint — not verified (no depth-ladder result; treat as unconfirmed)';
+  const poe = assignPoe(f).poe;
+  if (!v) {
+    return `Hint — not verified (no depth-ladder result; treat as unconfirmed), POE ${poe}`;
+  }
   if (v.status === 'verified') {
     return (
       `Verified — depth: ${v.depth}, measured impact: ${v.impact}` +
-      (v.canaryToken ? `, canary: ${v.canaryToken}` : '')
+      (v.canaryToken ? `, canary: ${v.canaryToken}` : '') +
+      `, POE ${poe}`
     );
   }
-  return `Hint — unproven (${v.impactSummary})`;
+  if (v.status === 'fixed') {
+    return `Fixed — a retest confirmed the proof no longer reproduces (${v.impactSummary}), POE ${poe}`;
+  }
+  return `Hint — unproven (${v.impactSummary}), POE ${poe}`;
 }
 
 /** One line per rung of the verified chain, in ladder order. */
