@@ -24,7 +24,6 @@ import {
   isKnownPublicHash,
   isPlaceholder,
   isRepeatedChar,
-  redactSecret,
   shannonEntropy,
 } from '../lib/regexes';
 import type { Finding, StorageEntry } from '../lib/types';
@@ -37,6 +36,32 @@ export interface ScriptSource {
 
 let findingSeq = 0;
 const MAX_MATCHES_PER_PATTERN = 5;
+
+const CLIENT_SECRET_PATTERNS: Array<{ kind: string; re: RegExp }> = [
+  { kind: 'github_pat', re: /\b(ghp_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{60,})\b/g },
+  { kind: 'slack_token', re: /\b(xox[baprs]-[0-9A-Za-z-]{10,})\b/g },
+  { kind: 'google_api_key', re: /\b(AIza[0-9A-Za-z\-_]{35}|AQ\.[0-9A-Za-z\-_]{30,})\b/g },
+  { kind: 'openai_key', re: /\b(sk-(?:proj-)?[0-9A-Za-z\-_]{32,})\b/g },
+  { kind: 'aws_access_key', re: /\b(AKIA[0-9A-Z]{16})\b/g },
+  { kind: 'stripe_live_key', re: /\b(sk_live_[0-9a-zA-Z]{24,})\b/g },
+];
+
+export function maskSecret(raw: string): string {
+  if (raw.length <= 12) return '••••••••';
+  return `${raw.slice(0, 4)}••••${raw.slice(-4)}`;
+}
+
+export function scanBundleSecrets(content: string, sourceUrl: string) {
+  const hits: Array<{ kind: string; redacted: string; sourceUrl: string }> = [];
+  for (const { kind, re } of CLIENT_SECRET_PATTERNS) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content)) !== null) {
+      hits.push({ kind, redacted: maskSecret(m[1]), sourceUrl });
+    }
+  }
+  return hits;
+}
 
 /** Quoted runs of token-shaped characters, candidates for entropy scoring. */
 const QUOTED_RUN_RE = /["'`]([A-Za-z0-9+/=_-]{20,})["'`]/g;
@@ -160,7 +185,7 @@ export function scanSecrets(sources: ScriptSource[]): Finding[] {
               ? 'high'
               : 'medium',
           location: src.label,
-          evidence: redactSecret(matched),
+          evidence: maskSecret(matched),
           remediation: pattern.remediation,
           secretProvider: pattern.id,
           fingerprint: fingerprintSecret(matched, pattern.id),

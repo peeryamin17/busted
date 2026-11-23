@@ -9,6 +9,7 @@ import { buildMarkdownReport, reportFilename } from '../lib/report';
 import { hasDisclosureConsent, saveDisclosureConsent } from '../lib/consent';
 import { renderFindings, renderSummary } from './render';
 import { getActiveResult, handleActiveMessage, initActivePane } from './active';
+import { restoreTabScanIfMatching } from '../lib/popupHelpers';
 
 const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
 
@@ -98,14 +99,13 @@ async function enterApp(): Promise<void> {
   el.targetUrl.textContent = currentUrl || '(unknown page)';
   el.targetUrl.title = currentUrl;
 
-  // Restore the last passive scan for this tab, if any.
-  const stored = await chrome.storage.local.get(`scan:${currentTabId}`);
-  const prev = stored[`scan:${currentTabId}`] as ScanResult | undefined;
-  if (prev) {
+  // Restore the last passive scan for this tab, if it is for this page.
+  // A tab reused for another site must not show the old site's findings.
+  await restoreTabScanIfMatching<ScanResult>(currentTabId, currentUrl, (prev) => {
     currentResult = prev;
     renderResult(prev);
     setStatus(`Last scan: ${new Date(prev.scannedAt).toLocaleString()}`);
-  }
+  });
 
   el.scanBtn.addEventListener('click', startScan);
   el.downloadBtn.addEventListener('click', () => downloadReport(currentResult));

@@ -16,6 +16,8 @@
 const SITE_SOURCE = 'bugseek-site';
 const EXT_SOURCE = 'bugseek-extension';
 
+export {};
+
 function announce(): void {
   window.postMessage(
     { source: EXT_SOURCE, type: 'BUGSEEK_EXTENSION_PRESENT' },

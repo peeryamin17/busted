@@ -43,7 +43,7 @@ import {
 } from '../lib/apiClient';
 import { hasBackendConsent, saveBackendConsent } from '../lib/consent';
 import type {
-  BackendAccount,
+  AccountState,
   BackendFinding,
   EngineId,
   EngineStatusEntry,
@@ -52,6 +52,11 @@ import type {
   SwarmOutcome,
 } from '../lib/apiClient';
 import { findingCard, renderFindings, renderSummary } from './render';
+import {
+  onProviderKeySaved,
+  restoreTabScanIfMatching,
+  verifyGeminiApiKey,
+} from '../lib/popupHelpers';
 
 const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
 
@@ -99,9 +104,9 @@ let currentHost: string | null = null;
 let currentTabUrl: string | null = null;
 let currentResult: ScanResult | null = null;
 /** Set when the stored API key belongs to the operator account (developer unlock). */
-let operatorAccount: BackendAccount | null = null;
+let operatorAccount: AccountState | null = null;
 /** Whose account the stored key belongs to, when the backend answered. */
-let linkedAccount: BackendAccount | null = null;
+let linkedAccount: AccountState | null = null;
 let running = false;
 let swarmRunning = false;
 let enginesRunning = false;
@@ -237,16 +242,10 @@ async function refreshAuthzState(): Promise<void> {
 let accountError: string | null = null;
 
 async function initOperatorUnlock(): Promise<void> {
-  try {
-    const acct = await getBackendAccount();
-    linkedAccount = acct;
-    operatorAccount = acct?.operator ? acct : null;
-    accountError = null;
-  } catch (err) {
-    linkedAccount = null;
-    operatorAccount = null;
-    accountError = err instanceof Error ? err.message : String(err);
-  }
+  const acct = await getBackendAccount();
+  linkedAccount = acct.authenticated ? acct : null;
+  operatorAccount = acct.operator ? acct : null;
+  accountError = null;
   renderLinkedAccount();
 }
 
@@ -456,19 +455,6 @@ async function startActiveScan(): Promise<void> {
     return;
   }
   const wantDeep = inputChecked('active-deep-inspect');
-  if (wantDeep) {
-    // `debugger` is a required permission (Chrome does not allow it as an
-    // optional one), so this only confirms it is still in place.
-    const granted = await chrome.permissions.contains({
-      permissions: ['debugger'],
-    });
-    if (!granted) {
-      showError(
-        'Deep inspect needs the debugger permission, which Chrome is not granting. Untick it to run a standard scan.',
-      );
-      return;
-    }
-  }
   setRunning(true);
   setStatus(
     wantDeep
@@ -532,9 +518,11 @@ async function startSwarmScan(): Promise<void> {
     return;
   }
   const apiKey = await getBackendApiKey();
-  const geminiKey = await getGeminiApiKey();
-  if (!apiKey && !geminiKey) {
-    showError('Paste your AI provider key in the field above to unlock the AI Swarm.');
+  if (!apiKey) {
+    showError(
+      'Link your account first — the swarm runs on the backend and needs your BugSeek key. ' +
+        'Paste a link code or bs_ key in the field above.',
+    );
     document.getElementById('backend-api-key')?.focus();
     return;
   }
@@ -677,24 +665,27 @@ async function proceedSwarmScan(
     setStatus(`Surface mapped: ${observedCount} endpoint(s). Deploying AI swarm…`);
 
     const outcome = await runSwarmScan(
-      currentTabUrl,
-      authorization,
       {
-        mode: authz.scope.mode,
-        includeSubdomains: authz.scope.includeSubdomains,
-        excludedHosts: authz.scope.excludedHosts,
-        excludedPaths: authz.scope.excludedPaths,
+        targetUrl: currentTabUrl,
+        authorization,
+        scope: {
+          mode: authz.scope.mode,
+          includeSubdomains: authz.scope.includeSubdomains,
+          excludedHosts: authz.scope.excludedHosts,
+          excludedPaths: authz.scope.excludedPaths,
+        },
+        surfaceSnapshot,
+        async: true,
       },
-      (p) => {
-        if (p.currentStep) {
-          setStatus(`Swarm running: ${p.currentStep}`);
-        } else if (p.status === 'running') {
+      (status) => {
+        if (status === 'running') {
           setStatus('AI swarm running — specialist workers testing endpoints…');
-        } else if (p.status === 'queued') {
+        } else if (status === 'queued') {
           setStatus('AI swarm queued — initializing head agent…');
+        } else {
+          setStatus(`AI swarm ${status}…`);
         }
       },
-      surfaceSnapshot,
     );
     // Map swarm findings onto the extension Finding shape for rendering.
     const findings = toExtensionFindings(outcome.findings, 'swarm');
@@ -872,9 +863,11 @@ async function startEnginesRun(): Promise<void> {
     return;
   }
   const apiKey = await getBackendApiKey();
-  const geminiKey = await getGeminiApiKey();
-  if (!apiKey && !geminiKey) {
-    showError('Paste your AI provider key in the field above to unlock the AI Swarm.');
+  if (!apiKey) {
+    showError(
+      'Link your account first — the engines run on the backend and need your BugSeek key. ' +
+        'Paste a link code or bs_ key in the field above.',
+    );
     document.getElementById('backend-api-key')?.focus();
     return;
   }
@@ -1299,16 +1292,21 @@ async function refreshBackendBadge(): Promise<void> {
   el.backendBadge.textContent = 'Backend: checking…';
   el.backendBadge.className = 'backend-badge backend-unknown';
   try {
-    const s = await checkBackendStatus(() => {
-      el.backendBadge.textContent = 'Backend: waking up… (it sleeps when idle)';
-      el.backendBadge.className = 'backend-badge backend-unknown';
-    });
-    if (s.reachable) {
-      el.backendBadge.textContent = `Backend: connected (${s.baseUrl}) — AI deepening available`;
+    const s = await checkBackendStatus();
+    if (s.state === 'online') {
+      el.backendBadge.textContent = 'Backend: connected — AI deepening available';
       el.backendBadge.className = 'backend-badge backend-on';
       // The engines panel probed while the backend was still asleep;
       // ask again now that it is awake.
       void refreshEnginesStatus();
+    } else if (s.state === 'auth_error') {
+      el.backendBadge.textContent =
+        'Backend: connected, but your key was rejected — link your account again';
+      el.backendBadge.className = 'backend-badge backend-off';
+    } else if (s.state === 'server_error') {
+      el.backendBadge.textContent =
+        'Backend: error — running standalone (local checks only)';
+      el.backendBadge.className = 'backend-badge backend-off';
     } else {
       el.backendBadge.textContent =
         'Backend: offline — running standalone (local checks only)';
@@ -1534,6 +1532,15 @@ async function initBackendKeyRow(): Promise<void> {
   const hasKey = (await getBackendApiKey()) || (await getGeminiApiKey());
   input.value = hasKey ? '••••••••' : '';
 
+  // Re-read who the stored key belongs to from the server and redraw the
+  // account line, badge, engines, and authorization state after a save.
+  const refreshAccountUi = async (): Promise<void> => {
+    void refreshBackendBadge();
+    void refreshEnginesStatus();
+    await initOperatorUnlock();
+    await refreshAuthzState();
+  };
+
   const doSave = async () => {
     const v = input.value.trim();
     input.setCustomValidity('');
@@ -1545,22 +1552,18 @@ async function initBackendKeyRow(): Promise<void> {
       save.disabled = true;
       try {
         await setStoredAiProvider('ollama', null);
-        const hint = 'local';
-        linkedAccount = { email: `Ollama (${hint})`, plan: 'enterprise', operator: true };
-        operatorAccount = linkedAccount;
-        accountError = null;
-        renderLinkedAccount();
-        void refreshBackendBadge();
-        void refreshEnginesStatus();
-        await initOperatorUnlock();
-        await refreshAuthzState();
-        const syncErr = await syncAiKeyToBackend('', 'ollama');
         const warn =
           ollamaReachable === false
             ? ' Warning: Ollama is not reachable on this machine right now — start it before running local AI scans.'
             : '';
-        const syncNote = syncErr ? ` (Note: ${syncErr})` : '';
-        setStatus(`Ollama saved as your local provider.${warn}${syncNote}`);
+        await onProviderKeySaved(
+          async () => {
+            const syncErr = await syncAiKeyToBackend('', 'ollama');
+            if (syncErr) throw new Error(syncErr);
+          },
+          refreshAccountUi,
+          (msg) => setStatus(`${msg}${warn}`),
+        );
         hideError();
       } finally {
         save.disabled = false;
@@ -1635,45 +1638,35 @@ async function initBackendKeyRow(): Promise<void> {
           await setGeminiApiKey(v);
           await setStoredAiProvider('qwen', resolved.baseUrl);
           input.value = '••••••••';
-          const hint = `${v.slice(0, 4)}••••${v.slice(-4)}`;
-          linkedAccount = { email: `Qwen AI (${hint})`, plan: 'enterprise', operator: true };
-          operatorAccount = linkedAccount;
-          accountError = null;
-          renderLinkedAccount();
-          void refreshBackendBadge();
-          void refreshEnginesStatus();
-          await initOperatorUnlock();
-          await refreshAuthzState();
-          const syncErr = await syncAiKeyToBackend(v, 'qwen', resolved.region, resolved.baseUrl);
-          setStatus(
-            `Qwen API key verified & saved! AI Swarm unlocked.${syncErr ? ` (Note: ${syncErr})` : ''}`,
+          await onProviderKeySaved(
+            async () => {
+              const syncErr = await syncAiKeyToBackend(
+                v,
+                'qwen',
+                resolved.region,
+                resolved.baseUrl,
+              );
+              if (syncErr) throw new Error(syncErr);
+            },
+            refreshAccountUi,
+            setStatus,
           );
           hideError();
         } else {
-          const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(v)}`,
-            { method: 'GET', signal: AbortSignal.timeout(8000) }
-          ).catch(() => null);
-          // If Google explicitly rejected the key with 400/403, warn the user
-          if (res && !res.ok) {
-            const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-            throw new Error(body?.error?.message || `Google rejected this key (HTTP ${res.status}).`);
+          const check = await verifyGeminiApiKey(v);
+          if (!check.valid) {
+            throw new Error(check.error ?? 'Gemini rejected this key.');
           }
           await setGeminiApiKey(v);
           await setStoredAiProvider('gemini', null);
           input.value = '••••••••';
-          const hint = `${v.slice(0, 4)}••••${v.slice(-4)}`;
-          linkedAccount = { email: `Gemini AI (${hint})`, plan: 'enterprise', operator: true };
-          operatorAccount = linkedAccount;
-          accountError = null;
-          renderLinkedAccount();
-          void refreshBackendBadge();
-          void refreshEnginesStatus();
-          await initOperatorUnlock();
-          await refreshAuthzState();
-          const syncErr = await syncAiKeyToBackend(v, 'gemini');
-          setStatus(
-            `Gemini API key verified & saved! AI Swarm unlocked.${syncErr ? ` (Note: ${syncErr})` : ''}`,
+          await onProviderKeySaved(
+            async () => {
+              const syncErr = await syncAiKeyToBackend(v, 'gemini');
+              if (syncErr) throw new Error(syncErr);
+            },
+            refreshAccountUi,
+            setStatus,
           );
           hideError();
         }
@@ -1724,18 +1717,17 @@ async function initBackendKeyRow(): Promise<void> {
 }
 
 async function restoreLastResult(): Promise<void> {
-  if (currentTabId === null) return;
-  const stored = await chrome.storage.local.get(
+  if (currentTabId === null || !currentTabUrl) return;
+  await restoreTabScanIfMatching<ScanResult>(
+    currentTabId,
+    currentTabUrl,
+    (prev) => {
+      currentResult = prev;
+      renderActiveResult(prev);
+      setStatus(`Last active scan: ${new Date(prev.scannedAt).toLocaleString()}`);
+    },
     `${STORAGE_KEYS.activeScanPrefix}${currentTabId}`,
   );
-  const prev = stored[
-    `${STORAGE_KEYS.activeScanPrefix}${currentTabId}`
-  ] as ScanResult | undefined;
-  if (prev) {
-    currentResult = prev;
-    renderActiveResult(prev);
-    setStatus(`Last active scan: ${new Date(prev.scannedAt).toLocaleString()}`);
-  }
 }
 
 // ---------------------------------------------------------------------------

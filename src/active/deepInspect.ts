@@ -46,27 +46,6 @@ function cvssFields(presetKey: string): Pick<
 
 const CDP_VERSION = '1.3';
 
-/** True when the user has granted the optional debugger permission. */
-export async function hasDebuggerPermission(): Promise<boolean> {
-  try {
-    return await chrome.permissions.contains({ permissions: ['debugger'] });
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Request the optional debugger permission.
- * MUST be called synchronously inside a user gesture (popup click).
- */
-export async function requestDebuggerPermission(): Promise<boolean> {
-  try {
-    return await chrome.permissions.request({ permissions: ['debugger'] });
-  } catch {
-    return false;
-  }
-}
-
 export interface CapturedBody {
   url: string;
   method: string;
@@ -155,11 +134,6 @@ export class DeepInspectSession {
     authz: AuthorizationRecord,
     targetUrl: string,
   ): Promise<DeepInspectSession> {
-    if (!(await hasDebuggerPermission())) {
-      throw new Error(
-        'Deep inspect needs the debugger permission. Grant it when prompted and run the scan again.',
-      );
-    }
     const session = new DeepInspectSession(tabId, authz, targetUrl);
     try {
       await session.attach();

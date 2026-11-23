@@ -30,7 +30,7 @@ import { crossFileLinksToFindings, taintFlowsToFindings } from './sast/findings'
 import { STORAGE_KEYS } from './lib/config';
 import { runActiveScan } from './active/activeRunner';
 import type { RateLimiter } from './lib/rateLimiter';
-import { getMainFrameHeaders, recordMainFrameHeaders } from './active/traffic';
+import { getMainFrameHeaders, recordMainFrameHeaders, stopTabCapture } from './active/traffic';
 import { setBackendApiKey } from './lib/apiClient';
 
 const MAX_EXTERNAL_SCRIPTS = 12;
@@ -52,7 +52,13 @@ chrome.webRequest.onHeadersReceived.addListener(
 );
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  // Tab-scoped traffic state is cleaned up inside traffic.ts.
+  // Drop the tab's capture state and its persisted scan results, so a
+  // later tab reusing the id never inherits the old page's findings.
+  stopTabCapture(tabId);
+  void chrome.storage.local.remove([
+    `scan:${tabId}`,
+    `${STORAGE_KEYS.activeScanPrefix}${tabId}`,
+  ]);
 });
 
 chrome.runtime.onMessage.addListener(

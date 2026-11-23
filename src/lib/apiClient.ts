@@ -1,23 +1,19 @@
 /**
  * Backend API client, the single module that talks to the BugSeek backend.
  *
- * The backend (Fastify, default http://localhost:3000) may be unreachable,
- * so every call has a short timeout and degrades to null when it is. The
- * extension works standalone; backend calls only add AI deepening, scan
- * history, and richer reports on top of local results.
+ * The backend (Fastify) may be unreachable, so every call has a short
+ * timeout. Calls return an ApiResult that keeps the failure kind visible:
+ * auth, server, client, or offline. The extension works standalone;
+ * backend calls only add AI deepening, scan history, and richer reports
+ * on top of local results.
+ *
+ * Auth is the stored bs_ key only. A local provider (BYOK) key is never
+ * sent as an auth substitute; it is synced to the account separately and
+ * the server decides what it unlocks.
  */
-import {
-  BACKEND_BASE_URL,
-  BACKEND_REQUEST_TIMEOUT_MS,
-} from './config';
+import { BACKEND_BASE_URL, BACKEND_REQUEST_TIMEOUT_MS } from './config';
 import type { AttackChain, Finding, ScanResult } from './types';
 import { buildChainDeepeningRequest } from './attackChains';
-
-export interface BackendStatus {
-  reachable: boolean;
-  baseUrl: string;
-  version?: string;
-}
 
 const BACKEND_URL_STORAGE_KEY = 'bugseek:backendUrl';
 
@@ -30,16 +26,6 @@ export async function getBackendBaseUrl(): Promise<string> {
     }
   } catch {}
   return BACKEND_BASE_URL;
-}
-
-export async function setBackendBaseUrl(url: string | null): Promise<void> {
-  try {
-    if (url && url.trim().length > 0) {
-      await chrome.storage.local.set({ [BACKEND_URL_STORAGE_KEY]: url.trim().replace(/\/+$/, '') });
-    } else {
-      await chrome.storage.local.remove(BACKEND_URL_STORAGE_KEY);
-    }
-  } catch {}
 }
 
 /** Backend API key (bs_…), stored by the user in extension settings. Sent as x-api-key. */
@@ -85,132 +71,137 @@ export async function setGeminiApiKey(key: string | null): Promise<void> {
   }
 }
 
-/** Provider the user picked for their own key (gemini / qwen / ollama), stored by the popup. */
-const AI_PROVIDER_STORAGE_KEY = 'bugseek:aiProvider';
-const AI_BASE_URL_STORAGE_KEY = 'bugseek:aiBaseUrl';
+export type ApiErrorKind = 'auth' | 'server' | 'client' | 'offline';
 
-async function getStoredAiProvider(): Promise<{ provider: string; baseUrl: string | null }> {
-  try {
-    const stored = await chrome.storage.local.get([AI_PROVIDER_STORAGE_KEY, AI_BASE_URL_STORAGE_KEY]);
-    const provider = stored[AI_PROVIDER_STORAGE_KEY];
-    const baseUrl = stored[AI_BASE_URL_STORAGE_KEY];
-    return {
-      provider: typeof provider === 'string' && provider.length > 0 ? provider : 'gemini',
-      baseUrl: typeof baseUrl === 'string' && baseUrl.length > 0 ? baseUrl : null,
-    };
-  } catch {
-    return { provider: 'gemini', baseUrl: null };
-  }
-}
+export type ApiResult<T> =
+  | { ok: true; status: number; data: T }
+  | { ok: false; status: number; kind: ApiErrorKind; error: string };
 
-/**
- * Headers carrying the user's own (BYOK) key. The key lives in the one
- * local slot whatever the provider is; the provider pick decides which
- * header name the backend sees, so a DashScope key is never mistaken for
- * a Gemini key (and vice versa). Qwen also carries its base URL when the
- * user picked a non-default region, the backend re-validates it against
- * the DashScope allowlist.
- */
-async function getByokHeaders(): Promise<Record<string, string>> {
-  const key = await getGeminiApiKey();
-  if (!key) return {};
-  const { provider, baseUrl } = await getStoredAiProvider();
-  if (provider === 'qwen') {
-    return { 'x-qwen-api-key': key, ...(baseUrl ? { 'x-qwen-base-url': baseUrl } : {}) };
-  }
-  return { 'x-gemini-api-key': key };
-}
-
-async function fetchJson<T>(
+export async function fetchJson<T>(
   path: string,
-  init: RequestInit,
+  init: RequestInit = {},
   timeoutMs = BACKEND_REQUEST_TIMEOUT_MS,
-): Promise<T | null> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+): Promise<ApiResult<T>> {
+  const baseUrl = await getBackendBaseUrl();
+  const apiKey = await getBackendApiKey();
+  const headers = new Headers(init.headers);
+  headers.set('Content-Type', 'application/json');
+  if (apiKey) {
+    headers.set('x-api-key', apiKey);
+    headers.set('Authorization', `Bearer ${apiKey}`);
+  }
+
   try {
-    const baseUrl = await getBackendBaseUrl();
-    const apiKey = await getBackendApiKey();
-    const byokHeaders = await getByokHeaders();
     const res = await fetch(`${baseUrl}${path}`, {
       ...init,
-      signal: ctrl.signal,
-      headers: {
-        'content-type': 'application/json',
-        ...(apiKey ? { 'x-api-key': apiKey } : {}),
-        ...byokHeaders,
-        ...(init.headers ?? {}),
-      },
+      headers,
+      signal: init.signal ?? AbortSignal.timeout(timeoutMs),
     });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch {
-    clearTimeout(timer);
-    return null;
+
+    const text = await res.text();
+    let parsed: unknown = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = null;
+    }
+
+    if (!res.ok) {
+      const body = parsed as { error?: unknown; message?: unknown } | null;
+      const kind: ApiErrorKind =
+        res.status === 401 || res.status === 403
+          ? 'auth'
+          : res.status >= 500
+            ? 'server'
+            : 'client';
+      const serverMessage =
+        typeof body?.error === 'string'
+          ? body.error
+          : typeof body?.message === 'string'
+            ? body.message
+            : null;
+      return {
+        ok: false,
+        status: res.status,
+        kind,
+        error: serverMessage ?? `HTTP ${res.status}`,
+      };
+    }
+
+    return { ok: true, status: res.status, data: parsed as T };
+  } catch (err) {
+    const isTimeout =
+      err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+    return {
+      ok: false,
+      status: 0,
+      kind: 'offline',
+      error: isTimeout
+        ? `Backend request timed out (${Math.round(timeoutMs / 1000)}s) — Render may be waking up, please try again in a moment.`
+        : err instanceof Error
+          ? err.message
+          : 'Network error',
+    };
   }
 }
 
 /** Cheap liveness probe used for the popup's backend status badge. */
-export async function checkBackendStatus(
-  onWaking?: () => void,
-): Promise<BackendStatus> {
-  const baseUrl = await getBackendBaseUrl();
-  let health = await fetchJson<{ version?: string }>(
-    '/api/v1/health',
-    { method: 'GET' },
-    3500,
-  );
-  if (!health) {
-    // The backend sleeps when idle on the free tier and can take the
-    // better part of a minute to wake. One patient retry before the
-    // popup is allowed to declare it offline.
-    onWaking?.();
-    health = await fetchJson<{ version?: string }>(
-      '/api/v1/health',
-      { method: 'GET' },
-      45_000,
-    );
-  }
-  return {
-    reachable: health !== null,
-    baseUrl,
-    version: health?.version,
-  };
+export async function checkBackendStatus(): Promise<{
+  state: 'online' | 'auth_error' | 'server_error' | 'offline';
+  detail?: string;
+}> {
+  const res = await fetchJson<{ ok: boolean }>('/api/v1/health', { method: 'GET' }, 10_000);
+  if (res.ok) return { state: 'online' };
+  if (res.kind === 'auth') return { state: 'auth_error', detail: res.error };
+  if (res.kind === 'server') return { state: 'server_error', detail: res.error };
+  return { state: 'offline', detail: res.error };
 }
 
-export interface BackendAccount {
-  email: string;
-  plan: string;
+export interface AccountState {
+  authenticated: boolean;
+  email: string | null;
+  plan: 'free' | 'scout' | 'hunter' | 'pro' | 'enterprise';
   operator: boolean;
+  hasByok: boolean;
+}
+
+const PLAN_VALUES = ['free', 'scout', 'hunter', 'pro', 'enterprise'] as const;
+
+function asPlan(value: unknown): AccountState['plan'] {
+  return typeof value === 'string' &&
+    (PLAN_VALUES as readonly string[]).includes(value)
+    ? (value as AccountState['plan'])
+    : 'free';
 }
 
 /**
- * Who the stored API key belongs to (GET /api/v1/account). `operator` is
- * true only for the operator (ADMIN_EMAIL) account and drives the popup's
- * developer unlock. Null when there is no key, the backend is unreachable,
- * or it predates the endpoint, callers fail closed (locked) on null.
+ * Who the stored API key belongs to (GET /api/v1/account). Operator status
+ * comes strictly from that endpoint; storing a local BYOK key never
+ * elevates operator or ownership privileges.
  */
-export async function getBackendAccount(): Promise<BackendAccount | null> {
-  const apiKey = await getBackendApiKey();
-  const geminiKey = await getGeminiApiKey();
-  if (geminiKey) {
-    const hint = geminiKey.length > 8 ? `${geminiKey.slice(0, 4)}••••${geminiKey.slice(-4)}` : '••••••••';
-    const { provider } = await getStoredAiProvider();
-    const label =
-      provider === 'qwen'
-        ? `Qwen AI (${hint})`
-        : provider === 'ollama'
-          ? 'Ollama (local)'
-          : `Gemini AI (${hint})`;
+export async function getBackendAccount(): Promise<AccountState> {
+  const hasByok = (await getGeminiApiKey()) !== null;
+  const res = await fetchJson<{ email?: unknown; plan?: unknown; operator?: unknown }>(
+    '/api/v1/account',
+    { method: 'GET' },
+    10_000,
+  );
+  if (!res.ok) {
     return {
-      email: label,
-      plan: 'enterprise',
-      operator: true,
+      authenticated: false,
+      email: null,
+      plan: 'free',
+      operator: false,
+      hasByok,
     };
   }
-  if (!apiKey) return null;
-  return fetchJsonOrThrow<BackendAccount>('/api/v1/account', { method: 'GET' }, 25_000);
+  return {
+    authenticated: true,
+    email: typeof res.data.email === 'string' ? res.data.email : null,
+    plan: asPlan(res.data.plan),
+    operator: Boolean(res.data.operator),
+    hasByok,
+  };
 }
 
 /**
@@ -218,7 +209,7 @@ export async function getBackendAccount(): Promise<BackendAccount | null> {
  * for a real API key, store it, and return whose account it belongs to.
  * The code itself is never stored.
  */
-export async function pairWithCode(rawCode: string): Promise<BackendAccount> {
+export async function pairWithCode(rawCode: string): Promise<AccountState> {
   const code = rawCode.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
   if (code.length !== 32) {
     throw new Error('A link code is 32 characters — copy it again from the website.');
@@ -253,7 +244,7 @@ export async function pairWithCode(rawCode: string): Promise<BackendAccount> {
   const { apiKey } = (await res.json()) as { apiKey: string };
   await setBackendApiKey(apiKey);
   const account = await getBackendAccount();
-  if (!account) {
+  if (!account.authenticated) {
     throw new Error('Linked, but the account could not be verified — reopen the popup.');
   }
   return account;
@@ -277,8 +268,8 @@ export async function deepenAttackChains(
     method: 'POST',
     body: JSON.stringify(req),
   });
-  if (!res) return null;
-  const verdicts = new Map(res.chains.map((c) => [c.id, c]));
+  if (!res.ok) return null;
+  const verdicts = new Map(res.data.chains.map((c) => [c.id, c]));
   return chains.map((c) => {
     const v = verdicts.get(c.id);
     if (!v) return c;
@@ -347,108 +338,78 @@ export interface SwarmOutcome {
   score?: { value: number; grade: string } | null;
 }
 
-export const SWARM_SCAN_TIMEOUT_MS = 120_000;
-
-export interface SwarmProgressInfo {
-  status: string;
-  completedSteps?: number;
-  totalSteps?: number;
-  currentStep?: string;
-}
+export const SWARM_SCAN_TIMEOUT_MS = 5 * 60 * 1000;
 
 export async function runSwarmScan(
-  targetUrl: string,
-  authorization: SwarmAuthorizationInput,
-  scope?: SwarmScopeInput,
-  onProgress?: (progress: SwarmProgressInfo) => void,
-  surfaceSnapshot?: unknown,
+  payload: unknown,
+  onProgress?: (status: string) => void,
 ): Promise<SwarmOutcome> {
-  const baseUrl = await getBackendBaseUrl();
-  const apiKey = await getBackendApiKey();
-  const byokHeaders = await getByokHeaders();
-
-  const authHeaders: Record<string, string> = {
-    'content-type': 'application/json',
-    ...(apiKey ? { 'x-api-key': apiKey, authorization: `Bearer ${apiKey}` } : {}),
-    ...byokHeaders,
-  };
-
-  // 1. Wake Render up if sleeping (retry once if cold-starting)
-  await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(45_000) }).catch(() => null);
-
-  // 2. Enqueue job (fast 202 response or 200)
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 30_000);
-  let startRes: Response;
-  try {
-    startRes = await fetch(`${baseUrl}/api/swarm/scans`, {
+  const start = await fetchJson<
+    { jobId?: string; scanId?: string; status?: string } & Partial<SwarmOutcome>
+  >(
+    '/api/swarm/scans',
+    {
       method: 'POST',
-      headers: authHeaders,
-      body: JSON.stringify({ targetUrl, authorization, scope, surfaceSnapshot, async: true }),
-      signal: ctrl.signal,
-    });
-  } catch (err: any) {
-    clearTimeout(timer);
-    if (err?.name === 'AbortError') {
-      throw new Error(
-        'Backend request timed out (30s) while enqueuing swarm — Render may be waking up, please try again.',
-      );
-    }
-    throw new Error(
-      'Backend unreachable — Render free tier is waking up, please wait ~30s or check your connection.',
-    );
-  }
-  clearTimeout(timer);
+      body: JSON.stringify(payload),
+    },
+    30_000,
+  );
 
-  if (!startRes.ok) {
-    let message = `Backend request failed (HTTP ${startRes.status})`;
-    try {
-      const body = (await startRes.json()) as { error?: unknown };
-      if (typeof body?.error === 'string' && body.error) message = body.error;
-    } catch {}
-    throw new Error(message);
+  if (!start.ok) {
+    throw new Error(`Swarm start failed (${start.kind}): ${start.error}`);
   }
 
-  const startData = (await startRes.json()) as any;
-  // If the server completed synchronously (200), return immediately
-  if (startData.findings && Array.isArray(startData.findings)) {
-    return startData as SwarmOutcome;
+  // The server can complete synchronously (200 with the full outcome).
+  if (start.data.status === 'completed' && Array.isArray(start.data.findings)) {
+    return start.data as SwarmOutcome;
   }
 
-  const id = startData.jobId || startData.scanId;
+  const id = start.data.jobId || start.data.scanId;
   if (!id) {
     throw new Error('Backend did not return a scan or job ID');
   }
 
-  // 3. Poll until completed or failed (up to 5 minutes)
-  const deadline = Date.now() + 5 * 60 * 1000;
+  const deadline = Date.now() + SWARM_SCAN_TIMEOUT_MS;
+  let transientErrors = 0;
+
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 3000));
-    try {
-      const pollRes = await fetch(`${baseUrl}/api/swarm/scans/${id}`, {
-        headers: authHeaders,
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!pollRes.ok) continue;
+    const poll = await fetchJson<
+      {
+        status: string;
+        error?: string;
+        progress?: {
+          completedSteps?: number;
+          totalSteps?: number;
+          currentStep?: string;
+        };
+      } & Partial<SwarmOutcome>
+    >(`/api/swarm/scans/${encodeURIComponent(id)}`, { method: 'GET' }, 15_000);
 
-      const data = (await pollRes.json()) as any;
-      if (data.progress) onProgress?.({ status: data.status, ...data.progress });
-      else onProgress?.({ status: data.status });
+    if (!poll.ok) {
+      // Fail immediately on 401/403/404/422 instead of spinning until the deadline.
+      if (poll.kind === 'auth' || poll.kind === 'client') {
+        throw new Error(`Swarm aborted (${poll.status}): ${poll.error}`);
+      }
+      transientErrors++;
+      if (transientErrors >= 5) {
+        throw new Error(
+          `Swarm polling lost connection after ${transientErrors} attempts: ${poll.error}`,
+        );
+      }
+      continue;
+    }
 
-      if (data.status === 'completed') {
-        return data as SwarmOutcome;
-      }
-      if (data.status === 'failed') {
-        throw new Error(data.error || 'Swarm job failed');
-      }
-    } catch (e: any) {
-      if (e.message && e.message !== 'Failed to fetch' && !e.message.includes('timeout')) {
-        throw e;
-      }
+    transientErrors = 0;
+    onProgress?.(poll.data.status);
+
+    if (poll.data.status === 'completed') return poll.data as SwarmOutcome;
+    if (poll.data.status === 'failed') {
+      throw new Error(poll.data.error || 'Swarm scan failed on backend');
     }
   }
 
-  throw new Error('Swarm timed out after 5 minutes');
+  throw new Error(`Swarm timed out after ${SWARM_SCAN_TIMEOUT_MS / 1000}s`);
 }
 
 // ---------------------------------------------------------------------------
@@ -473,44 +434,14 @@ async function fetchJsonOrThrow<T>(
   init: RequestInit,
   timeoutMs: number,
 ): Promise<T> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  let res: Response;
-  const baseUrl = await getBackendBaseUrl();
-  try {
-    const apiKey = await getBackendApiKey();
-    const byokHeaders = await getByokHeaders();
-    res = await fetch(`${baseUrl}${path}`, {
-      ...init,
-      signal: ctrl.signal,
-      headers: {
-        'content-type': 'application/json',
-        ...(apiKey ? { 'x-api-key': apiKey } : {}),
-        ...byokHeaders,
-        ...(init.headers ?? {}),
-      },
-    });
-  } catch (err: any) {
-    clearTimeout(timer);
-    if (err?.name === 'AbortError') {
-      throw new Error(
-        `Backend request timed out (${Math.round(timeoutMs / 1000)}s) — Render may be waking up, please try again in a moment.`,
-      );
-    }
-    throw new Error('Backend unreachable — Render free tier is waking up, please wait ~30s or check your connection.');
+  const res = await fetchJson<T>(path, init, timeoutMs);
+  if (res.ok) return res.data;
+  if (res.kind === 'offline') {
+    throw new Error(
+      'Backend unreachable — Render free tier is waking up, please wait ~30s or check your connection.',
+    );
   }
-  clearTimeout(timer);
-  if (!res.ok) {
-    let message = `Backend request failed (HTTP ${res.status})`;
-    try {
-      const body = (await res.json()) as { error?: unknown };
-      if (typeof body?.error === 'string' && body.error) message = body.error;
-    } catch {
-      /* non-JSON error body, keep the generic message */
-    }
-    throw new Error(message);
-  }
-  return (await res.json()) as T;
+  throw new Error(res.error);
 }
 
 /** Finding shape shared by swarm scans, engine scans, and report imports. */
@@ -547,7 +478,7 @@ export async function getEnginesStatus(): Promise<EngineStatusEntry[] | null> {
     { method: 'GET' },
     5000,
   );
-  return res?.engines ?? null;
+  return res.ok ? res.data.engines : null;
 }
 
 /**
@@ -593,7 +524,7 @@ export async function importFindingsReport(
 /**
  * Submit a finished scan for server-side history/reporting. Best-effort:
  * returns the server scan id, or null when offline. Findings are already
- * redacted client-side (8-char prefix convention); the backend re-redacts
+ * redacted client-side (4-char edge mask); the backend re-redacts
  * before persistence per its own guardrails.
  */
 export async function submitScanResult(
@@ -613,5 +544,5 @@ export async function submitScanResult(
       stats: result.activeStats,
     }),
   });
-  return res?.id ?? null;
+  return res.ok ? res.data.id : null;
 }

@@ -407,7 +407,7 @@ export async function runActiveScan(
   let deepenedChains = chains;
   try {
     const status = await checkBackendStatus();
-    backendReachable = status.reachable;
+    backendReachable = status.state === 'online';
     if (backendReachable && chains.length > 0) {
       const deepened = await deepenAttackChains(targetUrl, chains, findings);
       if (deepened) {

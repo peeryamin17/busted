@@ -16,6 +16,7 @@
  * the vulnerability being reported.
  */
 import { scoreFinding } from '../lib/cvss';
+import { maskSecret } from '../scanners/secretScanner.js';
 import type { AuthorizationRecord, DomScanData, Finding } from '../lib/types';
 import type { ActiveHttpClient } from './httpClient';
 import { redactedSnippet } from './httpClient';
@@ -170,7 +171,7 @@ export async function checkAuthentication(
         confidence: 'medium',
         confirmed: true,
         location: `cookie: ${c.name}`,
-        evidence: `${c.name}=${c.value.slice(0, 8)}… (redacted)`,
+        evidence: `${c.name}=${maskSecret(c.value)}`,
         remediation:
           'Use short-lived JWTs, validate signature/audience/expiry server-side, and set Secure, HttpOnly, and SameSite on the cookie.',
         ...cvssFields('api:endpoint-discovered'),
