@@ -10,6 +10,17 @@ import {
   validateFindingWithLadder,
 } from './depthLadder.js';
 import { runWorker } from './worker.js';
+import { decomposeGoal } from './goals.js';
+import {
+  createTodoList,
+  markStep,
+  readySteps,
+  type TodoList,
+} from './todolist.js';
+import { assignPoe, extractQuotes, receiptCheck } from '../reports/poe.js';
+import { createSnapshot, type EvidenceSnapshot } from '../evidence/snapshots.js';
+import { redactText } from '../guardrails/redact.js';
+import type { TodoItem } from '../graph/types.js';
 import {
   OSDK_TOOL_DECLARATIONS,
   executeOsdkTool,
@@ -138,6 +149,23 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
   const workerReports: WorkerReport[] = [];
   const techStack: TechEntry[] = [...(opts.techStack ?? [])];
 
+  // ── task recording ──
+  // When the swarm runs inside a task, every step is written into the
+  // task's exploration graph / coverage ledger as it happens. Recording
+  // must never break a scan: `record` swallows failures (logged) and all
+  // task writes go through it.
+  const taskCtx = opts.task;
+  const record = async (fn: () => Promise<unknown>): Promise<void> => {
+    if (!taskCtx) return;
+    try {
+      await fn();
+    } catch (err) {
+      console.error(`[head] task record failed (non-fatal): ${(err as Error).message}`);
+    }
+  };
+  /** Content-addressed proof snapshots collected per finding (ladder). */
+  const proofSnapshotsByFinding = new Map<WorkerFinding, EvidenceSnapshot[]>();
+
   const makeWorkerCtx = (prior: string[]): WorkerContext => ({
     provider: opts.provider,
     tools: registry,
@@ -191,6 +219,56 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
     ...reconReport.notes,
   ].join(' | ').slice(0, 2000);
 
+  // ── Phase 0.5: goal decomposition + persistent todolist ──
+  // The goal becomes final deliverables + allow/deny constraints, never
+  // recon or attack steps (those are the workers' job). The todolist is
+  // one step per goal plus a report step that depends on all of them, so
+  // the report can only be written once every goal step is done.
+  const goalText =
+    opts.goalText?.trim() || `Test ${opts.targetUrl} for security vulnerabilities`;
+  let todolist: TodoList | null = null;
+  let goalNodeId: string | null = null;
+  try {
+    const decomposition = await decomposeGoal(opts.provider, { goalText, targetUrl: opts.targetUrl });
+    event('head_plan', `Goals: ${decomposition.goals.join(' | ')}`, {
+      goals: decomposition.goals,
+      allow: decomposition.allow,
+      deny: decomposition.deny,
+    });
+    const goalIds = decomposition.goals.map((_, i) => `goal-${i + 1}`);
+    todolist = createTodoList([
+      ...decomposition.goals.map((g, i) => ({
+        id: goalIds[i],
+        label: g,
+        kind: 'test' as const,
+        dependsOn: [] as string[],
+      })),
+      { id: 'report', label: 'Write the task report', kind: 'report' as const, dependsOn: goalIds },
+    ]);
+    if (taskCtx) {
+      const list = todolist;
+      await record(async () => {
+        const items: TodoItem[] = list.steps.map((s) => ({
+          id: s.id,
+          text: s.label,
+          status:
+            s.status === 'blocked'
+              ? 'skipped'
+              : s.status === 'ready'
+                ? 'pending'
+                : s.status,
+        }));
+        await taskCtx.graph.setTaskTodolist(taskCtx.taskId, items);
+        const nodes = await taskCtx.graph.listNodes(taskCtx.taskId);
+        goalNodeId = nodes.find((n) => n.kind === 'goal')?.id ?? null;
+      });
+    }
+  } catch (err) {
+    // Decomposition is advisory, a failure degrades to the single goal.
+    errors.push(`goal decomposition failed: ${(err as Error).message}`);
+    todolist = null;
+  }
+
   // ── Phase 1: head plans which specialists to deploy ──
   let specialistIds: SpecialistId[];
   if (opts.specialists && opts.specialists.length > 0) {
@@ -210,7 +288,9 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
             content:
               `TARGET: ${opts.targetUrl}\n` +
               `TECH STACK: ${techStack.map((t) => t.name).join(', ') || 'unknown'}\n` +
-              `RECON RESULTS: ${reconNotes}\n\n` +
+              `RECON RESULTS: ${reconNotes}\n` +
+              `GOALS: ${(todolist?.steps.filter((s) => s.kind === 'test').map((s) => s.label) ?? [goalText]).join(' | ')}\n` +
+              `READY CHAIN STEPS (dispatch only these — prerequisites satisfied): ${todolist ? readySteps(todolist).map((s) => s.label).join(' | ') || 'none' : 'n/a'}\n\n` +
               `Always spawn: ${ALWAYS_SPAWN.join(', ')} (already decided).\n` +
               `Decide which of these CONDITIONAL specialists to spawn, based on recon:\n${catalog}\n\n` +
               `Rules: max ${limits.maxWorkers} total workers. Spawn 'graphql' only if GraphQL was referenced. ` +
@@ -249,11 +329,48 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
   await runPool(specialistIds, limits.maxConcurrency, async (id) => {
     const def = getSpecialist(id);
     event('worker_start', `Spawning ${def.name}`);
+    let intentNodeId: string | null = null;
+    await record(async () => {
+      const node = await taskCtx!.graph.addNode({
+        taskId: taskCtx!.taskId,
+        kind: 'intent',
+        label: def.name,
+        detail: `Specialist ${def.id}`,
+        status: 'running',
+      });
+      intentNodeId = node.id;
+      if (goalNodeId) {
+        await taskCtx!.graph.addEdge({
+          taskId: taskCtx!.taskId,
+          fromNodeId: goalNodeId,
+          toNodeId: node.id,
+          rel: 'spawns',
+        });
+      }
+    });
     try {
       const rep = await runWorker(def, makeWorkerCtx([...priorTitles]));
       workerReports.push(rep);
       for (const f of rep.findings) priorTitles.push(f.title);
       event('worker_done', rep.summary, { specialist: id });
+      const nodeId = intentNodeId;
+      await record(async () => {
+        if (nodeId) {
+          await taskCtx!.graph.addNode({
+            taskId: taskCtx!.taskId,
+            kind: 'fact',
+            label: `${def.name}: ${rep.testsRun} tests`,
+            detail: rep.summary.slice(0, 500),
+          });
+        }
+        await taskCtx!.coverage.recordEntry({
+          taskId: taskCtx!.taskId,
+          assetValue: target.host,
+          riskClass: def.id,
+          outcome: rep.findings.length > 0 ? 'finding' : 'tested',
+          evidence: rep.summary.slice(0, 300),
+        });
+      });
     } catch (err) {
       const msg = `${def.name} crashed: ${(err as Error).message}`;
       console.error(`[head] ${msg}`);
@@ -480,11 +597,48 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
         f.verification = untestedVerification('swarm run paused/cancelled before the depth ladder ran.');
         continue;
       }
+      // Collect the (redacted) probe bodies + content-addressed snapshots
+      // for this finding, so the proof gate can check the receipt and the
+      // route can persist the proof against the finding's DB id.
+      const proofBodies: string[] = [];
+      const snaps: EvidenceSnapshot[] = [];
+      const onProbe = (p: { label: string; url: string; body: string }) => {
+        const redacted = redactText(p.body, 200_000);
+        proofBodies.push(redacted);
+        snaps.push(
+          createSnapshot({
+            role: p.label.includes('baseline') ? 'baseline' : 'proof',
+            url: p.url,
+            request: p.label,
+            body: redacted,
+          }),
+        );
+      };
       try {
-        f.verification = await validateFindingWithLadder(f, prober, { targetUrl: opts.targetUrl });
+        f.verification = await validateFindingWithLadder(f, prober, { targetUrl: opts.targetUrl, onProbe });
+        // Phase B proof gate: 'verified' only at POE ≥ 3 with a verbatim
+        // receipt (an evidence quote, or the canary itself) in a bound
+        // proof body. Anything else is held as a hint — including
+        // ladder-confirmed findings at POE 2, and escalated findings
+        // whose proof lives in headers/shape rather than a body
+        // (CORS/GraphQL/IDOR today).
+        const poe = assignPoe({ verification: f.verification }).poe;
+        const quotes = [
+          ...extractQuotes(f.verification.evidence),
+          ...(f.verification.canaryToken ? [f.verification.canaryToken] : []),
+        ];
+        const receipt = receiptCheck(quotes, proofBodies);
+        f.verification.poe = poe;
+        f.verification.receiptChecked = receipt.pass;
+        if (f.verification.status === 'verified' && !(poe >= 3 && receipt.pass)) {
+          f.verification.status = 'hint';
+          f.verification.impactSummary +=
+            ' Held as a hint by the proof gate: verified needs POE 3+ and a verbatim receipt in bound proof.';
+        }
+        if (snaps.length > 0) proofSnapshotsByFinding.set(f, snaps);
         event(
           'head_review',
-          `Depth ladder: "${f.title}" → ${f.verification.status}/${f.verification.depth}` +
+          `Depth ladder: "${f.title}" → ${f.verification.status}/${f.verification.depth} (POE ${poe}, receipt ${receipt.pass ? 'pass' : 'fail'})` +
             (f.verification.stopReason ? ` (stopped: ${f.verification.stopReason})` : ''),
         );
       } catch (err) {
@@ -502,6 +656,8 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
       f.verification = untestedVerification(
         `no read-only live probe exists for category "${f.category}" — the ladder only tests XSS, IDOR, CORS and GraphQL findings live.`,
       );
+      f.verification.poe = 0;
+      f.verification.receiptChecked = false;
     }
   }
 
@@ -516,6 +672,53 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
       deduped.push(...verified);
     } catch {
       // If provenance check cannot reach DB, keep findings rather than crashing
+    }
+  }
+
+  // ── Task recording: finding nodes + asset anchors ──
+  // Each surviving finding becomes a node in the exploration graph,
+  // anchored to the endpoint asset it was observed on, so a finding
+  // traces back to the asset it came from.
+  if (taskCtx && deduped.length > 0) {
+    const existingAssets = await taskCtx.graph.listAssets(taskCtx.taskId).catch(() => []);
+    const assetByValue = new Map(existingAssets.map((a) => [a.value, a]));
+    for (const f of deduped) {
+      await record(async () => {
+        const node = await taskCtx!.graph.addNode({
+          taskId: taskCtx!.taskId,
+          kind: 'finding',
+          label: f.title,
+          detail: `${f.severity}/${f.category} — ${f.location ?? ''}`.slice(0, 500),
+          status: f.verification?.status ?? 'hint',
+        });
+        if (f.location) {
+          let asset = assetByValue.get(f.location);
+          if (!asset) {
+            let host: string | null = null;
+            try {
+              host = new URL(f.location).host;
+            } catch {
+              try {
+                host = new URL(f.location, opts.targetUrl).host;
+              } catch {
+                host = null;
+              }
+            }
+            asset = await taskCtx!.graph.addAsset({
+              taskId: taskCtx!.taskId,
+              kind: 'endpoint',
+              value: f.location,
+              host,
+            });
+            assetByValue.set(f.location, asset);
+          }
+          await taskCtx!.graph.addAnchor({
+            taskId: taskCtx!.taskId,
+            nodeId: node.id,
+            assetId: asset.id,
+          });
+        }
+      });
     }
   }
 
@@ -558,6 +761,33 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
   const testsRun = workerReports.reduce((n, r) => n + (Number.isFinite(r.testsRun) ? r.testsRun : 0), 0);
   const llmCalls = workerReports.reduce((n, r) => n + (Number.isFinite(r.llmCalls) ? r.llmCalls : 0), 0);
 
+  // Close the todolist: goal steps complete when the run executed tests;
+  // the report step (which depends on all goals) completes with the
+  // synthesis above. A run that executed nothing blocks the goals.
+  if (todolist && taskCtx) {
+    const list = todolist;
+    await record(async () => {
+      let next = list;
+      for (const s of list.steps) {
+        if (s.kind === 'report') continue;
+        next = testsRun > 0
+          ? markStep(next, s.id, 'done')
+          : markStep(next, s.id, 'blocked', 'swarm run executed no tests');
+      }
+      if (testsRun > 0 && headSummary) {
+        next = markStep(next, 'report', 'done');
+      }
+      todolist = next;
+      const items: TodoItem[] = next.steps.map((s) => ({
+        id: s.id,
+        text: s.label,
+        status:
+          s.status === 'blocked' ? 'skipped' : s.status === 'ready' ? 'pending' : s.status,
+      }));
+      await taskCtx.graph.setTaskTodolist(taskCtx.taskId, items);
+    });
+  }
+
   const allWorkerErrors = [...workerReports.flatMap((r) => r.errors), ...errors];
   if (testsRun === 0 && (allWorkerErrors.length > 0 || workerReports.length === 0)) {
     throw new Error(
@@ -581,6 +811,7 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
       evidence: f.evidence,
       suggestedFix: f.suggestedFix,
       verification: f.verification,
+      proofSnapshots: proofSnapshotsByFinding.get(f),
       reproSteps: f.reproSteps,
       remediation: f.remediation,
       references: f.references,

@@ -8,6 +8,23 @@ import type {
 } from '../types.js';
 import type { LLMProvider } from '../llm/provider.js';
 import type { AgentTool, ToolExecutionContext } from '../agent/tools.js';
+import type { GraphStore } from '../graph/store.js';
+import type { CoverageStore } from '../coverage/ledger.js';
+import type { EvidenceSnapshot, EvidenceStore } from '../evidence/snapshots.js';
+
+/**
+ * Optional task context for a swarm run. When present, the head
+ * agent records its work into the task's exploration graph, coverage
+ * ledger and evidence store as it runs; when absent (CLI, tests, older
+ * callers) the swarm behaves exactly as before. Recording never breaks
+ * a scan, every graph/coverage/evidence write is guarded in head.ts.
+ */
+export interface SwarmTaskContext {
+  taskId: string;
+  graph: GraphStore;
+  coverage: CoverageStore;
+  evidence: EvidenceStore;
+}
 
 /**
  * Multi-agent system ("super agent") — shared types.
@@ -121,6 +138,10 @@ export interface MultiAgentOptions {
   osdk?: import('../ontology/osdk.js').BugSeekOSDK;
   scanId?: string;
   discoveredEndpoints?: string[];
+  /** Plain-language goal for the run. */
+  goalText?: string;
+  /** task context, graph, coverage and evidence recording. */
+  task?: SwarmTaskContext;
 }
 
 export type MultiAgentEventKind =
@@ -141,7 +162,16 @@ export interface MultiAgentEvent {
 
 export interface MultiAgentOutcome {
   targetUrl: string;
-  findings: Array<Omit<Finding, 'id' | 'scanId' | 'createdAt'>>;
+  /**
+   * Findings with the ladder's verification attached. `proofSnapshots`
+   * carries the content-addressed evidence snapshots the
+   * ladder collected for the finding, the route persists them against
+   * the finding's DB id so the proof survives after the live traffic
+   * is gone. Absent when the ladder ran no probes for the finding.
+   */
+  findings: Array<
+    Omit<Finding, 'id' | 'scanId' | 'createdAt'> & { proofSnapshots?: EvidenceSnapshot[] }
+  >;
   workerReports: WorkerReport[];
   headSummary: string;
   testsRun: number;

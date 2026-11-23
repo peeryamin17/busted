@@ -45,14 +45,17 @@ export class MockProvider implements LLMProvider {
       }
       const validations = list.map((item: any, idx: number) => {
         const raw = String(item.rawEvidence || item.evidence || '');
-        const isTrap = /canary|honeypot/i.test(raw) || (item.trapProbability ?? 0) >= 0.6;
+        // Only honeypot wording is a trap signal here: BugSeek's own
+        // benign canaries contain the word "canary" by design, so that
+        // word alone must never condemn a finding.
+        const isTrap = /honeypot/i.test(raw) || (item.trapProbability ?? 0) >= 0.6;
         const substantiated = !isTrap && (raw.length > 0 || String(item.title).length > 0);
         return {
           index: item.index ?? idx,
           substantiated,
           isHoneypot: isTrap,
           trapProbability: isTrap ? 0.9 : 0.05,
-          reason: isTrap ? 'Canary/honeypot detected in raw evidence' : (substantiated ? 'Substantiated by raw response evidence' : 'Unsubstantiated claim'),
+          reason: isTrap ? 'Honeypot detected in raw evidence' : (substantiated ? 'Substantiated by raw response evidence' : 'Unsubstantiated claim'),
           fixInIdePrompt: `// Fix-in-IDE Prompt for ${item.title}:\nLocate ${item.location || 'handler'} and apply security remediation.`,
         };
       });
@@ -91,6 +94,9 @@ export class MockProvider implements LLMProvider {
       { id: 't3', name: 'Probe CORS policy', tool: 'probe_cors', args: { url: target }, priority: 3, rationale: 'CORS misconfiguration check.' },
       { id: 't4', name: 'Audit cookie flags', tool: 'inspect_cookies', args: { url: target }, priority: 4, rationale: 'Cookie hardening check.' },
       { id: 't5', name: 'Mine JavaScript for endpoints', tool: 'fetch_js', args: { url: target }, priority: 5, rationale: 'Endpoint discovery from scripts.' },
+      // The XSS specialist owns probe_reflected_xss; other specialists
+      // filter it out by tool list, so the menu stays generic.
+      { id: 't6', name: 'Probe reflected XSS with benign canary', tool: 'probe_reflected_xss', args: { url: target, param: 'q' }, priority: 2, rationale: 'Benign canary reflection check.' },
     ];
     return tests.slice(0, Math.max(1, Math.min(maxActions, tests.length)));
   }

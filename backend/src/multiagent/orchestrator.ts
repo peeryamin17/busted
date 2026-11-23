@@ -7,6 +7,7 @@ import type {
   MultiAgentOptions,
   MultiAgentOutcome,
   SpecialistId,
+  SwarmTaskContext,
 } from './types.js';
 
 /**
@@ -40,6 +41,10 @@ export interface MultiAgentScanRequest {
   discoveredEndpoints?: string[];
   onEvent?: (e: MultiAgentEvent) => void;
   shouldContinue?: () => 'run' | 'paused' | 'cancelled';
+  /** Plain-language goal for the run. */
+  goalText?: string;
+  /** task context, graph, coverage and evidence recording. */
+  task?: SwarmTaskContext;
 }
 
 export async function runMultiAgentScan(req: MultiAgentScanRequest): Promise<MultiAgentOutcome> {
@@ -65,6 +70,8 @@ export async function runMultiAgentScan(req: MultiAgentScanRequest): Promise<Mul
     osdk: req.osdk,
     scanId: req.scanId,
     discoveredEndpoints: req.discoveredEndpoints,
+    goalText: req.goalText,
+    task: req.task,
   };
   return runHeadAgent(opts);
 }

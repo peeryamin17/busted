@@ -16,6 +16,8 @@ import { config } from '../config.js';
 import { getUserDecryptedAiKey, resolveQwenBaseUrl } from './aiKey.js';
 import type { RouteDeps } from './health.js';
 import { runMultiAgentScan } from '../multiagent/orchestrator.js';
+import type { SwarmTaskContext } from '../multiagent/types.js';
+import { recordFromFindings } from '../coverage/ledger.js';
 import { BugSeekOSDK } from '../ontology/osdk.js';
 import { ingestSurfaceToOntology } from '../ontology/ingest.js';
 import { ingestUniversalOntology } from '../ontology/universalIngest.js';
@@ -67,6 +69,8 @@ const swarmScanSchema = z.object({
     .array(z.enum(['recon', 'secrets', 'headers', 'cors', 'xss', 'idor', 'auth', 'graphql', 'sourcemap']))
     .max(9)
     .optional(),
+  /** Plain-language goal for the run. */
+  goalText: z.string().min(1).max(5000).optional(),
 });
 
 export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promise<void> {
@@ -181,6 +185,30 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       await db.recordUsage(user.id, 'scan', creditCost, scan.id);
     }
 
+    // 5b. task: the swarm run becomes a first-class task with an
+    // exploration graph, coverage ledger and evidence store. Best-effort:
+    // a task-store failure never blocks the scan.
+    const goalText =
+      d.goalText?.trim() || `Test ${target.toString()} for security vulnerabilities`;
+    let taskId: string | null = null;
+    let taskCtx: SwarmTaskContext | undefined;
+    if (deps.graph && deps.coverage && deps.evidence) {
+      try {
+        const task = await deps.graph.createTask({
+          userId: user.id,
+          goalText,
+          targetUrl: target.toString(),
+          scope: { ...scope },
+          scanId: scan.id,
+          authorizationId,
+        });
+        taskId = task.id;
+        taskCtx = { taskId: task.id, graph: deps.graph, coverage: deps.coverage, evidence: deps.evidence };
+      } catch (err) {
+        app.log.warn({ err }, 'task creation failed; swarm continues without a task');
+      }
+    }
+
     let provider;
     if (qwenKey) {
       // BYOK Qwen is the primary provider; a DashScope failure (wrong
@@ -256,6 +284,8 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
           provider,
           osdk,
           scanId: scan.id,
+          goalText,
+          task: taskCtx,
           discoveredEndpoints: Array.isArray(d.surfaceSnapshot?.observedApis)
             ? d.surfaceSnapshot.observedApis.map((a: any) => `${a.method || 'GET'}:${a.path}`)
             : [],
@@ -298,6 +328,31 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
             verification: f.verification,
           })),
         );
+        // persist the ladder's content-addressed proof snapshots
+        // against the finding DB ids (matched by title + location), and
+        // record 'finding' coverage entries from the findings.
+        if (taskCtx) {
+          const persisted = await db.listFindings(scan.id);
+          const byKey = new Map(persisted.map((p) => [`${p.title}|${p.location ?? ''}`, p]));
+          for (const f of outcome.findings) {
+            const snaps = f.proofSnapshots;
+            if (!snaps || snaps.length === 0) continue;
+            const match = byKey.get(`${f.title}|${f.location ?? ''}`);
+            if (!match) continue;
+            for (const s of snaps) {
+              await taskCtx.evidence
+                .put(s, { findingId: match.id, taskId: taskCtx.taskId })
+                .catch(() => undefined);
+            }
+          }
+          const entries = recordFromFindings(
+            taskCtx.taskId,
+            outcome.findings.map((f) => ({ category: f.category, location: f.location })),
+          );
+          for (const e of entries) {
+            await taskCtx.coverage.recordEntry(e).catch(() => undefined);
+          }
+        }
         if (outcome.testsRun === 0 && outcome.findings.length === 0) {
           const firstErr = outcome.errors?.[0] || 'All specialists failed to execute tests';
           throw new Error(`Swarm scan aborted: 0 tests were executed. ${firstErr}`);
@@ -313,10 +368,14 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
           finishedAt: new Date().toISOString(),
           progress: { completedSteps: 10, totalSteps: 10, currentStep: 'Swarm scan completed' },
         });
+        if (taskCtx) {
+          await taskCtx.graph.updateTaskStatus(taskCtx.taskId, 'done').catch(() => undefined);
+        }
 
         const fullResult = {
           jobId: scan.id,
           scanId: scan.id,
+          taskId,
           status: 'completed' as const,
           targetUrl: outcome.targetUrl,
           headSummary: outcome.headSummary,
@@ -357,6 +416,9 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
             error: errorMsg,
           })
           .catch(() => undefined);
+        if (taskCtx) {
+          await taskCtx.graph.updateTaskStatus(taskCtx.taskId, 'failed').catch(() => undefined);
+        }
         swarmScanErrors.set(scan.id, errorMsg);
         throw err;
       }
@@ -380,6 +442,7 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     return reply.status(202).send({
       jobId: scan.id,
       scanId: scan.id,
+      taskId,
       status: 'queued',
       targetUrl: target.toString(),
     });

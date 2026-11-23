@@ -94,6 +94,14 @@ export interface LadderOptions {
    * Disable it and IDOR findings can only be confirmed, never escalated.
    */
   allowNeighborShapeProbe?: boolean;
+  /**
+   * Called with every probe response (label, URL, raw capped body) so the
+   * caller can snapshot the proof and run the verbatim-receipt check
+   * (Phase B proof gate). The hook never affects the ladder outcome: a
+   * throwing hook is swallowed, and the body handed over is the raw probe
+   * response — the caller redacts before persisting anything.
+   */
+  onProbe?: (probe: { label: string; url: string; body: string }) => void;
   now?: () => string;
 }
 
@@ -632,13 +640,26 @@ export async function validateFindingWithLadder(
   }
   const canary = generateCanary();
   const state: LadderState = newLadderState(maxProbes);
+  // Wrap the prober so every probe response is offered to the caller's
+  // snapshot hook (proof gate) without changing probe behaviour.
+  const tracingProber: DepthProber = async (req) => {
+    const res = await prober(req);
+    if (opts.onProbe) {
+      try {
+        opts.onProbe({ label: req.label, url: req.url, body: res.body });
+      } catch {
+        // A snapshot hook must never fail the ladder.
+      }
+    }
+    return res;
+  };
   let depth: DepthLevel = 'unproven';
   try {
-    if (kind === 'xss') depth = await runXss(finding, url, canary, prober, state);
+    if (kind === 'xss') depth = await runXss(finding, url, canary, tracingProber, state);
     else if (kind === 'idor') {
-      depth = await runIdor(finding, url, canary, prober, state, opts.allowNeighborShapeProbe ?? true);
-    } else if (kind === 'cors') depth = await runCors(finding, url, canary, prober, state);
-    else if (kind === 'graphql') depth = await runGraphql(finding, url, canary, prober, state);
+      depth = await runIdor(finding, url, canary, tracingProber, state, opts.allowNeighborShapeProbe ?? true);
+    } else if (kind === 'cors') depth = await runCors(finding, url, canary, tracingProber, state);
+    else if (kind === 'graphql') depth = await runGraphql(finding, url, canary, tracingProber, state);
   } catch (err) {
     // A ladder crash is a ladder failure, never a finding failure.
     state.stopReason = `ladder error: ${(err as Error).message.slice(0, 200)}`;
