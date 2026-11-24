@@ -15,11 +15,11 @@ import { usePathname } from '../../lib/router';
  *
  * It lives in the header and runs the top boundary of the nav: on
  * desktop its paws track the active tab's top edge (scroll-spy over
- * the MemberSite sections; the Connect tab when the route is
- * /app/check) and it hops tab to tab with a crouch–arc–squash as the
- * active section changes. Where there are no tabs (the landing teaser,
- * below lg, the sign-in door) it perches on the brand mark's top edge
- * instead. Tapping it startles a hop in place.
+ * the MemberSite sections, Connect included) and it hops tab to tab
+ * with a crouch–arc–squash as the active section changes. Where
+ * there are no tabs (the landing teaser, below lg, the sign-in door)
+ * it perches on the brand mark's top edge instead. Tapping it
+ * startles a hop in place.
  *
  * Positioning is measurement, never constants: Nav tags its tabs with
  * data-cat-tab, the brand with data-cat-brand and the pill with
@@ -30,7 +30,7 @@ import { usePathname } from '../../lib/router';
 
 type TabKey = 'connect' | 'what' | 'swarm' | 'how' | 'pricing' | 'faq';
 
-const SECTION_KEYS: TabKey[] = ['what', 'swarm', 'how', 'pricing', 'faq'];
+const SECTION_KEYS: TabKey[] = ['connect', 'what', 'swarm', 'how', 'pricing', 'faq'];
 const CAT = 34; // px, the tap target and the drawing share one box
 
 interface Perch {
@@ -67,9 +67,7 @@ export function TabCat({
   const hopTokenRef = useRef(0);
 
   const tabsMode = variant === 'site' && wide;
-  // The Connect tab is a route, not a section: on /app/check it owns
-  // the cat outright; everywhere else the scroll-spy decides.
-  const activeKey: TabKey = pathname === '/app/check' ? 'connect' : spyKey;
+  const activeKey: TabKey = spyKey;
   const perchKey = tabsMode ? activeKey : 'brand';
 
   /* --- measurement --- */

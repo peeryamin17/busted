@@ -41,9 +41,13 @@ export function ConnectExtensionCard() {
   const [link, setLink] = useState<{ code: string; expiresAt: string } | null>(null);
   const [linkState, setLinkState] = useState<'idle' | 'working' | 'error'>('idle');
   const [codeCopied, setCodeCopied] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
   const ackWaiter = useRef<((ok: boolean) => void) | null>(null);
   const keyGuard = useRef<ExtensionKeyMint | null>(null);
   if (!keyGuard.current) keyGuard.current = new ExtensionKeyMint();
+  const linkInFlight = useRef(false);
+  const revokingIds = useRef(new Set<string>());
 
   const loadKeys = useCallback(async () => {
     try {
@@ -132,6 +136,8 @@ export function ConnectExtensionCard() {
   };
 
   const doGenerateCode = async () => {
+    if (linkState === 'working' || linkInFlight.current) return;
+    linkInFlight.current = true;
     setLinkState('working');
     try {
       const res = await fetch('/api/auth/pairing-codes', {
@@ -144,6 +150,8 @@ export function ConnectExtensionCard() {
       setLinkState('idle');
     } catch {
       setLinkState('error');
+    } finally {
+      linkInFlight.current = false;
     }
   };
 
@@ -159,14 +167,22 @@ export function ConnectExtensionCard() {
   };
 
   const doRevoke = async (id: string) => {
+    if (revokingIds.current.has(id)) return;
+    revokingIds.current.add(id);
+    setRevokingId(id);
+    setRevokeError(null);
     try {
-      await fetch(`/api/auth/api-keys/${id}`, {
+      const res = await fetch(`/api/auth/api-keys/${id}`, {
         method: 'DELETE',
         credentials: 'include',
       });
+      if (!res.ok) throw new Error(`Revoke failed (${res.status})`);
       await loadKeys();
-    } catch {
-      /* list refresh will show the truth */
+    } catch (err) {
+      setRevokeError(err instanceof Error ? err.message : 'Something went wrong.');
+    } finally {
+      revokingIds.current.delete(id);
+      setRevokingId((cur) => (cur === id ? null : cur));
     }
   };
 
@@ -184,7 +200,7 @@ export function ConnectExtensionCard() {
   const liveKeys = keys.filter((k) => !k.revokedAt);
 
   return (
-    <section className="relative mx-auto max-w-6xl px-4 py-12 sm:px-6" aria-label="Connect the extension">
+    <section id="connect" className="relative mx-auto max-w-6xl px-4 py-12 sm:px-6" aria-label="Connect the extension">
       <Reveal>
         <div className="glass overflow-hidden rounded-[2rem] p-7 sm:p-9">
           <div className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr]">
@@ -343,13 +359,19 @@ export function ConnectExtensionCard() {
                         <button
                           type="button"
                           onClick={() => void doRevoke(k.id)}
-                          className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-xs text-body/80 transition-colors hover:bg-white/5 hover:text-bone"
+                          disabled={revokingId === k.id}
+                          className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-xs text-body/80 transition-colors hover:bg-white/5 hover:text-bone disabled:opacity-50"
                         >
                           <Trash2 className="h-3.5 w-3.5" aria-hidden /> Revoke
                         </button>
                       </li>
                     ))}
                   </ul>
+                  {revokeError && (
+                    <p className="mt-3 text-sm text-red-300" role="alert">
+                      {revokeError} Try again in a moment.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

@@ -104,7 +104,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
     if (variant === 'landing') {
       navigate('/signin');
     } else if (tab.connect) {
-      navigate('/app/check');
+      goSectionHash('#connect');
     } else if (tab.page) {
       navigate(tab.page);
     } else if (tab.hash) {
@@ -116,7 +116,7 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
     variant === 'landing'
       ? '/signin'
       : tab.connect
-        ? '/app/check'
+        ? '/app#connect'
         : tab.page ?? (tab.hash ? `/app${tab.hash}` : '#top');
 
   /** Section anchors live in the members' home at /app: from any other
@@ -229,12 +229,9 @@ export function Nav({ variant = 'site' }: { variant?: 'site' | 'landing' }) {
             {variant === 'site' && (
               <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
                 <a
-                  href="/app/check"
+                  href="/app#connect"
                   data-cat-tab="connect"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    navigate('/app/check');
-                  }}
+                  onClick={(e) => goSection(e, '#connect')}
                   className="text-sm font-semibold text-bone transition-colors hover:text-white"
                 >
                   Connect site
