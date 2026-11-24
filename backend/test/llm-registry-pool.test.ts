@@ -1,4 +1,4 @@
-import { validateProviderBaseUrl, PROVIDER_REGISTRY } from '../src/llm/registry.js';
+import { validateProviderBaseUrl, PROVIDER_REGISTRY, defaultModelsFor } from '../src/llm/registry.js';
 import { OpenAiCompatProvider, finiteInt } from '../src/llm/openaiCompat.js';
 import { LlmProviderPool, buildPoolFromKeys } from '../src/llm/index.js';
 import { GeminiProvider } from '../src/llm/gemini.js';
@@ -461,6 +461,55 @@ async function main() {
       qwen: all503a.calls,
       gemini: all503b.calls,
     });
+
+    // 19. defaultModelsFor is region-aware for qwen, unchanged elsewhere.
+    check(
+      'registry qwen defaults are qwen3.7-plus / qwen4-max',
+      PROVIDER_REGISTRY.qwen.defaultModels.worker === 'qwen3.7-plus' &&
+        PROVIDER_REGISTRY.qwen.defaultModels.reasoning === 'qwen4-max',
+      PROVIDER_REGISTRY.qwen.defaultModels,
+    );
+    const beijingDefaults = defaultModelsFor('qwen', 'https://dashscope.aliyuncs.com/compatible-mode/v1');
+    check('defaultModelsFor qwen beijing worker is qwen3.7-plus', beijingDefaults.worker === 'qwen3.7-plus', beijingDefaults);
+    check('defaultModelsFor qwen beijing reasoning is qwen4-max', beijingDefaults.reasoning === 'qwen4-max', beijingDefaults);
+    const intlDefaults = defaultModelsFor('qwen', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1');
+    check('defaultModelsFor qwen intl worker is qwen3.7-plus', intlDefaults.worker === 'qwen3.7-plus', intlDefaults);
+    check('defaultModelsFor qwen intl reasoning is qwen3.8-max', intlDefaults.reasoning === 'qwen3.8-max', intlDefaults);
+    const workspaceDefaults = defaultModelsFor('qwen', 'https://my-workspace.aliyuncs.com/compatible-mode/v1');
+    check('defaultModelsFor qwen custom workspace reasoning is qwen4-max', workspaceDefaults.reasoning === 'qwen4-max', workspaceDefaults);
+    const noUrlDefaults = defaultModelsFor('qwen');
+    check('defaultModelsFor qwen with no base URL reasoning is qwen4-max', noUrlDefaults.reasoning === 'qwen4-max', noUrlDefaults);
+    check(
+      'defaultModelsFor gemini unchanged',
+      defaultModelsFor('gemini').worker === 'gemini-2.5-flash' &&
+        defaultModelsFor('gemini').reasoning === 'gemini-2.5-pro',
+      defaultModelsFor('gemini'),
+    );
+    check(
+      'defaultModelsFor kimi unchanged',
+      defaultModelsFor('kimi').worker === 'moonshot-v1-32k' &&
+        defaultModelsFor('kimi').reasoning === 'kimi-k2-0711-preview',
+      defaultModelsFor('kimi'),
+    );
+
+    // 20. buildPoolFromKeys threads the region-aware qwen defaults into
+    // the pool: a Beijing key serves reasoning calls as qwen4-max.
+    QwenProvider.resetModelCache();
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('aliyuncs.com/models')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url.includes('aliyuncs.com')) return chatOk('qwen beijing pool');
+      return new Response('Not Found', { status: 404 });
+    }) as typeof fetch;
+    const beijingPool = buildPoolFromKeys(
+      [{ providerId: 'qwen', apiKey: 'test-' + 'x'.repeat(20), baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' }],
+      { workerProvider: 'gemini', reasoningProvider: 'gemini' },
+    );
+    check('buildPoolFromKeys builds a pool from a beijing qwen key', beijingPool !== null);
+    const beijingReasoning = await beijingPool!.completeTier('reasoning', [{ role: 'user', content: 'r' }]);
+    check('pool qwen beijing key uses qwen4-max for reasoning', beijingReasoning.model === 'qwen4-max', beijingReasoning.model);
   } finally {
     globalThis.fetch = originalFetch;
   }

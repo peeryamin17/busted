@@ -46,7 +46,7 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
     mode: 'hosted',
     defaultBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
     allowedBaseUrlPatterns: [/^https:\/\/[a-z0-9-]+\.aliyuncs\.com\/compatible-mode\/v1$/],
-    defaultModels: { worker: 'qwen-plus', reasoning: 'qwen-max' },
+    defaultModels: { worker: 'qwen3.7-plus', reasoning: 'qwen4-max' },
   },
   kimi: {
     id: 'kimi',
@@ -97,6 +97,26 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
 
 export function isProviderId(value: string): value is ProviderId {
   return value in PROVIDER_REGISTRY;
+}
+
+/**
+ * Region-aware default models for a provider. Qwen reasoning varies by
+ * DashScope region: the international endpoint gets qwen3.8-max, every
+ * other endpoint (Beijing, US, custom workspaces) gets qwen4-max, which
+ * is also the registry default when no base URL is known. All other
+ * providers return their registry defaultModels unchanged.
+ */
+export function defaultModelsFor(
+  providerId: ProviderId,
+  baseUrl?: string | null,
+): Record<ModelTier, string> {
+  const spec = PROVIDER_REGISTRY[providerId];
+  if (providerId === 'qwen') {
+    const reasoning =
+      baseUrl && baseUrl.includes('dashscope-intl') ? 'qwen3.8-max' : 'qwen4-max';
+    return { worker: 'qwen3.7-plus', reasoning };
+  }
+  return { ...spec.defaultModels };
 }
 
 export function validateProviderBaseUrl(providerId: ProviderId, url?: string): string {

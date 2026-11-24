@@ -5,7 +5,7 @@ import { GeminiProvider } from './gemini.js';
 import { MockProvider } from './mock.js';
 import { QwenProvider } from './qwen.js';
 import { OpenAiCompatProvider, finiteInt, type OpenAiCompatProviderId } from './openaiCompat.js';
-import { PROVIDER_REGISTRY, type ModelTier, type ProviderId } from './registry.js';
+import { PROVIDER_REGISTRY, defaultModelsFor, type ModelTier, type ProviderId } from './registry.js';
 
 export { PROVIDER_REGISTRY, validateProviderBaseUrl, type ProviderId, type ModelTier } from './registry.js';
 export { OpenAiCompatProvider, finiteInt, sanitizedProviderError } from './openaiCompat.js';
@@ -134,6 +134,8 @@ export interface PoolEntry {
   provider: LLMProvider;
   workerModel?: string;
   reasoningModel?: string;
+  /** Saved key's base URL, so region-aware defaults resolve correctly. */
+  baseUrl?: string | null;
 }
 
 export interface PoolOptions {
@@ -238,10 +240,14 @@ export class LlmProviderPool implements LLMProvider {
         };
         if (!completion.providerId) completion.providerId = entry.providerId;
         if (!completion.model) {
+          const registryDefault =
+            entry.providerId in PROVIDER_REGISTRY
+              ? defaultModelsFor(entry.providerId as ProviderId, entry.baseUrl ?? null)[tier]
+              : undefined;
           completion.model =
             tier === 'reasoning'
-              ? (entry.reasoningModel ?? PROVIDER_REGISTRY[entry.providerId as ProviderId]?.defaultModels.reasoning)
-              : (entry.workerModel ?? PROVIDER_REGISTRY[entry.providerId as ProviderId]?.defaultModels.worker);
+              ? (entry.reasoningModel ?? registryDefault)
+              : (entry.workerModel ?? registryDefault);
         }
         return completion;
       } catch (err) {
@@ -287,22 +293,23 @@ export function buildPoolFromKeys(
     const id = key.providerId.toLowerCase();
     if (!(id in PROVIDER_REGISTRY)) continue;
     const providerId = id as ProviderId;
-    const spec = PROVIDER_REGISTRY[providerId];
+    const defaults = defaultModelsFor(providerId, key.baseUrl ?? null);
     const overrides: ProviderModelOverrides = {
       workerModel:
         routing?.workerProvider === providerId && routing.workerModel
           ? routing.workerModel
-          : spec.defaultModels.worker,
+          : defaults.worker,
       reasoningModel:
         routing?.reasoningProvider === providerId && routing.reasoningModel
           ? routing.reasoningModel
-          : spec.defaultModels.reasoning,
+          : defaults.reasoning,
     };
     entries.push({
       providerId,
       provider: createProviderForUser(providerId, key.apiKey, key.baseUrl ?? undefined, overrides),
       workerModel: overrides.workerModel,
       reasoningModel: overrides.reasoningModel,
+      baseUrl: key.baseUrl ?? null,
     });
   }
   if (entries.length === 0) return null;

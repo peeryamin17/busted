@@ -62,11 +62,13 @@ export function isTimeoutError(err: unknown): boolean {
  *
  * Tiered routing (cost control, the user is a cost-sensitive student):
  * - tier 'routine'   → QWEN_ROUTINE_MODEL   (default qwen3.8-flash: cheap, fast)
- * - tier 'reasoning' → QWEN_REASONING_MODEL (default qwen3.7-plus: strong reasoning)
+ * - tier 'reasoning' → QWEN_REASONING_MODEL (saved-key routing default:
+ *   qwen4-max on Beijing endpoints, qwen3.8-max on the international endpoint)
  * - tier 'code'      → QWEN_CODE_MODEL      (default qwen3.7-plus, then
  *   qwen3-coder-flash when discovery shows it, then qwen3.8-max)
  * - escalation: the hardest calls cascade past the plus-class model to
- *   qwen3.8-max when the plus candidate fails.
+ *   qwen4-max (Beijing) or qwen3.8-max (international) when the plus
+ *   candidate fails.
  *
  * Dynamic Model Discovery & Multi-Candidate Fallback (mirrors gemini.ts):
  * GET {baseUrl}/models lists the models this key can use; non-text models
@@ -187,6 +189,7 @@ export class QwenProvider implements LLMProvider {
       tier === 'reasoning'
         ? [
             this.reasoningModel,
+            'qwen4-max',
             'qwen3.7-plus',
             'qwen3.8-max',
             'qwen-plus',

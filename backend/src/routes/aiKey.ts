@@ -6,6 +6,7 @@ import { buildAuthenticate, requireUser } from '../middleware/auth.js';
 import { getBackendRuntime } from './health.js';
 import {
   PROVIDER_REGISTRY,
+  defaultModelsFor,
   isProviderId,
   validateProviderBaseUrl,
   type ProviderId,
@@ -388,6 +389,13 @@ export async function aiKeyRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     const user = requireUser(req);
     const rows = await db.listUserAiKeys(user.id).catch(() => []);
     const routing = await getUserLlmRoutingOrDefault(db, user.id);
+    const baseUrlByProvider = new Map(rows.map((r) => [r.providerId, r.baseUrl]));
+    const resolveModel = (provider: string, tier: 'worker' | 'reasoning', stored: string | null) => {
+      if (stored) return stored;
+      const id = provider as ProviderId;
+      if (!(id in PROVIDER_REGISTRY)) return null;
+      return defaultModelsFor(id, baseUrlByProvider.get(provider) ?? null)[tier];
+    };
     return {
       keys: rows.map((r) => ({
         providerId: r.providerId,
@@ -397,9 +405,9 @@ export async function aiKeyRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       })),
       routing: {
         workerProvider: routing.workerProvider,
-        workerModel: routing.workerModel ?? PROVIDER_REGISTRY[routing.workerProvider as ProviderId]?.defaultModels.worker ?? null,
+        workerModel: resolveModel(routing.workerProvider, 'worker', routing.workerModel),
         reasoningProvider: routing.reasoningProvider,
-        reasoningModel: routing.reasoningModel ?? PROVIDER_REGISTRY[routing.reasoningProvider as ProviderId]?.defaultModels.reasoning ?? null,
+        reasoningModel: resolveModel(routing.reasoningProvider, 'reasoning', routing.reasoningModel),
       },
       hasByok: rows.length > 0,
     };
@@ -487,11 +495,12 @@ export async function aiKeyRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       const routingIsGeminiDefault =
         routing.workerProvider === 'gemini' && routing.reasoningProvider === 'gemini';
       if (!routingPointsAtHeldProvider && (isOnlyKey || routingIsGeminiDefault)) {
+        const defaults = defaultModelsFor(providerId, baseUrl);
         const nextRouting: UserLlmRouting = {
           workerProvider: providerId,
-          workerModel: null,
+          workerModel: defaults.worker,
           reasoningProvider: providerId,
-          reasoningModel: null,
+          reasoningModel: defaults.reasoning,
         };
         if (typeof (db as Database).setUserLlmRouting === 'function') {
           try {
@@ -504,17 +513,18 @@ export async function aiKeyRoutes(app: FastifyInstance, deps: RouteDeps): Promis
         }
       }
     }
+    const baseUrlByProvider = new Map(remaining.map((r) => [r.providerId, r.baseUrl]));
+    const resolveModel = (provider: string, tier: 'worker' | 'reasoning', stored: string | null) => {
+      if (stored) return stored;
+      const id = provider as ProviderId;
+      if (!(id in PROVIDER_REGISTRY)) return null;
+      return defaultModelsFor(id, baseUrlByProvider.get(provider) ?? null)[tier];
+    };
     const routingOut = {
       workerProvider: routing.workerProvider,
-      workerModel:
-        routing.workerModel ??
-        PROVIDER_REGISTRY[routing.workerProvider as ProviderId]?.defaultModels.worker ??
-        null,
+      workerModel: resolveModel(routing.workerProvider, 'worker', routing.workerModel),
       reasoningProvider: routing.reasoningProvider,
-      reasoningModel:
-        routing.reasoningModel ??
-        PROVIDER_REGISTRY[routing.reasoningProvider as ProviderId]?.defaultModels.reasoning ??
-        null,
+      reasoningModel: resolveModel(routing.reasoningProvider, 'reasoning', routing.reasoningModel),
     };
     return {
       providerId,

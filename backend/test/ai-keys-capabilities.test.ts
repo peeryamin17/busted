@@ -54,6 +54,9 @@ async function main() {
     if (url === 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models') {
       return new Response(JSON.stringify({ data: [] }), { status: 200 });
     }
+    if (url === 'https://dashscope.aliyuncs.com/compatible-mode/v1/models') {
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    }
     if (url === 'https://api.anthropic.com/v1/messages' && method === 'POST') {
       const body = JSON.parse(String(init?.body ?? '{}')) as { max_tokens?: number };
       if (body.max_tokens === 1) {
@@ -347,16 +350,23 @@ async function main() {
       await db.createSession(u.id, hashSessionToken(t), new Date(Date.now() + 3600_000).toISOString());
       return `bs_session=${t}`;
     }
+    async function freshUserWithId(email: string) {
+      const u = await db.createUser(email, 'unused-hash');
+      await db.setUserPlan(u.id, 'pro');
+      const t = generateSessionToken();
+      await db.createSession(u.id, hashSessionToken(t), new Date(Date.now() + 3600_000).toISOString());
+      return { cookie: `bs_session=${t}`, id: u.id };
+    }
     type RoutingBody = {
       routingAutoSet: boolean;
       routing: { workerProvider: string; workerModel: string | null; reasoningProvider: string; reasoningModel: string | null };
     };
-    async function saveKey(cookieValue: string, providerId: string, apiKey: string) {
+    async function saveKey(cookieValue: string, providerId: string, apiKey: string, baseUrl?: string) {
       const res = await app.inject({
         method: 'POST',
         url: '/api/v1/ai-keys',
         headers: { cookie: cookieValue },
-        payload: { providerId, apiKey },
+        payload: baseUrl ? { providerId, apiKey, baseUrl } : { providerId, apiKey },
       });
       return { res, body: res.statusCode === 200 ? (JSON.parse(res.body) as RoutingBody) : null };
     }
@@ -372,6 +382,8 @@ async function main() {
     check('first qwen key auto-sets routing', qwenFirst.body?.routingAutoSet === true, qwenFirst.body);
     check('first qwen key routes worker to qwen', qwenFirst.body?.routing.workerProvider === 'qwen', qwenFirst.body?.routing);
     check('first qwen key routes reasoning to qwen', qwenFirst.body?.routing.reasoningProvider === 'qwen', qwenFirst.body?.routing);
+    check('first qwen key worker model is qwen3.7-plus (intl default)', qwenFirst.body?.routing.workerModel === 'qwen3.7-plus', qwenFirst.body?.routing);
+    check('first qwen key reasoning model is qwen3.8-max (intl default)', qwenFirst.body?.routing.reasoningModel === 'qwen3.8-max', qwenFirst.body?.routing);
     const qwenPersisted = await getRouting(qwenCookie);
     check('GET confirms routing persisted as qwen/qwen', qwenPersisted.workerProvider === 'qwen' && qwenPersisted.reasoningProvider === 'qwen', qwenPersisted);
 
@@ -380,6 +392,7 @@ async function main() {
     check('later gemini key → 200', geminiLater.res.statusCode === 200, geminiLater.res.body);
     check('later gemini key does not auto-set routing', geminiLater.body?.routingAutoSet === false, geminiLater.body);
     check('later gemini key leaves routing on qwen', geminiLater.body?.routing.workerProvider === 'qwen' && geminiLater.body?.routing.reasoningProvider === 'qwen', geminiLater.body?.routing);
+    check('later gemini key leaves qwen models in place', geminiLater.body?.routing.workerModel === 'qwen3.7-plus' && geminiLater.body?.routing.reasoningModel === 'qwen3.8-max', geminiLater.body?.routing);
 
     // 12c. Saving a second provider key when routing already points at a
     // different held provider leaves routing untouched.
@@ -391,6 +404,7 @@ async function main() {
     check('second key (claude) → 200', claudeSecond.res.statusCode === 200, claudeSecond.res.body);
     check('second key does not auto-set routing', claudeSecond.body?.routingAutoSet === false, claudeSecond.body);
     check('second key leaves routing on kimi', claudeSecond.body?.routing.workerProvider === 'kimi' && claudeSecond.body?.routing.reasoningProvider === 'kimi', claudeSecond.body?.routing);
+    check('second key leaves routing models on kimi', claudeSecond.body?.routing.workerModel === 'moonshot-v1-32k' && claudeSecond.body?.routing.reasoningModel === 'kimi-k2-0711-preview', claudeSecond.body?.routing);
 
     // 12d. Routing still on the Gemini defaults, no Gemini key held:
     // saving another provider auto-routes to it.
@@ -408,6 +422,34 @@ async function main() {
     check('key saved over gemini-default routing → 200', claudeAfterDefaults.res.statusCode === 200, claudeAfterDefaults.res.body);
     check('key saved over gemini-default routing auto-sets to claude', claudeAfterDefaults.body?.routingAutoSet === true, claudeAfterDefaults.body);
     check('key saved over gemini-default routing points both tiers at claude', claudeAfterDefaults.body?.routing.workerProvider === 'claude' && claudeAfterDefaults.body?.routing.reasoningProvider === 'claude', claudeAfterDefaults.body?.routing);
+
+    // 13. Qwen auto-routing stores concrete, region-aware models.
+    const QWEN_BEIJING = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+    const QWEN_INTL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
+
+    // 13a. Beijing base URL: worker qwen3.7-plus, reasoning qwen4-max,
+    // and the stored routing row holds those concrete strings.
+    const beijingUser = await freshUserWithId('qwen-beijing@example.com');
+    const beijingSave = await saveKey(beijingUser.cookie, 'qwen', QWEN_KEY, QWEN_BEIJING);
+    check('beijing qwen key → 200', beijingSave.res.statusCode === 200, beijingSave.res.body);
+    check('beijing qwen key auto-sets routing', beijingSave.body?.routingAutoSet === true, beijingSave.body);
+    check('beijing qwen worker model is qwen3.7-plus', beijingSave.body?.routing.workerModel === 'qwen3.7-plus', beijingSave.body?.routing);
+    check('beijing qwen reasoning model is qwen4-max', beijingSave.body?.routing.reasoningModel === 'qwen4-max', beijingSave.body?.routing);
+    const beijingStored = await db.getUserLlmRouting(beijingUser.id);
+    check('beijing routing row stores concrete worker model', beijingStored?.workerModel === 'qwen3.7-plus', beijingStored);
+    check('beijing routing row stores concrete reasoning model', beijingStored?.reasoningModel === 'qwen4-max', beijingStored);
+    const beijingGet = await getRouting(beijingUser.cookie);
+    check('GET confirms beijing routing models', beijingGet.workerModel === 'qwen3.7-plus' && beijingGet.reasoningModel === 'qwen4-max', beijingGet);
+
+    // 13b. International base URL: worker qwen3.7-plus, reasoning qwen3.8-max.
+    const intlUser = await freshUserWithId('qwen-intl@example.com');
+    const intlSave = await saveKey(intlUser.cookie, 'qwen', QWEN_KEY, QWEN_INTL);
+    check('intl qwen key → 200', intlSave.res.statusCode === 200, intlSave.res.body);
+    check('intl qwen key auto-sets routing', intlSave.body?.routingAutoSet === true, intlSave.body);
+    check('intl qwen worker model is qwen3.7-plus', intlSave.body?.routing.workerModel === 'qwen3.7-plus', intlSave.body?.routing);
+    check('intl qwen reasoning model is qwen3.8-max', intlSave.body?.routing.reasoningModel === 'qwen3.8-max', intlSave.body?.routing);
+    const intlStored = await db.getUserLlmRouting(intlUser.id);
+    check('intl routing row stores concrete reasoning model', intlStored?.reasoningModel === 'qwen3.8-max', intlStored);
 
     await app.close();
   } finally {
