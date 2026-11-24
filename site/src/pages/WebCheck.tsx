@@ -7,6 +7,7 @@ import { Reveal } from '../components/Reveal';
 import { ScoreRing } from '../components/fx/ScoreRing';
 import { LiquidGlassButton } from '../components/fx/LiquidGlassButton';
 import { SonarGrid } from '../components/fx/SonarGrid';
+import { isAbortError } from '../lib/abort';
 import { useAuth } from '../lib/auth';
 import { springPop, springQuiet } from '../lib/motion';
 import { navigate } from '../lib/router';
@@ -342,6 +343,7 @@ export function WebCheck() {
   const [locWait, setLocWait] = useState(false);
   const skipLocation = useRef<(() => void) | null>(null);
   const openRunController = useRef<AbortController | null>(null);
+  const patrolController = useRef<AbortController | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -390,6 +392,9 @@ export function WebCheck() {
     }
     setRunning(true);
     setPhase(0);
+    patrolController.current?.abort();
+    const controller = new AbortController();
+    patrolController.current = controller;
     try {
       // Location is optional and never blocks the patrol: the GPS
       // prompt gets at most a few seconds, and Skip posts without it.
@@ -406,6 +411,7 @@ export function WebCheck() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({ url: target, authorized, ...(gps ? { gps } : {}) }),
       });
       const data = (await res.json().catch(() => null)) as CheckView | { error?: string } | null;
@@ -422,12 +428,19 @@ export function WebCheck() {
       requestAnimationFrame(() => {
         resultsRef.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
       });
-    } catch {
+    } catch (err) {
+      if (isAbortError(err)) return;
       setError('Could not reach the BugSeek backend — give it a second and try again.');
     } finally {
+      if (patrolController.current === controller) patrolController.current = null;
       setLocWait(false);
       setRunning(false);
     }
+  };
+
+  const cancelPatrol = () => {
+    patrolController.current?.abort();
+    skipLocation.current?.();
   };
 
   const openRun = async (id: string) => {
@@ -451,7 +464,7 @@ export function WebCheck() {
         resultsRef.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
       });
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return;
+      if (isAbortError(err)) return;
       setError('Could not reach the BugSeek backend — give it a second and try again.');
     } finally {
       if (openRunController.current === controller) setLoadingRunId(null);
@@ -538,6 +551,15 @@ export function WebCheck() {
                 <Radar className="h-4 w-4" aria-hidden />
                 {running ? 'Patrolling…' : 'Run the patrol'}
               </LiquidGlassButton>
+              {running && (
+                <button
+                  type="button"
+                  onClick={cancelPatrol}
+                  className="rounded-full border border-white/20 px-6 py-3 font-display text-sm font-bold tracking-tight text-bone transition-colors hover:bg-white/5"
+                >
+                  Cancel
+                </button>
+              )}
             </div>
             <label className="mt-5 flex cursor-pointer items-start gap-3 text-sm leading-relaxed text-body/85">
               <input
