@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { Footer } from '../components/Footer';
 import { Nav } from '../components/Nav';
@@ -164,7 +164,8 @@ export function TasksPage() {
   const [detailErrors, setDetailErrors] = useState<Record<string, string>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
-  const [actError, setActError] = useState<string | null>(null);
+  const [actError, setActError] = useState<{ taskId: string; message: string } | null>(null);
+  const [coverageErrors, setCoverageErrors] = useState<Record<string, string>>({});
   const [extracting, setExtracting] = useState<string | null>(null);
   const [extractNote, setExtractNote] = useState<string | null>(null);
 
@@ -191,7 +192,7 @@ export function TasksPage() {
     return () => clearInterval(timer);
   }, [anyActive, load]);
 
-  const fetchDetail = async (task: TaskRow) => {
+  const fetchDetail = useCallback(async (task: TaskRow) => {
     setDetailErrors((prev) => {
       const next = { ...prev };
       delete next[task.id];
@@ -203,10 +204,21 @@ export function TasksPage() {
       if (!res.ok) throw new Error(`Task detail failed (${res.status})`);
       const data = (await res.json()) as TaskDetail;
       setDetails((prev) => ({ ...prev, [task.id]: data }));
-      const cov = await fetch(`/api/tasks/${task.id}/coverage`, { credentials: 'include' });
-      if (cov.ok) {
+      try {
+        const cov = await fetch(`/api/tasks/${task.id}/coverage`, { credentials: 'include' });
+        if (!cov.ok) throw new Error(`Coverage failed (${cov.status})`);
         const covData = (await cov.json()) as CoverageData;
         setCoverage((prev) => ({ ...prev, [task.id]: covData }));
+        setCoverageErrors((prev) => {
+          const next = { ...prev };
+          delete next[task.id];
+          return next;
+        });
+      } catch (err) {
+        setCoverageErrors((prev) => ({
+          ...prev,
+          [task.id]: err instanceof Error ? err.message : 'Could not load coverage.',
+        }));
       }
     } catch (err) {
       setDetailErrors((prev) => ({
@@ -216,7 +228,7 @@ export function TasksPage() {
     } finally {
       setLoadingDetail(null);
     }
-  };
+  }, []);
 
   const open = async (task: TaskRow) => {
     if (openId === task.id) {
@@ -224,9 +236,28 @@ export function TasksPage() {
       return;
     }
     setOpenId(task.id);
-    if (details[task.id]) return;
+    setActError(null);
     await fetchDetail(task);
   };
+
+  const openTask = (tasks ?? []).find((t) => t.id === openId) ?? null;
+  const openIsRunning = openTask?.status === 'running';
+  // The list poll replaces the task rows every 5 s, so the open row's
+  // identity changes on every poll. The detail timer reads the latest
+  // row through a ref instead of depending on the row itself, or the
+  // list poll would reset the timer before it ever fired.
+  const openTaskRef = useRef<TaskRow | null>(null);
+  useEffect(() => {
+    openTaskRef.current = openTask;
+  });
+  useEffect(() => {
+    if (!openId || !openIsRunning) return;
+    const timer = setInterval(() => {
+      const task = openTaskRef.current;
+      if (task) void fetchDetail(task);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [openId, openIsRunning, fetchDetail]);
 
   const act = async (task: TaskRow, action: 'pause' | 'resume') => {
     setActing(task.id);
@@ -244,7 +275,10 @@ export function TasksPage() {
         return d ? { ...prev, [task.id]: { ...d, task: data.task } } : prev;
       });
     } catch (err) {
-      setActError(err instanceof Error ? err.message : `${action} failed.`);
+      setActError({
+        taskId: task.id,
+        message: err instanceof Error ? err.message : `${action} failed.`,
+      });
     } finally {
       setActing(null);
     }
@@ -265,7 +299,10 @@ export function TasksPage() {
         `Extracted ${data.lessons.length} lesson${data.lessons.length === 1 ? '' : 's'} from this task.`,
       );
     } catch (err) {
-      setActError(err instanceof Error ? err.message : 'Lesson extract failed.');
+      setActError({
+        taskId: task.id,
+        message: err instanceof Error ? err.message : 'Lesson extract failed.',
+      });
     } finally {
       setExtracting(null);
     }
@@ -406,6 +443,15 @@ export function TasksPage() {
                                   <p className="break-all font-mono text-[11px] text-slate2">
                                     {d.task.targetUrl}
                                   </p>
+                                  <button
+                                    type="button"
+                                    disabled={loadingDetail === task.id}
+                                    onClick={() => void fetchDetail(d.task)}
+                                    className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-bone transition-colors hover:bg-white/5 disabled:opacity-50"
+                                  >
+                                    <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                                    {loadingDetail === task.id ? 'Refreshing…' : 'Refresh'}
+                                  </button>
                                   {(d.task.status === 'running' || d.task.status === 'paused') && (
                                     <button
                                       type="button"
@@ -436,9 +482,9 @@ export function TasksPage() {
                                     {d.assets.length} ASSET{d.assets.length === 1 ? '' : 'S'}
                                   </span>
                                 </div>
-                                {actError && (
+                                {actError && actError.taskId === task.id && (
                                   <p className="mt-3 text-sm text-red-300" role="alert">
-                                    {actError}
+                                    {actError.message}
                                   </p>
                                 )}
                                 {extractNote && (
@@ -578,6 +624,11 @@ export function TasksPage() {
                                   </div>
                                 )}
 
+                                {coverageErrors[task.id] && (
+                                  <p className="mt-5 text-sm text-body/85" role="alert">
+                                    Couldn&apos;t load coverage ({coverageErrors[task.id]}).
+                                  </p>
+                                )}
                                 {coverage[task.id] && (
                                   <div className="mt-5">
                                     <CoveragePanel
