@@ -272,6 +272,140 @@ async function main() {
     check('tried the timed-out model first', sawTimeoutModel);
     check('reached the fallback model', sawFallbackModel);
 
+    // 7. 503 on the reasoning model falls back to the worker (flash) model
+    // in the same call instead of hard-failing Recon planning.
+    GeminiProvider.resetModelCache();
+    const downgradeUrls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      downgradeUrls.push(url);
+      if (url.endsWith('/v1beta/models')) {
+        return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url.includes('gemini-2.5-pro')) {
+        return new Response(
+          JSON.stringify({ error: { code: 503, message: 'The model is overloaded. Please try again later.', status: 'UNAVAILABLE' } }),
+          { status: 503, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('gemini-2.5-flash')) {
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: 'Flash fallback ok.' }] }, finishReason: 'STOP' }],
+            usageMetadata: { promptTokenCount: 40, candidatesTokenCount: 9 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response('Not Found', { status: 404 });
+    }) as typeof fetch;
+    const downgradeProvider = new GeminiProvider('test-' + 'x'.repeat(20), 'gemini-2.5-flash', 'gemini-2.5-pro');
+    const downgradeResult = await downgradeProvider.complete({
+      messages: [{ role: 'user', content: 'Reasoning task' }],
+      tier: 'reasoning',
+    });
+    check('503 on pro falls back to flash in the same call', downgradeResult.text.includes('Flash fallback ok.'));
+    check('downgrade tried the pro model first', downgradeUrls.some((u) => u.includes('gemini-2.5-pro')), downgradeUrls);
+    check('downgrade reached the flash model', downgradeUrls.some((u) => u.includes('gemini-2.5-flash')), downgradeUrls);
+    check('downgrade tags the completion with the flash model', downgradeResult.model === 'gemini-2.5-flash', downgradeResult.model);
+
+    // 7b. 429 on the reasoning model is downgrade-eligible too.
+    GeminiProvider.resetModelCache();
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/v1beta/models')) {
+        return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url.includes('gemini-2.5-pro')) {
+        return new Response(
+          JSON.stringify({ error: { code: 429, message: 'Resource exhausted.', status: 'RESOURCE_EXHAUSTED' } }),
+          { status: 429, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('gemini-2.5-flash')) {
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: 'Flash after 429 ok.' }] }, finishReason: 'STOP' }],
+            usageMetadata: { promptTokenCount: 40, candidatesTokenCount: 9 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response('Not Found', { status: 404 });
+    }) as typeof fetch;
+    const downgrade429Provider = new GeminiProvider('test-' + 'y'.repeat(20), 'gemini-2.5-flash', 'gemini-2.5-pro');
+    const downgrade429Result = await downgrade429Provider.complete({
+      messages: [{ role: 'user', content: 'Reasoning task' }],
+      tier: 'reasoning',
+    });
+    check('429 on pro falls back to flash in the same call', downgrade429Result.text.includes('Flash after 429 ok.'));
+
+    // 8. 503 on every model fails loudly, never a fake success.
+    GeminiProvider.resetModelCache();
+    const all503Urls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      all503Urls.push(url);
+      if (url.endsWith('/v1beta/models')) {
+        return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(
+        JSON.stringify({ error: { code: 503, message: 'The model is overloaded. Please try again later.', status: 'UNAVAILABLE' } }),
+        { status: 503, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+    const all503Provider = new GeminiProvider('test-' + 'z'.repeat(20), 'gemini-2.5-flash', 'gemini-2.5-pro');
+    let loud503 = '';
+    try {
+      await all503Provider.complete({
+        messages: [{ role: 'user', content: 'Reasoning task' }],
+        tier: 'reasoning',
+      });
+    } catch (err) {
+      loud503 = (err as Error).message;
+    }
+    check('503 on all models fails loudly', loud503.includes('503'), loud503);
+    check('503 on all models still tried the flash fallback', all503Urls.some((u) => u.includes('gemini-2.5-flash')), all503Urls);
+
+    // 9. Worker tier 503 does not escalate flash back up to pro.
+    GeminiProvider.resetModelCache();
+    const worker503Urls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      worker503Urls.push(url);
+      if (url.endsWith('/v1beta/models')) {
+        return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url.includes('gemini-2.5-flash')) {
+        return new Response(
+          JSON.stringify({ error: { code: 503, message: 'The model is overloaded.', status: 'UNAVAILABLE' } }),
+          { status: 503, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url.includes('gemini-2.5-pro')) {
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: 'Pro trap — must not be reached.' }] }, finishReason: 'STOP' }],
+            usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response('Not Found', { status: 404 });
+    }) as typeof fetch;
+    const worker503Provider = new GeminiProvider('test-' + 'w'.repeat(20), 'gemini-2.5-flash', 'gemini-2.5-pro');
+    let worker503Err = '';
+    try {
+      await worker503Provider.complete({
+        messages: [{ role: 'user', content: 'Routine task' }],
+        tier: 'routine',
+      });
+    } catch (err) {
+      worker503Err = (err as Error).message;
+    }
+    check('worker tier 503 fails loudly', worker503Err.includes('503'), worker503Err);
+    check('worker tier 503 never escalates flash to pro', !worker503Urls.some((u) => u.includes('gemini-2.5-pro')), worker503Urls);
+
   } finally {
     globalThis.fetch = originalFetch;
   }

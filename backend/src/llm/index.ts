@@ -138,6 +138,8 @@ export interface PoolEntry {
 
 export interface PoolOptions {
   now?: () => number;
+  /** Per-tier preferred provider; see PoolRouting. Failover still tries the other saved providers. */
+  routing?: PoolRouting | null;
 }
 
 /** Cooldown after consecutive failures: 10s, 20s, 40s, then 120s. */
@@ -145,14 +147,16 @@ export const POOL_COOLDOWN_STEPS_MS = [10_000, 20_000, 40_000, 120_000];
 
 /**
  * Tier-aware pool over a user's verified providers. Entries are tried in
- * EMA-latency order; a 429, 5xx or timeout cools that provider down and
- * the call falls through to the next entry. A 400 fails fast: the request
- * itself is bad and no provider would accept it.
+ * EMA-latency order, with the tier's routing provider first and the other
+ * saved providers as failover; a 429, 5xx or timeout cools that provider
+ * down and the call falls through to the next entry. A 400 fails fast: the
+ * request itself is bad and no provider would accept it.
  */
 export class LlmProviderPool implements LLMProvider {
   readonly name = 'pool';
   private readonly entries: PoolEntry[];
   private readonly now: () => number;
+  private readonly routing: PoolRouting | null;
   private failures = new Map<string, number>();
   private cooledUntil = new Map<string, number>();
   private emaLatency = new Map<string, number>();
@@ -163,6 +167,7 @@ export class LlmProviderPool implements LLMProvider {
     }
     this.entries = [...entries];
     this.now = opts?.now ?? Date.now;
+    this.routing = opts?.routing ?? null;
   }
 
   isCoolingDown(providerId: string): boolean {
@@ -188,9 +193,25 @@ export class LlmProviderPool implements LLMProvider {
     messages: LLMMessage[],
     opts?: { maxTokens?: number; temperature?: number; signal?: AbortSignal },
   ): Promise<LLMCompletion> {
+    // The tier's routing provider goes first; the other saved providers
+    // follow as failover. Within each group entries stay in EMA-latency
+    // order. When only one provider is saved it serves both tiers whatever
+    // the routing defaults say.
+    const preferredId = (
+      tier === 'reasoning' ? this.routing?.reasoningProvider : this.routing?.workerProvider
+    )
+      ?.toLowerCase()
+      .trim();
+    const byEma = (a: PoolEntry, b: PoolEntry) =>
+      (this.emaLatency.get(a.providerId) ?? 0) - (this.emaLatency.get(b.providerId) ?? 0);
     const ordered = this.entries
       .filter((e) => !this.isCoolingDown(e.providerId))
-      .sort((a, b) => (this.emaLatency.get(a.providerId) ?? 0) - (this.emaLatency.get(b.providerId) ?? 0));
+      .sort((a, b) => {
+        const aPref = preferredId ? a.providerId.toLowerCase() === preferredId : false;
+        const bPref = preferredId ? b.providerId.toLowerCase() === preferredId : false;
+        if (aPref !== bPref) return aPref ? -1 : 1;
+        return byEma(a, b);
+      });
     if (ordered.length === 0) {
       throw new Error('All LLM providers are cooling down after failures');
     }
@@ -285,7 +306,7 @@ export function buildPoolFromKeys(
     });
   }
   if (entries.length === 0) return null;
-  return new LlmProviderPool(entries);
+  return new LlmProviderPool(entries, { routing: routing ?? null });
 }
 
 /** Pool with a mock entry, only when mockAllowed() says so. Never silent. */

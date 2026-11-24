@@ -1,7 +1,8 @@
 import { validateProviderBaseUrl, PROVIDER_REGISTRY } from '../src/llm/registry.js';
 import { OpenAiCompatProvider, finiteInt } from '../src/llm/openaiCompat.js';
-import { LlmProviderPool } from '../src/llm/index.js';
+import { LlmProviderPool, buildPoolFromKeys } from '../src/llm/index.js';
 import { GeminiProvider } from '../src/llm/gemini.js';
+import { QwenProvider } from '../src/llm/qwen.js';
 import { ClaudeProvider } from '../src/llm/claude.js';
 import { makeCompletion, type LLMCompletion, type LLMProvider } from '../src/llm/provider.js';
 
@@ -306,6 +307,160 @@ async function main() {
       aborted = (err as { name?: string }).name === 'AbortError';
     }
     check('claude aborts when the caller signal is aborted', aborted);
+
+    // 13. Pool fails over on 503 to the second entry in the same call, and
+    // does not re-hit the cooled provider on the immediate retry.
+    let now503 = 2_000_000;
+    const err503 = (provider: string) => {
+      const err = new Error(`${provider} API error 503: overloaded`);
+      (err as unknown as { status: number }).status = 503;
+      return err;
+    };
+    const first503 = stubProvider('qwen', async () => {
+      throw err503('qwen');
+    });
+    const second503 = stubProvider('gemini', async () =>
+      makeCompletion('second ok', { inputTokens: 10, outputTokens: 5 }),
+    );
+    const pool503 = new LlmProviderPool(
+      [
+        { providerId: 'qwen', provider: first503 },
+        { providerId: 'gemini', provider: second503 },
+      ],
+      { now: () => now503 },
+    );
+    const r503 = await pool503.completeTier('worker', [{ role: 'user', content: 'hi' }]);
+    check('pool fails over 503 to the second entry in the same call', r503.text === 'second ok');
+    check('pool tried the 503 provider once', first503.calls === 1);
+    check('pool tried the fallback provider once', second503.calls === 1);
+    check('pool cools the 503 provider down', pool503.isCoolingDown('qwen'));
+    now503 += 1000;
+    const r503b = await pool503.completeTier('worker', [{ role: 'user', content: 'hi again' }]);
+    check(
+      'pool skips the 503-cooled provider on the immediate retry',
+      r503b.text === 'second ok' && first503.calls === 1,
+      { first503Calls: first503.calls },
+    );
+
+    // 14. Pool tries the tier's routing provider first, then the other
+    // saved provider as failover. Gemini is listed first, but reasoning
+    // routing prefers qwen, so qwen must be tried first for reasoning.
+    const order: string[] = [];
+    const qwenStub = stubProvider('qwen', async () => {
+      order.push('qwen');
+      return makeCompletion('qwen ok', { inputTokens: 1, outputTokens: 1 });
+    });
+    const geminiStub = stubProvider('gemini', async () => {
+      order.push('gemini');
+      return makeCompletion('gemini ok', { inputTokens: 1, outputTokens: 1 });
+    });
+    const routingPool = new LlmProviderPool(
+      [
+        { providerId: 'gemini', provider: geminiStub },
+        { providerId: 'qwen', provider: qwenStub },
+      ],
+      { routing: { workerProvider: 'gemini', reasoningProvider: 'qwen' } },
+    );
+    const reasoningRes = await routingPool.completeTier('reasoning', [{ role: 'user', content: 'r' }]);
+    check('pool tries qwen first for reasoning when routing prefers qwen', order[0] === 'qwen' && reasoningRes.text === 'qwen ok', order);
+    const workerRes = await routingPool.completeTier('worker', [{ role: 'user', content: 'w' }]);
+    check('pool tries gemini first for worker when routing prefers gemini', order[1] === 'gemini' && workerRes.text === 'gemini ok', order);
+
+    // 15. Routing defaults to gemini but only qwen is saved: qwen serves
+    // both tiers rather than failing for want of a gemini entry.
+    const qwenOnlyStub = stubProvider('qwen', async () =>
+      makeCompletion('qwen only ok', { inputTokens: 1, outputTokens: 1 }),
+    );
+    const qwenOnlyPool = new LlmProviderPool([{ providerId: 'qwen', provider: qwenOnlyStub }], {
+      routing: { workerProvider: 'gemini', reasoningProvider: 'gemini' },
+    });
+    const qwenOnlyWorker = await qwenOnlyPool.completeTier('worker', [{ role: 'user', content: 'w' }]);
+    const qwenOnlyReasoning = await qwenOnlyPool.completeTier('reasoning', [{ role: 'user', content: 'r' }]);
+    check('only qwen saved: qwen serves the worker tier', qwenOnlyWorker.text === 'qwen only ok');
+    check('only qwen saved: qwen serves the reasoning tier', qwenOnlyReasoning.text === 'qwen only ok');
+    check('only qwen saved: qwen served both tiers', qwenOnlyStub.calls === 2, qwenOnlyStub.calls);
+
+    // 16. buildPoolFromKeys threads routing into the pool: qwen+gemini
+    // saved with reasoning routing qwen — the reasoning call hits qwen
+    // first even though gemini was saved first.
+    GeminiProvider.resetModelCache();
+    QwenProvider.resetModelCache();
+    const mixedUrls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      mixedUrls.push(url);
+      if (url.includes('aliyuncs.com/models')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url.includes('aliyuncs.com')) return chatOk('qwen first');
+      return new Response('Not Found', { status: 404 });
+    }) as typeof fetch;
+    const mixedPool = buildPoolFromKeys(
+      [
+        { providerId: 'gemini', apiKey: 'test-' + 'y'.repeat(20), baseUrl: null },
+        { providerId: 'qwen', apiKey: 'test-' + 'x'.repeat(20), baseUrl: null },
+      ],
+      { workerProvider: 'gemini', reasoningProvider: 'qwen' },
+    );
+    check('buildPoolFromKeys builds a pool from saved qwen+gemini keys', mixedPool !== null);
+    const mixedReasoning = await mixedPool!.completeTier('reasoning', [{ role: 'user', content: 'r' }]);
+    check(
+      'saved qwen+gemini with routing qwen: reasoning tries qwen first',
+      mixedReasoning.text === 'qwen first' && mixedUrls[0].includes('aliyuncs.com'),
+      mixedUrls,
+    );
+
+    // 17. Qwen-only saved key with gemini routing defaults: both tiers are
+    // served by qwen and gemini is never called.
+    GeminiProvider.resetModelCache();
+    QwenProvider.resetModelCache();
+    const qwenOnlyUrls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      qwenOnlyUrls.push(url);
+      if (url.includes('aliyuncs.com/models')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url.includes('aliyuncs.com')) return chatOk('qwen via pool');
+      return new Response('Not Found', { status: 404 });
+    }) as typeof fetch;
+    const savedQwenPool = buildPoolFromKeys(
+      [{ providerId: 'qwen', apiKey: 'test-' + 'x'.repeat(20), baseUrl: null }],
+      { workerProvider: 'gemini', reasoningProvider: 'gemini' },
+    );
+    check('buildPoolFromKeys builds a pool from a single qwen key', savedQwenPool !== null);
+    const savedWorker = await savedQwenPool!.completeTier('worker', [{ role: 'user', content: 'w' }]);
+    const savedReasoning = await savedQwenPool!.completeTier('reasoning', [{ role: 'user', content: 'r' }]);
+    check('qwen-only saved key serves the worker tier', savedWorker.text === 'qwen via pool');
+    check('qwen-only saved key serves the reasoning tier', savedReasoning.text === 'qwen via pool');
+    check(
+      'qwen-only saved key never calls gemini',
+      qwenOnlyUrls.every((u) => !u.includes('generativelanguage')),
+      qwenOnlyUrls,
+    );
+
+    // 18. Pool fails loudly when every entry returns 503, naming the provider.
+    const all503a = stubProvider('qwen', async () => {
+      throw err503('qwen');
+    });
+    const all503b = stubProvider('gemini', async () => {
+      throw err503('gemini');
+    });
+    const poolAll503 = new LlmProviderPool([
+      { providerId: 'qwen', provider: all503a },
+      { providerId: 'gemini', provider: all503b },
+    ]);
+    let loud503 = '';
+    try {
+      await poolAll503.completeTier('worker', [{ role: 'user', content: 'x' }]);
+    } catch (err) {
+      loud503 = (err as Error).message;
+    }
+    check('pool fails loudly when all providers return 503', loud503.includes('503') && loud503.includes('gemini'), loud503);
+    check('pool tried every provider before failing on 503', all503a.calls === 1 && all503b.calls === 1, {
+      qwen: all503a.calls,
+      gemini: all503b.calls,
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -239,6 +239,20 @@ export class GeminiProvider implements LLMProvider {
     return Array.from(new Set(priorityPool.filter(isTextGenerationModel)));
   }
 
+  /**
+   * Worker-model fallback for a failed reasoning model: the configured
+   * routine model when it differs from the failed one, else the standard
+   * flash model. Null when no distinct fallback exists (the reasoning
+   * model already is flash), so the caller fails loudly instead.
+   */
+  private downgradeModel(failedModel: string): string | null {
+    let routine = this.routineModel;
+    if (routine.includes('3.8-flash') || routine.includes('3.5-flash')) routine = 'gemini-2.0-flash';
+    if (isTextGenerationModel(routine) && routine !== failedModel) return routine;
+    if (failedModel !== 'gemini-2.5-flash') return 'gemini-2.5-flash';
+    return null;
+  }
+
   async complete(req: LLMCompletionRequest): Promise<LLMCompletion> {
     // Tier 'code' shares the reasoning pool (see getCandidateModels), so
     // normalize it here to keep the active-model lock-in consistent.
@@ -281,8 +295,13 @@ export class GeminiProvider implements LLMProvider {
     const controller = new AbortController();
     const cascadeTimer = setTimeout(() => controller.abort(), CASCADE_TIMEOUT_MS);
     let lastError: any = null;
+    // At most one reasoning → worker model downgrade per call, and only
+    // for 429/5xx: a busy reasoning model falls back to the cheaper flash
+    // model instead of hard-failing the call on the first 503.
+    let downgraded = false;
     try {
-    for (const model of candidates) {
+    for (let i = 0; i < candidates.length; i++) {
+      const model = candidates[i];
       if (controller.signal.aborted) {
         lastError = new Error('Gemini cascade timed out after 45s');
         break;
@@ -331,6 +350,31 @@ export class GeminiProvider implements LLMProvider {
           }
 
           console.warn(`[gemini] Model "${model}" on ${ver} failed after ${elapsedMs}ms: ${message.slice(0, 140)}`);
+          // Reasoning tier only: a 429/5xx (e.g. a 503 overload) on the
+          // reasoning model falls back to the worker (flash) model once,
+          // with jittered backoff, instead of failing the call outright.
+          // The worker tier never escalates: flash is already the fallback.
+          const isOverloaded = status === 429 || (typeof status === 'number' && status >= 500);
+          if (tier === 'reasoning' && !downgraded && isOverloaded) {
+            const fallback = this.downgradeModel(model);
+            if (fallback && fallback !== model) {
+              downgraded = true;
+              if (this.activeReasoningModel === model) this.activeReasoningModel = undefined;
+              console.warn(
+                `[gemini] Reasoning model "${model}" returned ${status} — falling back to "${fallback}" after jittered backoff...`,
+              );
+              await new Promise((r) => setTimeout(r, 200 + Math.random() * 600));
+              if (!controller.signal.aborted) {
+                // Flash is usually already further down the candidate list;
+                // pull it forward so it is tried next, not after the other
+                // pro-class candidates.
+                const existingIdx = candidates.indexOf(fallback);
+                if (existingIdx !== -1) candidates.splice(existingIdx, 1);
+                candidates.splice(i + 1, 0, fallback);
+                break; // leave the version loop; the outer loop tries the fallback next
+              }
+            }
+          }
           // For non-compatibility errors (401 auth, 403 quota, schema, safety block), fail fast
           throw err;
         }
