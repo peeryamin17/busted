@@ -144,7 +144,7 @@ async function main() {
       llmProviders: Array<{ id: string; label: string; mode: string; available: boolean; reason?: string; defaultModels: Record<string, string> }>;
       engines: Array<{ id: string; available: boolean }>;
     };
-    check('capabilities version matches package.json (0.3.0)', caps.version === APP_VERSION && caps.version === '0.3.0', caps.version);
+    check('capabilities version matches package.json', caps.version === APP_VERSION, caps.version);
     check('capabilities runtime is cloud', caps.runtime === 'cloud', caps.runtime);
     check('capabilities lists all 8 providers', caps.llmProviders.length === 8, caps.llmProviders.map((p) => p.id));
     for (const id of ['gemini', 'claude', 'qwen', 'kimi', 'glm', 'deepseek', 'openrouter', 'ollama']) {
