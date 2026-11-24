@@ -225,9 +225,15 @@ export interface SavedProviderKeyOut {
 export async function getUserAiKeysDecrypted(
   db: Database,
   userId: string,
+  opts?: { strict?: boolean },
 ): Promise<SavedProviderKeyOut[]> {
   if (typeof (db as Database).listUserAiKeys !== 'function') return [];
-  const rows = await (db as Database).listUserAiKeys(userId).catch(() => []);
+  // Lenient by default (other callers treat a failed load as "no keys").
+  // Strict mode rethrows the query error: the swarm path must tell a
+  // database failure apart from a legitimate zero-row result.
+  const rows = opts?.strict
+    ? await (db as Database).listUserAiKeys(userId)
+    : await (db as Database).listUserAiKeys(userId).catch(() => []);
   const out: SavedProviderKeyOut[] = [];
   for (const row of rows) {
     try {
@@ -254,9 +260,14 @@ export const DEFAULT_ROUTING: UserLlmRouting = {
 export async function getUserLlmRoutingOrDefault(
   db: Database,
   userId: string,
+  opts?: { strict?: boolean },
 ): Promise<UserLlmRouting> {
   if (typeof (db as Database).getUserLlmRouting !== 'function') return { ...DEFAULT_ROUTING };
-  const row = await (db as Database).getUserLlmRouting(userId).catch(() => null);
+  // Lenient by default; strict mode rethrows the query error instead of
+  // silently returning the Gemini defaults (see getUserAiKeysDecrypted).
+  const row = opts?.strict
+    ? await (db as Database).getUserLlmRouting(userId)
+    : await (db as Database).getUserLlmRouting(userId).catch(() => null);
   if (!row) return { ...DEFAULT_ROUTING };
   return {
     workerProvider: row.workerProvider || 'gemini',
@@ -440,6 +451,13 @@ export async function aiKeyRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     const encrypted = encryptSecret(storedKey);
     const hint = providerId === 'ollama' && !rawKey ? 'local' : multiKeyHint(rawKey);
     const verifiedAt = new Date().toISOString();
+    // The legacy sync below overwrites the single-key row with this key,
+    // so read it first: it is the only evidence of a Gemini key the user
+    // held through the older single-key route.
+    const legacyBefore = await db.getAiKey(user.id).catch(() => null);
+    const heldGeminiLegacy = Boolean(
+      legacyBefore?.encryptedAiKey && (legacyBefore.aiProvider ?? 'gemini') === 'gemini',
+    );
     await db.upsertUserAiKey(user.id, {
       providerId,
       encryptedKey: encrypted,
@@ -451,12 +469,61 @@ export async function aiKeyRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     // clients (extension popup, /api/me/ai-key) keep working.
     await db.setAiKey(user.id, encrypted, providerId, hint, baseUrl).catch(() => undefined);
     const remaining = await db.listUserAiKeys(user.id).catch(() => []);
+    // Auto-route: when the user saves a key for a non-Gemini provider and
+    // holds no Gemini key, point both tiers at the saved provider — but
+    // only when it becomes their only key, or routing still holds the
+    // Gemini defaults. A routing row that already points at a different
+    // provider the user holds is an explicit choice and is left alone.
+    let routingAutoSet = false;
+    let routing = await getUserLlmRoutingOrDefault(db, user.id);
+    const holdsGemini =
+      heldGeminiLegacy || remaining.some((r) => r.providerId === 'gemini');
+    if (providerId !== 'gemini' && !holdsGemini) {
+      const held = new Set(remaining.map((r) => r.providerId));
+      const routingPointsAtHeldProvider =
+        (routing.workerProvider !== 'gemini' && held.has(routing.workerProvider)) ||
+        (routing.reasoningProvider !== 'gemini' && held.has(routing.reasoningProvider));
+      const isOnlyKey = held.size === 1 && held.has(providerId);
+      const routingIsGeminiDefault =
+        routing.workerProvider === 'gemini' && routing.reasoningProvider === 'gemini';
+      if (!routingPointsAtHeldProvider && (isOnlyKey || routingIsGeminiDefault)) {
+        const nextRouting: UserLlmRouting = {
+          workerProvider: providerId,
+          workerModel: null,
+          reasoningProvider: providerId,
+          reasoningModel: null,
+        };
+        if (typeof (db as Database).setUserLlmRouting === 'function') {
+          try {
+            await db.setUserLlmRouting(user.id, nextRouting);
+            routing = nextRouting;
+            routingAutoSet = true;
+          } catch {
+            // Routing stays as it was; the response reports no auto-set.
+          }
+        }
+      }
+    }
+    const routingOut = {
+      workerProvider: routing.workerProvider,
+      workerModel:
+        routing.workerModel ??
+        PROVIDER_REGISTRY[routing.workerProvider as ProviderId]?.defaultModels.worker ??
+        null,
+      reasoningProvider: routing.reasoningProvider,
+      reasoningModel:
+        routing.reasoningModel ??
+        PROVIDER_REGISTRY[routing.reasoningProvider as ProviderId]?.defaultModels.reasoning ??
+        null,
+    };
     return {
       providerId,
       keyHint: hint,
       baseUrl,
       verifiedAt,
       hasByok: remaining.length > 0,
+      routingAutoSet,
+      routing: routingOut,
     };
   });
 

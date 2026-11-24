@@ -51,6 +51,9 @@ async function main() {
     if (url === 'https://api.moonshot.ai/v1/models') {
       return new Response(JSON.stringify({ data: [] }), { status: 200 });
     }
+    if (url === 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models') {
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    }
     if (url === 'https://api.anthropic.com/v1/messages' && method === 'POST') {
       const body = JSON.parse(String(init?.body ?? '{}')) as { max_tokens?: number };
       if (body.max_tokens === 1) {
@@ -330,6 +333,81 @@ async function main() {
       );
       check('all recorded calls went through kimi', calls.every((c) => c.providerId === 'kimi'), calls.map((c) => c.providerId));
     }
+
+    // 12. Auto-route on key save (POST /api/v1/ai-keys). Fixture keys are
+    // constructed strings, never realistic-looking provider keys.
+    const QWEN_KEY = 'test-' + 'q'.repeat(20);
+    const GEMINI_KEY = 'test-' + 'g'.repeat(20);
+    const KIMI_KEY_2 = 'test-' + 'k'.repeat(20);
+    const CLAUDE_KEY_2 = 'test-' + 'c'.repeat(20);
+    async function freshUser(email: string) {
+      const u = await db.createUser(email, 'unused-hash');
+      await db.setUserPlan(u.id, 'pro');
+      const t = generateSessionToken();
+      await db.createSession(u.id, hashSessionToken(t), new Date(Date.now() + 3600_000).toISOString());
+      return `bs_session=${t}`;
+    }
+    type RoutingBody = {
+      routingAutoSet: boolean;
+      routing: { workerProvider: string; workerModel: string | null; reasoningProvider: string; reasoningModel: string | null };
+    };
+    async function saveKey(cookieValue: string, providerId: string, apiKey: string) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/ai-keys',
+        headers: { cookie: cookieValue },
+        payload: { providerId, apiKey },
+      });
+      return { res, body: res.statusCode === 200 ? (JSON.parse(res.body) as RoutingBody) : null };
+    }
+    async function getRouting(cookieValue: string) {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/ai-keys', headers: { cookie: cookieValue } });
+      return (JSON.parse(res.body) as { routing: RoutingBody['routing'] }).routing;
+    }
+
+    // 12a. First Qwen key, no Gemini key: both tiers auto-route to qwen.
+    const qwenCookie = await freshUser('qwen-first@example.com');
+    const qwenFirst = await saveKey(qwenCookie, 'qwen', QWEN_KEY);
+    check('first qwen key → 200', qwenFirst.res.statusCode === 200, qwenFirst.res.body);
+    check('first qwen key auto-sets routing', qwenFirst.body?.routingAutoSet === true, qwenFirst.body);
+    check('first qwen key routes worker to qwen', qwenFirst.body?.routing.workerProvider === 'qwen', qwenFirst.body?.routing);
+    check('first qwen key routes reasoning to qwen', qwenFirst.body?.routing.reasoningProvider === 'qwen', qwenFirst.body?.routing);
+    const qwenPersisted = await getRouting(qwenCookie);
+    check('GET confirms routing persisted as qwen/qwen', qwenPersisted.workerProvider === 'qwen' && qwenPersisted.reasoningProvider === 'qwen', qwenPersisted);
+
+    // 12b. Saving a Gemini key later does not clobber the qwen routing.
+    const geminiLater = await saveKey(qwenCookie, 'gemini', GEMINI_KEY);
+    check('later gemini key → 200', geminiLater.res.statusCode === 200, geminiLater.res.body);
+    check('later gemini key does not auto-set routing', geminiLater.body?.routingAutoSet === false, geminiLater.body);
+    check('later gemini key leaves routing on qwen', geminiLater.body?.routing.workerProvider === 'qwen' && geminiLater.body?.routing.reasoningProvider === 'qwen', geminiLater.body?.routing);
+
+    // 12c. Saving a second provider key when routing already points at a
+    // different held provider leaves routing untouched.
+    const secondCookie = await freshUser('second-key@example.com');
+    const kimiFirst = await saveKey(secondCookie, 'kimi', KIMI_KEY_2);
+    check('first kimi key → 200', kimiFirst.res.statusCode === 200, kimiFirst.res.body);
+    check('first kimi key auto-sets routing to kimi', kimiFirst.body?.routingAutoSet === true && kimiFirst.body?.routing.workerProvider === 'kimi', kimiFirst.body);
+    const claudeSecond = await saveKey(secondCookie, 'claude', CLAUDE_KEY_2);
+    check('second key (claude) → 200', claudeSecond.res.statusCode === 200, claudeSecond.res.body);
+    check('second key does not auto-set routing', claudeSecond.body?.routingAutoSet === false, claudeSecond.body);
+    check('second key leaves routing on kimi', claudeSecond.body?.routing.workerProvider === 'kimi' && claudeSecond.body?.routing.reasoningProvider === 'kimi', claudeSecond.body?.routing);
+
+    // 12d. Routing still on the Gemini defaults, no Gemini key held:
+    // saving another provider auto-routes to it.
+    const defaultsCookie = await freshUser('defaults-routing@example.com');
+    const kimiOnly = await saveKey(defaultsCookie, 'kimi', KIMI_KEY_2);
+    check('defaults user kimi key → 200', kimiOnly.res.statusCode === 200, kimiOnly.res.body);
+    const resetRouting = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/ai-keys/routing',
+      headers: { cookie: defaultsCookie },
+      payload: { workerProvider: 'gemini', reasoningProvider: 'gemini' },
+    });
+    check('PUT routing back to gemini defaults → 200', resetRouting.statusCode === 200, resetRouting.body);
+    const claudeAfterDefaults = await saveKey(defaultsCookie, 'claude', CLAUDE_KEY_2);
+    check('key saved over gemini-default routing → 200', claudeAfterDefaults.res.statusCode === 200, claudeAfterDefaults.res.body);
+    check('key saved over gemini-default routing auto-sets to claude', claudeAfterDefaults.body?.routingAutoSet === true, claudeAfterDefaults.body);
+    check('key saved over gemini-default routing points both tiers at claude', claudeAfterDefaults.body?.routing.workerProvider === 'claude' && claudeAfterDefaults.body?.routing.reasoningProvider === 'claude', claudeAfterDefaults.body?.routing);
 
     await app.close();
   } finally {

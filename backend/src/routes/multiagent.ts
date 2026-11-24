@@ -10,8 +10,6 @@ import { estimateCvss } from '../reports/cvss.js';
 import { securityScore } from '../reports/score.js';
 import { suggestFixes } from '../reports/remediation.js';
 import { createLLMProvider, createProviderForUser, buildPoolFromKeys } from '../llm/index.js';
-import { FailoverProvider } from '../llm/qwen.js';
-import { GeminiProvider } from '../llm/gemini.js';
 import { config } from '../config.js';
 import {
   getUserDecryptedAiKey,
@@ -98,18 +96,46 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
 
     // Provider keys never come from request headers. The model key is the
     // user's stored, verified key from Postgres; a header key is ignored.
-    const storedAiKey = await db.getAiKey(user.id).catch(() => null);
+    //
+    // These loads are strict: a database error — for example 42P01, the
+    // user_ai_keys / user_llm_routing tables missing because migrations
+    // 016-034 never ran — fails the request loudly here, before any scan
+    // record, credit charge, provider construction, or model call. Only
+    // a query that legitimately returns zero rows falls through to the
+    // platform key below. No key material ever goes into the error.
+    let storedAiKey: Awaited<ReturnType<typeof db.getAiKey>> | null = null;
+    let storedKey: string | null = null;
+    let savedKeys: Awaited<ReturnType<typeof getUserAiKeysDecrypted>> = [];
+    let savedRouting: Awaited<ReturnType<typeof getUserLlmRoutingOrDefault>> | null = null;
+    try {
+      storedAiKey = await db.getAiKey(user.id);
+      storedKey = await getUserDecryptedAiKey(db, user.id);
+      savedKeys = await getUserAiKeysDecrypted(db, user.id, { strict: true });
+      savedRouting =
+        savedKeys.length > 0
+          ? await getUserLlmRoutingOrDefault(db, user.id, { strict: true })
+          : null;
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      const code = (err as { code?: unknown })?.code;
+      const missingTable =
+        code === '42P01' || /relation "?user_(ai_keys|llm_routing)"? does not exist/i.test(detail);
+      app.log.error(
+        { err, userId: user.id },
+        'Swarm aborted: saved AI provider keys could not be loaded',
+      );
+      return reply.status(500).send({
+        error: missingTable
+          ? `Could not load your saved AI provider keys: ${detail}. The BYOK tables are missing — run migrations 016–034, then retry. The swarm did not run and did not fall back to the platform key.`
+          : `Could not load your saved AI provider keys: ${detail}. The swarm did not run.`,
+      });
+    }
     const storedProvider = storedAiKey?.aiProvider ?? 'gemini';
-    const storedKey = await getUserDecryptedAiKey(db, user.id);
-    const userKey = storedProvider === 'gemini' ? storedKey : undefined;
-    const qwenKey = storedProvider === 'qwen' ? storedKey : undefined;
+    const userKey = storedProvider === 'gemini' ? storedKey ?? undefined : undefined;
+    const qwenKey = storedProvider === 'qwen' ? storedKey ?? undefined : undefined;
     // Multi-provider keys (migration 034) win over the legacy single
     // key: when the user saved verified keys, the swarm runs strictly
     // from them, with the 25-credit charge waived.
-    const savedKeys = await getUserAiKeysDecrypted(db, user.id).catch(() => []);
-    const savedRouting = savedKeys.length > 0
-      ? await getUserLlmRoutingOrDefault(db, user.id).catch(() => null)
-      : null;
     const hasByok = Boolean(userKey || qwenKey) || savedKeys.length > 0;
     // The Qwen base URL comes from the stored key row; the popup and site
     // save it through POST /api/v1/ai-keys, never as a request header.
@@ -234,16 +260,28 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     if (savedKeys.length > 0) {
       // Strictly the user's verified saved keys, falling back across
       // them on 429/5xx inside the pool. No platform key, no header key.
+      // A null pool means the saved rows name no registered provider:
+      // fail loudly instead of silently running on the platform key.
       const pool = buildPoolFromKeys(savedKeys, savedRouting);
-      provider = pool ?? deps.provider ?? createLLMProvider();
+      if (!pool) {
+        const message =
+          'Your saved AI provider keys could not be used: none of the saved providers is registered, so the swarm has no LLM provider and did not run on the platform key. Re-save the key or contact support.';
+        await db
+          .updateScan(scan.id, {
+            status: 'failed',
+            finishedAt: new Date().toISOString(),
+            error: message,
+          })
+          .catch(() => undefined);
+        return reply.status(500).send({ error: message });
+      }
+      provider = pool;
     } else if (qwenKey) {
-      // BYOK Qwen is the primary provider; a DashScope failure (wrong
-      // region 401, 429, timeout, 5xx) falls through to the server Gemini
-      // key when one is configured, so the swarm survives a provider outage.
-      const qwen = createProviderForUser('qwen', qwenKey, qwenBaseUrl);
-      provider = config.geminiApiKey
-        ? new FailoverProvider([qwen, new GeminiProvider(config.geminiApiKey)])
-        : qwen;
+      // BYOK Qwen runs alone. The legacy single key is either Qwen or
+      // Gemini, never both, so the user holds no Gemini key in this
+      // branch: a Qwen failure fails loudly instead of silently
+      // spending the platform Gemini key.
+      provider = createProviderForUser('qwen', qwenKey, qwenBaseUrl);
     } else if (userKey) {
       provider = createLLMProvider(userKey);
     } else {

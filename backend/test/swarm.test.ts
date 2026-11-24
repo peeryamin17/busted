@@ -75,6 +75,12 @@ async function buildApp(db: any) {
 }
 
 async function main() {
+  process.env['KEY_ENCRYPTION_SECRET'] = 'test-secret-must-be-min-16-characters!';
+  // A platform key must be configured for the legacy-Qwen test to mean
+  // anything: with no platform key the old code also ran Qwen alone.
+  // Constructed fixture value, never a real key.
+  process.env['GEMINI_API_KEY'] = 'test-' + 'x'.repeat(20);
+  const { encryptSecret } = await import('../src/lib/crypto.js');
   // Fake secret-shaped tokens, planted in the target's Server header so
   // the swarm's server-disclosure finding carries them through the
   // redaction path. Letter-only bodies: no digit run for the phone or
@@ -241,6 +247,172 @@ async function main() {
     check('swarm failure surfaces actual LLM error message', failBody.error?.includes('Gemini API error 400') || failBody.error?.includes('recon'), failBody);
     check('failing scan marks status as failed', failingDb.scans[0]?.status === 'failed', failingDb.scans[0]?.status);
     await failingApp.close();
+  }
+
+  // 8. Branch 1 with saved keys but a null pool (saved row names an
+  // unregistered provider) fails loudly with a 500 and never silently
+  // runs on the platform provider (deps.provider is the MockProvider:
+  // the old fallback would have completed with a 200).
+  {
+    const db = makeDb('pro');
+    db.listUserAiKeys = async () => [{
+      providerId: 'not-a-provider',
+      encryptedKey: encryptSecret('test-' + 'x'.repeat(20)),
+      keyHint: '****xxxx',
+      baseUrl: 'https://example.com/v1',
+      verifiedAt: new Date().toISOString(),
+    }];
+    db.getUserLlmRouting = async () => null;
+    const app = await buildApp(db);
+    const r = await app.inject({
+      method: 'POST', url: '/api/swarm/scans',
+      headers: { 'x-api-key': 'bs_test' },
+      payload: {
+        targetUrl, authorization: authz, allowPrivateTargets: true,
+        specialists: ['recon'], sync: true,
+      },
+    });
+    check('swarm: saved keys with no registered provider → 500, never platform fallback', r.statusCode === 500, `${r.statusCode} ${r.body.slice(0, 300)}`);
+    check('swarm: null-pool failure names the saved keys', /saved AI provider keys/i.test(r.body), r.body.slice(0, 300));
+    check('swarm: null-pool failure marks the scan failed', db.scans[0]?.status === 'failed', db.scans[0]?.status);
+    check('swarm: null-pool failure charges 0 credits', !db.usage.some((u: UsageEvent) => u.quantity > 0), db.usage);
+    await app.close();
+  }
+
+  // 9. Legacy-Qwen user: Qwen runs alone, not wrapped in a FailoverProvider.
+  // DashScope rejects the key (401); if a failover to the platform Gemini
+  // key existed, a Gemini request would follow. The fetch spy proves none does.
+  {
+    const db = makeDb('pro');
+    db.getAiKey = async () => ({
+      encryptedAiKey: encryptSecret('test-' + 'q'.repeat(20)),
+      aiProvider: 'qwen',
+      aiBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+      aiKeyHint: '****qqqq',
+      aiKeyUpdatedAt: new Date().toISOString(),
+    });
+    db.listUserAiKeys = async () => [];
+    const realFetch = globalThis.fetch.bind(globalThis);
+    let geminiFetches = 0;
+    let qwenFetches = 0;
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('generativelanguage.googleapis.com')) geminiFetches++;
+      if (url.includes('dashscope')) {
+        qwenFetches++;
+        if (url.endsWith('/models')) {
+          return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        }
+        if (url.endsWith('/chat/completions')) {
+          return new Response(
+            JSON.stringify({ error: { message: 'Invalid API key', code: 'invalid_api_key' } }),
+            { status: 401 },
+          );
+        }
+      }
+      return realFetch(input as never, init);
+    }) as typeof fetch;
+    try {
+      const app = await buildApp(db);
+      const r = await app.inject({
+        method: 'POST', url: '/api/swarm/scans',
+        headers: { 'x-api-key': 'bs_test' },
+        payload: {
+          targetUrl, authorization: authz, allowPrivateTargets: true,
+          specialists: ['recon'], sync: true,
+        },
+      });
+      check('swarm: legacy-Qwen failure aborts instead of failing over', r.statusCode >= 400, `${r.statusCode} ${r.body.slice(0, 300)}`);
+      check('swarm: legacy-Qwen path attempted Qwen', qwenFetches > 0, qwenFetches);
+      check('swarm: legacy-Qwen failure made zero Gemini calls', geminiFetches === 0, geminiFetches);
+      check('swarm: legacy-Qwen failure names Qwen', /qwen/i.test(r.body), r.body.slice(0, 300));
+      check('swarm: legacy-Qwen failure marks the scan failed', db.scans[0]?.status === 'failed', db.scans[0]?.status);
+      await app.close();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  }
+
+  // 10. Missing BYOK tables: a Postgres error on the key load (42P01) fails
+  // loudly and names the missing table — it is never treated as "no BYOK
+  // key saved", and no scan, charge, or provider call happens.
+  {
+    const db = makeDb('pro');
+    const missingTable = new Error('relation "user_ai_keys" does not exist') as Error & { code?: string };
+    missingTable.code = '42P01';
+    db.listUserAiKeys = async () => { throw missingTable; };
+    const realFetch = globalThis.fetch.bind(globalThis);
+    let geminiFetches = 0;
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+      if (String(input).includes('generativelanguage.googleapis.com')) geminiFetches++;
+      return realFetch(input as never, init);
+    }) as typeof fetch;
+    try {
+      const app = await buildApp(db);
+      const r = await app.inject({
+        method: 'POST', url: '/api/swarm/scans',
+        headers: { 'x-api-key': 'bs_test' },
+        payload: {
+          targetUrl, authorization: authz, allowPrivateTargets: true,
+          specialists: ['recon'], sync: true,
+        },
+      });
+      check('swarm: missing user_ai_keys table → 500 naming the table', r.statusCode === 500 && r.body.includes('user_ai_keys'), `${r.statusCode} ${r.body.slice(0, 300)}`);
+      check('swarm: missing table error points at migrations 016–034', r.body.includes('016'), r.body.slice(0, 300));
+      check('swarm: missing table creates no scan record', db.scans.length === 0, db.scans.length);
+      check('swarm: missing table charges no credits', db.usage.length === 0, db.usage);
+      check('swarm: missing table made zero Gemini calls', geminiFetches === 0, geminiFetches);
+      await app.close();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  }
+
+  // 10b. Same loud failure when the routing table is the missing one.
+  {
+    const db = makeDb('pro');
+    db.listUserAiKeys = async () => [{
+      providerId: 'kimi',
+      encryptedKey: encryptSecret('test-' + 'k'.repeat(20)),
+      keyHint: '****kkkk',
+      baseUrl: 'https://api.moonshot.ai/v1',
+      verifiedAt: new Date().toISOString(),
+    }];
+    const missingRouting = new Error('relation "user_llm_routing" does not exist') as Error & { code?: string };
+    missingRouting.code = '42P01';
+    db.getUserLlmRouting = async () => { throw missingRouting; };
+    const app = await buildApp(db);
+    const r = await app.inject({
+      method: 'POST', url: '/api/swarm/scans',
+      headers: { 'x-api-key': 'bs_test' },
+      payload: {
+        targetUrl, authorization: authz, allowPrivateTargets: true,
+        specialists: ['recon'], sync: true,
+      },
+    });
+    check('swarm: missing user_llm_routing table → 500 naming the table', r.statusCode === 500 && r.body.includes('user_llm_routing'), `${r.statusCode} ${r.body.slice(0, 300)}`);
+    check('swarm: missing routing table creates no scan record', db.scans.length === 0, db.scans.length);
+    await app.close();
+  }
+
+  // 11. Legitimate zero rows: the key query resolves empty, so the swarm
+  // proceeds on the platform provider (branch 4) exactly as before.
+  {
+    const db = makeDb('pro');
+    db.listUserAiKeys = async () => [];
+    db.getUserLlmRouting = async () => null;
+    const app = await buildApp(db);
+    const r = await app.inject({
+      method: 'POST', url: '/api/swarm/scans',
+      headers: { 'x-api-key': 'bs_test' },
+      payload: {
+        targetUrl, authorization: authz, allowPrivateTargets: true,
+        specialists: ['recon', 'headers'], sync: true,
+      },
+    });
+    check('swarm: 0 saved keys → platform fallback proceeds (200)', r.statusCode === 200, `${r.statusCode} ${r.body.slice(0, 300)}`);
+    check('swarm: 0 saved keys → scan completed', db.scans[0]?.status === 'completed', db.scans[0]?.status);
+    await app.close();
   }
 
   target.closeAllConnections();
