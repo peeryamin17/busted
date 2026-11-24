@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { decideApproval, shouldKeepPolling } from '../lib/approvals';
+import { decideApproval, formatApprovalsLoadError, formatBatchDecisionNote, formatDecisionNote, shouldKeepPolling } from '../lib/approvals';
 
 export type ApprovalKind = 'tool-call' | 'new-target' | 'judge' | 'rule';
 export type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'skipped' | 'expired';
@@ -73,21 +73,27 @@ function detailSummary(approval: ApprovalView): string | null {
 
 export function ApprovalsPanel({ taskId }: { taskId: string }) {
   const [approvals, setApprovals] = useState<ApprovalView[] | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [decideNote, setDecideNote] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
   const [batchActing, setBatchActing] = useState(false);
   const [alwaysAllow, setAlwaysAllow] = useState<Record<string, boolean>>({});
+  const failed = loadError !== null;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch(`/api/tasks/${taskId}/approvals`, { credentials: 'include' });
       if (!res.ok) throw new Error(String(res.status));
       const data = (await res.json()) as { approvals: ApprovalView[] };
       setApprovals(data.approvals ?? []);
-      setFailed(false);
-    } catch {
-      setFailed(true);
+      setLoadError(null);
+      setDecideNote(null);
+      return true;
+    } catch (err) {
+      const status = err instanceof Error && /^\d{3}$/.test(err.message) ? Number(err.message) : null;
+      setLoadError(formatApprovalsLoadError(status));
+      return false;
     }
   }, [taskId]);
 
@@ -105,6 +111,7 @@ export function ApprovalsPanel({ taskId }: { taskId: string }) {
   const decideOne = async (approval: ApprovalView, decision: 'allow' | 'deny') => {
     setActing(approval.id);
     setActionError(null);
+    setDecideNote(null);
     try {
       await decideApproval({
         taskId,
@@ -113,6 +120,7 @@ export function ApprovalsPanel({ taskId }: { taskId: string }) {
         alwaysAllow: alwaysAllow[approval.id] ?? false,
         pattern: patternFor(approval),
       });
+      setDecideNote(formatDecisionNote(decision, approval.action));
       await load();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Decision was not saved.');
@@ -126,6 +134,7 @@ export function ApprovalsPanel({ taskId }: { taskId: string }) {
     if (pendingIds.length === 0) return;
     setBatchActing(true);
     setActionError(null);
+    setDecideNote(null);
     try {
       const res = await fetch(`/api/tasks/${taskId}/approvals/batch-decide`, {
         method: 'POST',
@@ -134,6 +143,11 @@ export function ApprovalsPanel({ taskId }: { taskId: string }) {
         body: JSON.stringify({ ids: pendingIds, decision }),
       });
       if (!res.ok) throw new Error(`Batch decision was not saved (${res.status})`);
+      const data = (await res.json()) as { results?: Array<{ ok?: boolean }> };
+      const saved = Array.isArray(data.results)
+        ? data.results.filter((r) => r.ok).length
+        : pendingIds.length;
+      setDecideNote(formatBatchDecisionNote(decision, saved, pendingIds.length));
       await load();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Batch decision was not saved.');
@@ -161,9 +175,14 @@ export function ApprovalsPanel({ taskId }: { taskId: string }) {
         </p>
       </div>
 
-      {failed && (
+      {decideNote && (
+        <p className="mt-4 text-sm text-emerald-300" role="status">
+          {decideNote}
+        </p>
+      )}
+      {loadError && (
         <p className="mt-4 text-sm text-zinc-400" role="alert">
-          Couldn&apos;t load approvals just now — retrying every few seconds.
+          {loadError}
         </p>
       )}
       {actionError && (
@@ -199,6 +218,12 @@ export function ApprovalsPanel({ taskId }: { taskId: string }) {
           >
             Deny all ({pending.length})
           </button>
+          <p className="w-full text-xs text-zinc-500">
+            Allow all and Deny all decide every pending step at once. They
+            ignore the per-row &ldquo;Always allow this kind&rdquo; checkboxes
+            — to save a standing rule, tick the box and use that row&apos;s
+            Allow button instead.
+          </p>
         </div>
       )}
 

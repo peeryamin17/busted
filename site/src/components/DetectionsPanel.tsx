@@ -39,6 +39,7 @@ export function DetectionsPanel() {
   const [detections, setDetections] = useState<Detection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -49,15 +50,14 @@ export function DetectionsPanel() {
         } else {
           setError(`Could not load detections (${res.status}).`);
         }
-        setDetections(null);
         return;
       }
       const data = await res.json();
       setDetections(Array.isArray(data.detections) ? data.detections : []);
+      setLastUpdated(new Date());
       setError(null);
     } catch {
       setError('Network error while loading detections.');
-      setDetections(null);
     }
   }, []);
 
@@ -85,14 +85,21 @@ export function DetectionsPanel() {
             extension probes verify your defenses from outside.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          disabled={refreshing}
-          className="shrink-0 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-white/5 disabled:opacity-50"
-        >
-          {refreshing ? 'Refreshing…' : 'Refresh'}
-        </button>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={refreshing}
+            className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-white/5 disabled:opacity-50"
+          >
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+          {lastUpdated && (
+            <p className="text-xs text-zinc-500">
+              Updated {lastUpdated.toLocaleString()}
+            </p>
+          )}
+        </div>
       </div>
 
       {error && <p className="mt-4 text-sm text-red-400">{error}</p>}

@@ -50,3 +50,21 @@ export async function decideApproval(input: DecideApprovalInput): Promise<void> 
 export function shouldKeepPolling(hasPending: boolean, loadFailed: boolean): boolean {
   return hasPending || loadFailed;
 }
+
+export function formatApprovalsLoadError(status: number | null): string {
+  if (status === null) {
+    return "Couldn't load approvals just now (network error) — retrying every few seconds.";
+  }
+  return `Couldn't load approvals just now (HTTP ${status}) — retrying every few seconds.`;
+}
+
+export function formatDecisionNote(decision: 'allow' | 'deny', action: string): string {
+  const short = action.length > 80 ? `${action.slice(0, 80)}…` : action;
+  return `Decision saved: ${decision === 'allow' ? 'Allowed' : 'Denied'} — ${short}`;
+}
+
+export function formatBatchDecisionNote(decision: 'allow' | 'deny', saved: number, total: number): string {
+  const verb = decision === 'allow' ? 'allowed' : 'denied';
+  if (saved === total) return `Batch decision saved: ${verb} ${total} step${total === 1 ? '' : 's'}.`;
+  return `Batch decision partly saved: ${verb} ${saved} of ${total} steps.`;
+}
