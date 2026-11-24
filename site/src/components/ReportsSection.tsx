@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, Download, FileText, RefreshCw } from 'lucide-react';
 import { Reveal } from './Reveal';
 import { useAuth } from '../lib/auth';
+import { reportDownloadError, reportFilename, reportUrl } from '../lib/reportDownload';
 
 /**
  * "My reports", every scan tied to this account (extension runs, swarm
@@ -71,6 +72,8 @@ export function ReportsSection() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [findings, setFindings] = useState<Record<string, FindingRow[]>>({});
   const [loadingFindings, setLoadingFindings] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<Record<string, string>>({});
+  const [downloading, setDownloading] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setFailed(false);
@@ -109,6 +112,42 @@ export function ReportsSection() {
       /* the row stays expandable; a re-open retries */
     } finally {
       setLoadingFindings(null);
+    }
+  };
+
+  const downloadReport = async (scan: ScanRow, format: string) => {
+    const key = `${scan.id}:${format}`;
+    if (downloading === key) return;
+    setDownloadError((prev) => {
+      if (!prev[scan.id]) return prev;
+      const next = { ...prev };
+      delete next[scan.id];
+      return next;
+    });
+    setDownloading(key);
+    try {
+      const res = await fetch(reportUrl(scan.id, format), { credentials: 'include' });
+      if (!res.ok) {
+        const data: unknown = await res.json().catch(() => ({}));
+        const backendError =
+          data && typeof data === 'object' && 'error' in data && typeof (data as { error: unknown }).error === 'string'
+            ? (data as { error: string }).error
+            : undefined;
+        throw new Error(reportDownloadError(res.status, backendError));
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = reportFilename(res.headers.get('content-disposition'), scan.id, format);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setDownloadError((prev) => ({ ...prev, [scan.id]: (err as Error).message }));
+    } finally {
+      setDownloading(null);
     }
   };
 
@@ -243,16 +282,23 @@ export function ReportsSection() {
                           {scan.status === 'completed' && (
                             <div className="mt-4 flex flex-wrap items-center gap-2">
                               {formats.map((f) => (
-                                <a
+                                <button
                                   key={f.format}
-                                  href={`/api/scans/${scan.id}/report?format=${f.format}`}
-                                  className="inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-bone transition-colors hover:bg-white/5"
+                                  type="button"
+                                  onClick={() => void downloadReport(scan, f.format)}
+                                  disabled={downloading === `${scan.id}:${f.format}`}
+                                  className="inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-bone transition-colors hover:bg-white/5 disabled:opacity-50"
                                 >
                                   <Download className="h-3.5 w-3.5" aria-hidden /> Download the
                                   full report ({f.label})
-                                </a>
+                                </button>
                               ))}
                             </div>
+                          )}
+                          {scan.status === 'completed' && downloadError[scan.id] && (
+                            <p className="mt-3 text-sm text-red-300" role="alert">
+                              {downloadError[scan.id]}
+                            </p>
                           )}
                           {scan.status === 'completed' && user?.plan === 'free' && (
                             <p className="mt-3 text-xs leading-relaxed text-slate2">
