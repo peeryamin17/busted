@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Preloader } from './components/fx/Preloader';
 import { AuthProvider } from './lib/auth';
+import { scrollToHashWhenReady } from './lib/hashScroll';
 import { usePathname } from './lib/router';
 import { Landing } from './pages/Landing';
 import { MemberApp } from './pages/MemberApp';
@@ -56,14 +57,12 @@ export default function App() {
   };
 
   // Arriving with a hash (e.g. /#download, or /app#pricing from the
-  // demo's plan card), scroll to the anchor once sections exist.
+  // demo's plan card), scroll to the anchor once its section mounts.
+  // The members' home can still be on its session-probe hold screen
+  // when this runs, so keep retrying until the target exists.
   useEffect(() => {
     if ((path === '/' || path === '/app') && window.location.hash) {
-      const hash = window.location.hash;
-      const t = window.setTimeout(() => {
-        document.querySelector(hash)?.scrollIntoView();
-      }, 60);
-      return () => window.clearTimeout(t);
+      return scrollToHashWhenReady(window.location.hash);
     }
   }, [path]);
 
