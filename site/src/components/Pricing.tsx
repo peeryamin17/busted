@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { Check, Coins, Crown, MousePointerClick, Rocket } from 'lucide-react';
 import { Reveal } from './Reveal';
 import { pressable, springQuiet } from '../lib/motion';
+import { pricingCtaHref } from '../lib/pricing';
 
 interface Tier {
   name: string;
@@ -12,7 +13,6 @@ interface Tier {
   creditAmount: number;
   features: string[];
   cta: string;
-  plan: string;
   icon: typeof Rocket;
   featured?: boolean;
 }
@@ -27,7 +27,6 @@ const TIERS: Tier[] = [
     creditAmount: 50,
     features: ['Passive recon scans', 'Markdown reports', 'CVSS scoring', 'Community support'],
     cta: 'Start free',
-    plan: 'scout',
     icon: MousePointerClick,
   },
   {
@@ -45,7 +44,6 @@ const TIERS: Tier[] = [
       'All report formats',
     ],
     cta: 'Hunt harder',
-    plan: 'hunter',
     icon: Rocket,
     featured: true,
   },
@@ -63,7 +61,6 @@ const TIERS: Tier[] = [
       'Early access to new agents',
     ],
     cta: 'Go pro',
-    plan: 'pro',
     icon: Crown,
   },
 ];
@@ -143,7 +140,7 @@ export function Pricing() {
                 ))}
               </ul>
               <motion.a
-                href={`/?plan=${t.plan}#download`}
+                href={pricingCtaHref()}
                 {...pressable}
                 className={`mt-8 rounded-2xl px-6 py-3 text-center font-display text-base font-semibold ${
                   t.featured

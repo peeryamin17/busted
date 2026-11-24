@@ -13,7 +13,7 @@ const STEPS = [
     n: '02',
     title: 'Scan',
     body: "Open a target you're allowed to test and hit “Scan this page”. Passive recon runs right in the popup — DOM, scripts, cookies, storage, headers, the lot.",
-    code: '1 click · 1 credit · 0 probes fired',
+    code: '1 click · free · 0 probes fired',
   },
   {
     n: '03',
