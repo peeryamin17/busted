@@ -63,7 +63,11 @@ export interface SaveAiKeyPayload {
 export interface SaveAiKeyResult {
   providerId: ProviderId;
   keyHint: string;
+  baseUrl: string;
   verifiedAt: string;
+  hasByok: boolean;
+  routingAutoSet: boolean;
+  routing: LlmRouting;
 }
 
 export interface DeleteAiKeyResult {
@@ -97,6 +101,47 @@ export function resolveQwenBaseUrl(region: QwenRegion, customUrl: string): strin
 
 export function ollamaCapability(caps: CapabilitiesResponse): LlmProviderCapability | undefined {
   return caps.llmProviders.find((p) => p.id === 'ollama');
+}
+
+/**
+ * One-line save failure for the error slot under the Save key button:
+ * the exact HTTP status plus the backend's own message, so a failed
+ * save never looks like a silent success.
+ */
+export function formatSaveKeyError(status: number, message: string): string {
+  return status > 0
+    ? `Save failed (HTTP ${status}): ${message}`
+    : `Save failed: ${message}`;
+}
+
+/** Short display name for a provider label ("Qwen (DashScope)" -> "Qwen"). */
+export function shortProviderLabel(label: string): string {
+  const short = label.replace(/\s*\(.*\)$/, '').trim();
+  return short.length > 0 ? short : label;
+}
+
+/**
+ * Status badge text for the active routing, e.g.
+ * "Active: Qwen · worker qwen3.7-plus · reasoning qwen4-max".
+ * Models are the effective values from the routing (GET or the POST
+ * save response), never placeholders or registry defaults shown as
+ * if they were the current configuration.
+ */
+export function formatRoutingBadge(
+  routing: LlmRouting,
+  labelFor: (providerId: string) => string,
+): string {
+  const workerModel = routing.workerModel ?? '';
+  const reasoningModel = routing.reasoningModel ?? '';
+  const workerLabel = labelFor(routing.workerProvider);
+  if (routing.workerProvider === routing.reasoningProvider) {
+    return `Active: ${workerLabel} · worker ${workerModel} · reasoning ${reasoningModel}`;
+  }
+  const reasoningLabel = labelFor(routing.reasoningProvider);
+  return (
+    `Active: worker ${workerLabel} ${workerModel} · ` +
+    `reasoning ${reasoningLabel} ${reasoningModel}`
+  );
 }
 
 export function hostedProviders(caps: CapabilitiesResponse): LlmProviderCapability[] {

@@ -187,6 +187,7 @@
           </p>
           <div id="ai-keys-form" hidden>
             <div id="ai-keys-saved" class="ai-keys-list"></div>
+            <div id="ai-keys-badge" class="ai-keys-badge" hidden></div>
             <div class="backend-key-row">
               <label for="ai-key-provider" class="label">Provider</label>
               <select id="ai-key-provider" aria-label="AI provider"></select>
@@ -226,20 +227,23 @@
               <button id="ai-key-save" type="button">Save key</button>
             </div>
             <div id="ai-key-error" class="error" hidden></div>
-            <div class="backend-key-row">
-              <label for="routing-worker-provider" class="label">Worker tier</label>
-              <select id="routing-worker-provider" aria-label="Worker tier provider"></select>
-              <input id="routing-worker-model" type="text" placeholder="Worker model" autocomplete="off" spellcheck="false" />
-            </div>
-            <div class="backend-key-row">
-              <label for="routing-reasoning-provider" class="label">Reasoning tier</label>
-              <select id="routing-reasoning-provider" aria-label="Reasoning tier provider"></select>
-              <input id="routing-reasoning-model" type="text" placeholder="Reasoning model" autocomplete="off" spellcheck="false" />
-            </div>
-            <div class="backend-key-row">
-              <button id="routing-save" type="button">Save routing</button>
-            </div>
-            <div id="routing-error" class="error" hidden></div>
+            <details id="routing-advanced" class="ai-routing-advanced">
+              <summary>Advanced: override models</summary>
+              <div class="backend-key-row">
+                <label for="routing-worker-provider" class="label">Worker tier</label>
+                <select id="routing-worker-provider" aria-label="Worker tier provider"></select>
+                <input id="routing-worker-model" type="text" placeholder="Worker model" autocomplete="off" spellcheck="false" />
+              </div>
+              <div class="backend-key-row">
+                <label for="routing-reasoning-provider" class="label">Reasoning tier</label>
+                <select id="routing-reasoning-provider" aria-label="Reasoning tier provider"></select>
+                <input id="routing-reasoning-model" type="text" placeholder="Reasoning model" autocomplete="off" spellcheck="false" />
+              </div>
+              <div class="backend-key-row">
+                <button id="routing-save" type="button">Save routing</button>
+              </div>
+              <div id="routing-error" class="error" hidden></div>
+            </details>
             <p class="backend-key-note">
               Hosted keys are encrypted in Postgres and shared across the web
               app and this paired extension. The browser never stores the raw key.

@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import {
   deleteAiKey,
   fetchCapabilities,
+  formatRoutingBadge,
+  formatSaveKeyError,
   listAiKeys,
   ollamaCapability,
   resolveQwenBaseUrl,
   saveAiKey,
+  shortProviderLabel,
   updateRouting,
 } from './aiKeys.ts';
 import type { CapabilitiesResponse } from './aiKeys.ts';
@@ -28,7 +31,7 @@ const cloudCapabilities: CapabilitiesResponse = {
       label: 'Qwen (DashScope)',
       mode: 'hosted',
       available: true,
-      defaultModels: { worker: 'qwen-plus', reasoning: 'qwen-max' },
+      defaultModels: { worker: 'qwen3.7-plus', reasoning: 'qwen4-max' },
     },
     {
       id: 'ollama',
@@ -93,15 +96,15 @@ test('listAiKeys returns the typed keys list and routing on success', async () =
       {
         providerId: 'qwen',
         keyHint: '****1a2b',
-        baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+        baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
         verifiedAt: '2026-11-24T00:00:00.000Z',
       },
     ],
     routing: {
       workerProvider: 'qwen',
-      workerModel: 'qwen-plus',
+      workerModel: 'qwen3.7-plus',
       reasoningProvider: 'qwen',
-      reasoningModel: 'qwen-max',
+      reasoningModel: 'qwen4-max',
     },
     hasByok: true,
   };
@@ -109,7 +112,8 @@ test('listAiKeys returns the typed keys list and routing on success', async () =
   assert.equal(result.ok, true);
   if (result.ok) {
     assert.equal(result.data.keys[0]?.keyHint, '****1a2b');
-    assert.equal(result.data.routing.workerModel, 'qwen-plus');
+    assert.equal(result.data.routing.workerModel, 'qwen3.7-plus');
+    assert.equal(result.data.routing.reasoningModel, 'qwen4-max');
     assert.equal(result.data.hasByok, true);
   }
 });
@@ -128,6 +132,83 @@ test('saveAiKey sends the provider payload and surfaces a 400 error', async () =
   if (!result.ok) assert.equal(result.error, 'Invalid Qwen API key.');
   assert.equal(seen[0]?.url, '/api/v1/ai-keys');
   assert.equal(JSON.parse(seen[0]?.body ?? '{}').providerId, 'qwen');
+});
+
+test('saveAiKey returns the POST routing so the card can update without a reload', async () => {
+  const body = {
+    providerId: 'qwen',
+    keyHint: '****9z8y',
+    baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    verifiedAt: '2026-11-24T00:00:00.000Z',
+    hasByok: true,
+    routingAutoSet: true,
+    routing: {
+      workerProvider: 'qwen',
+      workerModel: 'qwen3.7-plus',
+      reasoningProvider: 'qwen',
+      reasoningModel: 'qwen3.8-max',
+    },
+  };
+  const result = await saveAiKey(
+    { providerId: 'qwen', apiKey: 'placeholder-key-value' },
+    stubFetch(200, body),
+  );
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.data.routingAutoSet, true);
+    assert.equal(result.data.routing.workerModel, 'qwen3.7-plus');
+    assert.equal(result.data.routing.reasoningModel, 'qwen3.8-max');
+    assert.equal(
+      formatRoutingBadge(result.data.routing, (id) =>
+        shortProviderLabel(id === 'qwen' ? 'Qwen (DashScope)' : id),
+      ),
+      'Active: Qwen · worker qwen3.7-plus · reasoning qwen3.8-max',
+    );
+  }
+});
+
+test('saveAiKey surfaces a 500 with its status for the inline error', async () => {
+  const result = await saveAiKey(
+    { providerId: 'qwen', apiKey: 'placeholder-key-value' },
+    stubFetch(500, { error: 'table missing, run migrations' }),
+  );
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.status, 500);
+    assert.equal(result.error, 'table missing, run migrations');
+    assert.equal(
+      formatSaveKeyError(result.status, result.error),
+      'Save failed (HTTP 500): table missing, run migrations',
+    );
+  }
+});
+
+test('formatSaveKeyError falls back to a plain message when there is no HTTP status', () => {
+  assert.equal(formatSaveKeyError(0, 'Backend unreachable'), 'Save failed: Backend unreachable');
+  assert.equal(
+    formatSaveKeyError(400, 'Please enter a valid key.'),
+    'Save failed (HTTP 400): Please enter a valid key.',
+  );
+});
+
+test('formatRoutingBadge names both providers when the tiers differ', () => {
+  assert.equal(
+    formatRoutingBadge(
+      {
+        workerProvider: 'qwen',
+        workerModel: 'qwen3.7-plus',
+        reasoningProvider: 'claude',
+        reasoningModel: 'claude-sonnet-4-5',
+      },
+      (id) => (id === 'qwen' ? 'Qwen' : id === 'claude' ? 'Claude' : id),
+    ),
+    'Active: worker Qwen qwen3.7-plus · reasoning Claude claude-sonnet-4-5',
+  );
+});
+
+test('shortProviderLabel strips the parenthetical qualifier', () => {
+  assert.equal(shortProviderLabel('Qwen (DashScope)'), 'Qwen');
+  assert.equal(shortProviderLabel('Gemini'), 'Gemini');
 });
 
 test('updateRouting returns the saved routing on success', async () => {

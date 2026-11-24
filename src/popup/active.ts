@@ -60,12 +60,15 @@ import type {
 } from '../lib/apiClient';
 import { findingCard, renderFindings, renderSummary, swarmWorkerCard } from './render';
 import {
+  formatRoutingBadge,
+  formatSaveKeyError,
   formatTokenCount,
   formatWorkerTelemetry,
   getLocalOllamaEnabled,
   onProviderKeySaved,
   restoreTabScanIfMatching,
   setLocalOllamaEnabled,
+  shortProviderLabel,
 } from '../lib/popupHelpers';
 
 const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
@@ -1477,6 +1480,25 @@ function hideRoutingError(): void {
   if (errEl) errEl.hidden = true;
 }
 
+/** Status badge for the active routing: provider + effective models as values. */
+function renderRoutingBadge(routing: LlmRouting): void {
+  const badge = document.getElementById('ai-keys-badge') as HTMLElement | null;
+  if (!badge) return;
+  badge.textContent = formatRoutingBadge(routing, (id) => {
+    const cap = aiKeysCapabilities?.llmProviders.find((p) => p.id === id);
+    return cap ? shortProviderLabel(cap.label) : id;
+  });
+  badge.hidden = false;
+}
+
+function hideRoutingBadge(): void {
+  const badge = document.getElementById('ai-keys-badge') as HTMLElement | null;
+  if (badge) {
+    badge.hidden = true;
+    badge.textContent = '';
+  }
+}
+
 /** Show the Qwen region block only when Qwen is the picked provider. */
 function refreshAiKeyQwenUi(): void {
   const providerSelect = document.getElementById('ai-key-provider') as HTMLSelectElement | null;
@@ -1612,16 +1634,22 @@ async function initAiKeysSection(): Promise<void> {
       }
       saveBtn.disabled = true;
       keyInput.value = 'Verifying…';
+      let savedRouting: LlmRouting | null = null;
       try {
         await onProviderKeySaved(
           async () => {
             const res = await saveAiKey(provider, v, baseUrl);
-            if (!res.ok) throw new Error(res.error);
+            if (!res.ok) throw new Error(formatSaveKeyError(res.status, res.error));
+            // The POST response carries the routing the save picked; use
+            // it straight away instead of waiting on the GET refresh.
+            savedRouting = res.data.routing;
           },
           refreshAiKeysSection,
           setStatus,
         );
+        if (savedRouting) renderRoutingBadge(savedRouting);
         keyInput.value = '';
+        hideAiKeyError();
         hideError();
       } catch (err) {
         keyInput.value = v;
@@ -1660,6 +1688,7 @@ async function initAiKeysSection(): Promise<void> {
           return;
         }
         hideRoutingError();
+        renderRoutingBadge(res.data.routing);
         setStatus('Model routing saved.');
       } catch (err) {
         showRoutingError(err instanceof Error ? err.message : 'Could not save routing.');
@@ -1711,6 +1740,23 @@ async function refreshAiKeysSection(): Promise<void> {
   const reasoningModelInput = document.getElementById(
     'routing-reasoning-model',
   ) as HTMLInputElement | null;
+  if (keys.data.keys.length === 0) {
+    // No saved key: the empty state ("No provider keys saved yet") is
+    // the whole story. Show no badge and no model names — the backend
+    // default routing (Gemini) is not a configuration the user has.
+    hideRoutingBadge();
+    if (workerModelInput) {
+      workerModelInput.value = '';
+      workerModelInput.placeholder = '';
+    }
+    if (reasoningModelInput) {
+      reasoningModelInput.value = '';
+      reasoningModelInput.placeholder = '';
+    }
+    refreshAiKeyQwenUi();
+    return;
+  }
+  renderRoutingBadge(routing);
   if (workerProviderSel && hosted.some((p) => p.id === routing.workerProvider)) {
     workerProviderSel.value = routing.workerProvider;
   }

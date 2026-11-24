@@ -308,6 +308,17 @@ export interface AiKeysResponse {
   hasByok: boolean;
 }
 
+/** POST /api/v1/ai-keys response: the saved key plus the routing the save picked. */
+export interface SaveAiKeyResult {
+  providerId: ProviderId;
+  keyHint: string;
+  baseUrl: string;
+  verifiedAt: string;
+  hasByok: boolean;
+  routingAutoSet: boolean;
+  routing: LlmRouting;
+}
+
 /** GET /api/v1/capabilities, what this backend runtime offers. */
 export async function getCapabilities(): Promise<ApiResult<CapabilitiesResponse>> {
   return fetchJson<CapabilitiesResponse>('/api/v1/capabilities', { method: 'GET' }, 10_000);
@@ -326,8 +337,8 @@ export async function saveAiKey(
   providerId: ProviderId,
   apiKey: string,
   baseUrl?: string,
-): Promise<ApiResult<{ keyHint: string; hasByok: boolean }>> {
-  return fetchJson<{ keyHint: string; hasByok: boolean }>('/api/v1/ai-keys', {
+): Promise<ApiResult<SaveAiKeyResult>> {
+  return fetchJson<SaveAiKeyResult>('/api/v1/ai-keys', {
     method: 'POST',
     body: JSON.stringify({
       providerId,

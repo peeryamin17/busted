@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react';
 import {
   deleteAiKey,
   fetchCapabilities,
+  formatRoutingBadge,
+  formatSaveKeyError,
   hostedProviders,
   listAiKeys,
   modelOptionsFor,
   ollamaCapability,
   resolveQwenBaseUrl,
   saveAiKey,
+  shortProviderLabel,
   updateRouting,
 } from '../lib/aiKeys';
 import type {
@@ -179,10 +182,13 @@ export function AiKeyCard() {
           ...(baseUrl ? { baseUrl } : {}),
         });
         if (!res.ok) {
-          setError(res.error);
+          setError(formatSaveKeyError(res.status, res.error));
         } else {
           setApiKey('');
           setSuccess('Key verified and saved.');
+          // The POST response carries the routing the save picked; apply
+          // it straight away instead of waiting on the reload below.
+          if (res.data.routing && caps) applyRouting(res.data.routing, caps);
           await reloadKeys();
         }
       } catch {
@@ -339,6 +345,19 @@ export function AiKeyCard() {
   const workerCap = caps?.llmProviders.find((p) => p.id === workerProvider);
   const reasoningCap = caps?.llmProviders.find((p) => p.id === reasoningProvider);
 
+  // Status badge for the active routing, shown only once a key is saved —
+  // with no key there is no configuration to report, only the empty state.
+  const routingBadge =
+    capsState === 'synced' && caps && keysList && keysList.keys.length > 0
+      ? formatRoutingBadge(
+          { workerProvider, workerModel, reasoningProvider, reasoningModel },
+          (id) => {
+            const cap = caps.llmProviders.find((p) => p.id === id);
+            return cap ? shortProviderLabel(cap.label) : id;
+          },
+        )
+      : null;
+
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
       <div className="flex items-center justify-between gap-4">
@@ -400,6 +419,11 @@ export function AiKeyCard() {
           {keysList && keysList.keys.length === 0 && (
             <p className="mt-4 text-sm text-zinc-400">
               No provider keys saved yet. Add one below to unlock AI Swarm scans.
+            </p>
+          )}
+          {routingBadge && (
+            <p className="mt-3 inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
+              {routingBadge}
             </p>
           )}
           {removeError && (
@@ -551,8 +575,10 @@ export function AiKeyCard() {
             </div>
           </form>
 
-          <div className="mt-6 rounded-xl border border-white/10 bg-black/30 p-4">
-            <h4 className="text-sm font-semibold text-white">Model Routing</h4>
+          <details className="mt-6 rounded-xl border border-white/10 bg-black/30 p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-white">
+              Advanced: override models
+            </summary>
             <p className="mt-1 text-xs text-zinc-500">
               Pick which provider and model runs each tier of the swarm. Worker runs the
               specialists; Reasoning runs the head planner and the retester proof gate.
@@ -633,7 +659,7 @@ export function AiKeyCard() {
             {routingSuccess && (
               <p className="mt-3 text-sm text-emerald-400">{routingSuccess}</p>
             )}
-          </div>
+          </details>
         </>
       )}
 
