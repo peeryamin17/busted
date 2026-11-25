@@ -45,7 +45,11 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
     protocol: 'openai_compat',
     mode: 'hosted',
     defaultBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-    allowedBaseUrlPatterns: [/^https:\/\/[a-z0-9-]+\.aliyuncs\.com\/compatible-mode\/v1$/],
+    allowedBaseUrlPatterns: [
+      /^https:\/\/[a-z0-9-]+\.aliyuncs\.com\/compatible-mode\/v1$/,
+      // Model Studio workspace endpoints: <workspace-id>.<region>.maas.aliyuncs.com
+      /^https:\/\/[a-z0-9-]+\.[a-z0-9-]+\.maas\.aliyuncs\.com\/compatible-mode\/v1$/,
+    ],
     defaultModels: { worker: 'qwen3.7-plus', reasoning: 'qwen4-max' },
   },
   kimi: {

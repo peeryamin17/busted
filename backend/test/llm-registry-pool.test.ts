@@ -64,6 +64,13 @@ async function main() {
       'accepts deepseek bare host',
       validateProviderBaseUrl('deepseek', 'https://api.deepseek.com') === 'https://api.deepseek.com',
     );
+    check(
+      'accepts qwen workspace endpoint',
+      validateProviderBaseUrl(
+        'qwen',
+        'https://ws-abc123def456.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
+      ) === 'https://ws-abc123def456.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
+    );
 
     // 2. validateProviderBaseUrl rejects SSRF URLs
     const rejected: Array<[string, string]> = [
@@ -73,6 +80,7 @@ async function main() {
       ['gemini', 'https://generativelanguage.googleapis.com.evil.com/v1beta'],
       ['ollama', 'http://192.168.1.10:11434/v1'],
       ['deepseek', 'http://api.deepseek.com/v1'],
+      ['qwen', 'https://ws-x.ap-southeast-1.oss.aliyuncs.com/compatible-mode/v1'],
     ];
     for (const [provider, url] of rejected) {
       let threw = false;
