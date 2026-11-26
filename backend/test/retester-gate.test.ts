@@ -315,6 +315,53 @@ async function main() {
       verified.status === 'verified' && verified.poe === 3 && verified.receiptChecked === true, verified);
   }
 
+  // ── 9. Errored ladder probe → inconclusive, never fixed ────────────────
+  // The gap: a probe that answers with `error` instead of an HTTP
+  // response reads as a clean non-reproduction to the ladder (no
+  // stopReason), so without an explicit guard a dead network would
+  // mark a previously verified finding 'fixed'. The baseline answers
+  // fine here, only the ladder probes fail.
+  {
+    const errorAfterBaseline: DepthProber = async (req) => {
+      if (req.label === 'retest-baseline') return resp({ body: '<html>search page</html>' });
+      return { ok: false, body: '', error: 'connection reset by peer' };
+    };
+    const r = await retestFinding({
+      finding: xssFinding(verifiedVerification()),
+      targetUrl: TARGET,
+      prober: errorAfterBaseline,
+      now: () => FIXED_NOW,
+    });
+    check('gate: errored ladder probe → inconclusive, never fixed',
+      r.verdict === 'inconclusive', r);
+    check('gate: errored ladder probe reason names the failure',
+      r.impactSummary.includes('connection reset'), r.impactSummary);
+    const rec = findingRecord(xssFinding(verifiedVerification()));
+    const kept = applyRetestVerdict(rec, r);
+    check('gate: errored ladder probe leaves verification untouched (same object)',
+      kept === rec.verification, kept);
+  }
+
+  // ── 10. Throwing ladder probe → inconclusive, never fixed ──────────────
+  {
+    const throwsAfterBaseline: DepthProber = async (req) => {
+      if (req.label === 'retest-baseline') return resp({ body: '<html>search page</html>' });
+      throw new Error('socket hang up');
+    };
+    const r = await retestFinding({
+      finding: xssFinding(verifiedVerification()),
+      targetUrl: TARGET,
+      prober: throwsAfterBaseline,
+      now: () => FIXED_NOW,
+    });
+    check('gate: throwing ladder probe → inconclusive, never fixed',
+      r.verdict === 'inconclusive', r);
+    const rec = findingRecord(xssFinding(verifiedVerification()));
+    const kept = applyRetestVerdict(rec, r);
+    check('gate: throwing ladder probe keeps the finding verified',
+      kept.status === 'verified', kept);
+  }
+
   if (failures > 0) { console.error(`${failures} retester-gate test(s) failed`); process.exit(1); }
   console.log('ALL RETESTER-GATE TESTS PASSED');
   process.exit(0);

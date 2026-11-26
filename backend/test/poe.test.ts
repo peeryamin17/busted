@@ -16,7 +16,12 @@ import {
   verifyWithRecords,
   type ProofRecord,
 } from '../src/reports/poe.js';
-import type { FindingVerification } from '../src/types.js';
+import {
+  isVerifiedFinding,
+  verificationLabel,
+  verificationVerdict,
+} from '../src/reports/verification.js';
+import type { Finding, FindingVerification } from '../src/types.js';
 
 let failures = 0;
 function check(name: string, cond: boolean, extra?: unknown) {
@@ -310,6 +315,117 @@ async function main() {
     );
     check('verifyWithRecords: body-only record → verified (headers/shape optional)',
       bodyOnlyStillWorks.verified === true, bodyOnlyStillWorks);
+  }
+
+  // ── 10. Three-valued oracle verdicts ──
+  {
+    const escalated = verification({
+      status: 'verified',
+      depth: 'escalated',
+      impact: 'cross-context',
+      evidence: [
+        { rung: 'confirm', kind: 'graphql-readonly-query', request: 'POST /graphql { __typename }', observed: 'returned data' },
+        {
+          rung: 'escalate',
+          kind: 'graphql-introspection',
+          request: 'POST /graphql { __schema }',
+          observed: 'introspection returned the schema, type "QueryRootType" present',
+        },
+      ],
+    });
+    const proofBodies = ['{"data":{"__schema":{"queryType":{"name":"QueryRootType"}}}}'];
+    const gqlRecord: ProofRecord = {
+      label: 'graphql-escalate',
+      url: 'http://127.0.0.1:9/graphql',
+      status: 200,
+      body: '{"data":{"__schema":{"queryType":{"name":"QueryRootType"}}}}',
+      shape: ['data'],
+    };
+
+    // Confirmed still needs all three: POE ≥ 3, receipt pass, status verified.
+    const ok = isVerified({ verification: escalated }, proofBodies);
+    check('verdict: poe 3 + receipt + verified → confirmed',
+      ok.verdict === 'confirmed' && ok.verified === true, ok);
+    check('verdict(records): poe 3 + quote in record → confirmed',
+      verifyWithRecords({ verification: escalated }, [gqlRecord]).verdict === 'confirmed');
+
+    // Receipt failure with good POE → inconclusive, not refuted.
+    const noReceipt = isVerified({ verification: escalated }, ['{"data":{"__schema":{"queryType":{"name":"SomethingElse"}}}}']);
+    check('verdict: poe 3 + receipt miss → inconclusive (not refuted)',
+      noReceipt.verdict === 'inconclusive' && noReceipt.verified === false, noReceipt);
+    check('verdict(records): receipt miss → inconclusive',
+      verifyWithRecords({ verification: escalated }, []).verdict === 'inconclusive');
+
+    // A finding with no proof bodies → inconclusive.
+    const noProof = isVerified({ verification: escalated }, []);
+    check('verdict: no proof bodies → inconclusive',
+      noProof.verdict === 'inconclusive' && noProof.verified === false, noProof);
+    const noQuotes = isVerified(
+      { verification: verification({ status: 'verified', depth: 'escalated', impact: 'cross-context', evidence: [] }) },
+      proofBodies,
+    );
+    check('verdict: no evidence quotes to check → inconclusive',
+      noQuotes.verdict === 'inconclusive' && noQuotes.verified === false, noQuotes);
+
+    // Probe error: the ladder stopped early, the run could not tell.
+    const errored = verification({
+      status: 'hint',
+      depth: 'unproven',
+      impact: 'not-measured',
+      stopReason: 'ladder error: connection reset',
+      evidence: [],
+    });
+    const errVerdict = isVerified({ verification: errored }, proofBodies);
+    check('verdict: probe error (stopReason, unproven) → inconclusive',
+      errVerdict.verdict === 'inconclusive' && errVerdict.verified === false, errVerdict);
+    const none = isVerified({}, proofBodies);
+    check('verdict: no verification at all → inconclusive',
+      none.verdict === 'inconclusive' && none.verified === false, none);
+
+    // Refuted: a fixed finding is positive evidence the proof no longer reproduces.
+    const fixed = verification({ status: 'fixed', depth: 'unproven', impact: 'not-measured', evidence: [] });
+    const refuted = isVerified({ verification: fixed }, proofBodies);
+    check('verdict: fixed status → refuted',
+      refuted.verdict === 'refuted' && refuted.verified === false, refuted);
+    check('verdict(records): fixed → refuted',
+      verifyWithRecords({ verification: fixed }, [gqlRecord]).verdict === 'refuted');
+
+    // Report helpers: an inconclusive finding never renders as verified.
+    const findingWith = (v?: FindingVerification): Finding => ({
+      id: 'f1',
+      scanId: 'scan-1',
+      category: 'xss',
+      title: 'Reflected XSS in search',
+      description: 'Canary reflected.',
+      severity: 'high',
+      confidence: 'high',
+      trapProbability: 0,
+      honeypotSuspect: false,
+      location: 'http://127.0.0.1:9/search',
+      evidence: '',
+      reproSteps: [],
+      remediation: 'Encode output.',
+      references: [],
+      createdAt: '2026-11-23T00:00:00.000Z',
+      ...(v ? { verification: v } : {}),
+    });
+    const confirmedFinding = findingWith({ ...escalated, poe: 3, receiptChecked: true });
+    check('verdict(finding): verified + poe 3 + receipt pass → confirmed',
+      verificationVerdict(confirmedFinding) === 'confirmed' && isVerifiedFinding(confirmedFinding));
+    const receiptFailed = findingWith({ ...escalated, poe: 3, receiptChecked: false });
+    check('verdict(finding): verified + poe 3 + receipt fail → inconclusive, never verified',
+      verificationVerdict(receiptFailed) === 'inconclusive' && !isVerifiedFinding(receiptFailed));
+    check('label(finding): receipt-failed finding renders as a hint',
+      verificationLabel(receiptFailed).startsWith('Hint —'), verificationLabel(receiptFailed));
+    const legacy = findingWith({ ...escalated, poe: 3 });
+    check('verdict(finding): receipt never recorded → confirmed (gate did not run)',
+      verificationVerdict(legacy) === 'confirmed');
+    const fixedFinding = findingWith(fixed);
+    check('verdict(finding): fixed → refuted, never verified',
+      verificationVerdict(fixedFinding) === 'refuted' && !isVerifiedFinding(fixedFinding));
+    const noVerification = findingWith();
+    check('verdict(finding): no verification → inconclusive',
+      verificationVerdict(noVerification) === 'inconclusive' && !isVerifiedFinding(noVerification));
   }
 
   if (failures > 0) { console.error(`${failures} poe test(s) failed`); process.exit(1); }

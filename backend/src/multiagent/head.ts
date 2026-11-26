@@ -891,15 +891,18 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
         const gate = verifyWithRecords({ verification: f.verification }, proofRecords, expectedFields);
         f.verification.poe = gate.poe;
         f.verification.receiptChecked = gate.receipt;
-        if (f.verification.status === 'verified' && !gate.verified) {
+        // Any verdict short of confirmed demotes: a refuted finding is
+        // not verified, and an inconclusive one (probe error, receipt
+        // miss, weak POE) holds as a hint with the reason, never verified.
+        if (f.verification.status === 'verified' && gate.verdict !== 'confirmed') {
           f.verification.status = 'hint';
           f.verification.impactSummary +=
-            ` Held as a hint by the proof gate: ${gate.reason.replace(/^Not verified: /, '')}.`;
+            ` Held as a hint by the proof gate (${gate.verdict}): ${gate.reason.replace(/^Not verified: /, '')}.`;
         }
         if (snaps.length > 0) proofSnapshotsByFinding.set(f, snaps);
         event(
           'head_review',
-          `Depth ladder: "${f.title}" → ${f.verification.status}/${f.verification.depth} (POE ${gate.poe}, receipt ${gate.receipt ? 'pass' : 'fail'}${gate.verified ? '' : ', held as hint'})` +
+          `Depth ladder: "${f.title}" → ${f.verification.status}/${f.verification.depth} (POE ${gate.poe}, receipt ${gate.receipt ? 'pass' : 'fail'}, verdict ${gate.verdict}${gate.verdict === 'confirmed' ? '' : ', held as hint'})` +
             (f.verification.stopReason ? ` (stopped: ${f.verification.stopReason})` : ''),
         );
       } catch (err) {

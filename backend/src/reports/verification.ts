@@ -1,4 +1,4 @@
-import { assignPoe } from './poe.js';
+import { assignPoe, type OracleVerdict } from './poe.js';
 import type { Finding } from '../types.js';
 
 /**
@@ -18,12 +18,30 @@ import type { Finding } from '../types.js';
  */
 
 /**
+ * Three-valued verdict for one finding, from what it carries: 'fixed'
+ * is refuted (a clean re-run proved the proof no longer reproduces);
+ * 'verified' at POE 3+ is confirmed unless the gate recorded a failed
+ * receipt (receiptChecked false); anything else is inconclusive,
+ * including a finding the gate never ran (receiptChecked unset) with a
+ * status below verified. An inconclusive finding is never verified.
+ */
+export function verificationVerdict(f: Finding): OracleVerdict {
+  const v = f.verification;
+  if (!v) return 'inconclusive';
+  if (v.status === 'fixed') return 'refuted';
+  if (v.status === 'verified' && assignPoe(f).poe >= 3 && v.receiptChecked !== false) {
+    return 'confirmed';
+  }
+  return 'inconclusive';
+}
+
+/**
  * A finding counts as verified only at POE 3 or higher (see reports/poe.ts).
  * A record that still carries status 'verified' from before the POE gate,
  * or with a POE below 3, is a hint, not a verified chain.
  */
 export function isVerifiedFinding(f: Finding): boolean {
-  return f.verification?.status === 'verified' && assignPoe(f).poe >= 3;
+  return verificationVerdict(f) === 'confirmed';
 }
 
 export function verifiedFindings(findings: Finding[]): Finding[] {
@@ -46,7 +64,7 @@ export function verificationLabel(f: Finding): string {
   if (!v) {
     return `Hint — not verified (no depth-ladder result; treat as unconfirmed), POE ${poe}`;
   }
-  if (v.status === 'verified' && poe >= 3) {
+  if (verificationVerdict(f) === 'confirmed') {
     return (
       `Verified — depth: ${v.depth}, measured impact: ${v.impact}` +
       (v.canaryToken ? `, canary: ${v.canaryToken}` : '') +

@@ -1,4 +1,4 @@
-import type { DepthEvidence, FindingVerification } from '../types.js';
+import type { DepthEvidence, FindingVerification, VerificationStatus } from '../types.js';
 
 /**
  * POE (proof-of-exploitation) levels 0-4, the credibility core of a
@@ -30,6 +30,17 @@ import type { DepthEvidence, FindingVerification } from '../types.js';
  */
 
 export type PoeLevel = 0 | 1 | 2 | 3 | 4;
+
+/**
+ * Three-valued oracle verdict: what the proof gate actually knows.
+ * 'inconclusive' is the zero value. No proof, a probe error, or a
+ * receipt miss all land here, never a pass or a fail: a probe error
+ * can neither confirm nor condemn a finding. 'refuted' needs positive
+ * evidence the proof no longer reproduces (a clean re-run that fails),
+ * never a missing or errored probe. OOB never disproves: when the OOB
+ * oracle lands, an absent callback is inconclusive, not refuted.
+ */
+export type OracleVerdict = 'confirmed' | 'inconclusive' | 'refuted';
 
 /** Minimum length of an evidence quote for the receipt check. */
 export const MIN_QUOTE_LENGTH = 8;
@@ -264,9 +275,17 @@ export function shapeReceiptCheck(
 
 export interface VerifiedResult {
   verified: boolean;
+  verdict: OracleVerdict;
   poe: PoeLevel;
   receipt: boolean;
   reason: string;
+}
+
+/** Collapse the gate outcome to the three-valued verdict. */
+function toVerdict(verified: boolean, status?: VerificationStatus): OracleVerdict {
+  if (verified) return 'confirmed';
+  if (status === 'fixed') return 'refuted';
+  return 'inconclusive';
 }
 
 /**
@@ -283,7 +302,9 @@ export interface VerifiedResult {
  * the receipt is checked against the records' canonical proof text
  * instead (headers + shape included, the only surface that can prove a
  * CORS echo or an IDOR/GraphQL field set); when omitted, behaviour is
- * exactly the body-only check.
+ * exactly the body-only check. The verdict is three-valued: confirmed
+ * only when verified, refuted only for a 'fixed' finding, inconclusive
+ * for every other failure (including a probe error or a receipt miss).
  */
 export function isVerified(
   finding: { verification?: FindingVerification },
@@ -308,6 +329,7 @@ export function isVerified(
   if (poe >= 3 && receipt.pass && statusOk) {
     return {
       verified: true,
+      verdict: 'confirmed',
       poe,
       receipt: true,
       reason:
@@ -338,6 +360,7 @@ export function isVerified(
   }
   return {
     verified: false,
+    verdict: toVerdict(false, v?.status),
     poe,
     receipt: receipt.pass,
     reason: `Not verified: ${failures.join('; ')}.`,
@@ -350,7 +373,9 @@ export function isVerified(
  * `expectedFields` is given, the shape receipt must ALSO pass (every
  * expected field name exactly present in some record's shape). The
  * reason names which surface passed, so a held-as-hint finding says
- * exactly what was missing.
+ * exactly what was missing. The verdict is three-valued: confirmed only
+ * when verified, refuted only for a 'fixed' finding, inconclusive for
+ * every other failure (including a probe error or a receipt miss).
  */
 export function verifyWithRecords(
   finding: { verification?: FindingVerification },
@@ -378,6 +403,7 @@ export function verifyWithRecords(
     }
     return {
       verified: true,
+      verdict: 'confirmed',
       poe,
       receipt: true,
       reason:
@@ -411,6 +437,7 @@ export function verifyWithRecords(
   }
   return {
     verified: false,
+    verdict: toVerdict(false, v?.status),
     poe,
     receipt: receipt.pass,
     reason: `Not verified: ${failures.join('; ')}.`,

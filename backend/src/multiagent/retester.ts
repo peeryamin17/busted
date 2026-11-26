@@ -52,9 +52,10 @@ import type {
  *   end-to-end; until then the widened type lives here.)
  * - 'inconclusive', the retest could not run or could not tell: no live
  *   probe for the category, target unreachable, rate-limited, server
- *   errors, a blocked baseline, or the ladder stopping early. A retest
- *   that cannot run is NEVER 'fixed', 'fixed' requires the proof to have
- *   been re-runnable and to have failed. Inconclusive changes nothing: the
+ *   errors, a blocked baseline, a probe that returns an error instead
+ *   of a response, or the ladder stopping early. A retest that cannot
+ *   run is NEVER 'fixed', 'fixed' requires the proof to have been
+ *   re-runnable and to have failed. Inconclusive changes nothing: the
  *   finding keeps its existing verification untouched.
  *
  * A retest costs at most 7 probes: 1 baseline + the ladder's max 6.
@@ -301,8 +302,13 @@ export async function retestFinding(input: {
   // records, it never changes what the ladder sends or receives.
   const proofBodies: string[] = [];
   const proofRecords: ProofRecord[] = [];
+  // First error string from any probe in this run, if one errored.
+  // A probe that answers with `error` instead of an HTTP response is an
+  // errored probe, not a clean non-reproduction.
+  let probeError: string | undefined;
   const tracingProber: DepthProber = async (req) => {
     const res = await prober(req);
+    if (res.error && probeError === undefined) probeError = res.error.slice(0, 120);
     const redactedBody = redactText(res.body, 200_000);
     proofBodies.push(redactedBody);
     const shape = res.shape ?? jsonFieldNames(res.body) ?? undefined;
@@ -387,7 +393,18 @@ export async function retestFinding(input: {
       };
     }
 
-    // 3. The ladder could not reproduce. A stop reason means the run itself
+    // 3. An errored probe is "could not tell", never "fixed": the
+    // ladder reads a bare error response as a clean non-reproduction
+    // (no stopReason), so without this check a dead network would read
+    // as a fix for a previously verified finding.
+    if (ladder.depth === 'unproven' && probeError !== undefined) {
+      return inconclusive(
+        `a probe failed (${probeError}) — the proof could not be re-run to completion.`,
+        evidence,
+      );
+    }
+
+    // 4. The ladder could not reproduce. A stop reason means the run itself
     // was cut short (rate limit, lockout, error storm, guardrail refusal,
     // probe budget), that is "could not tell", never "fixed".
     if (ladder.stopReason) {
@@ -397,10 +414,10 @@ export async function retestFinding(input: {
       );
     }
 
-    // 4. No stop reason: the probes ran cleanly and the proof did not
-    // reproduce. That is positive evidence the fix landed, but only for a
-    // finding that was verified before. A hint that still does not
-    // reproduce tells us nothing new.
+    // 5. No stop reason and no probe error: the probes ran cleanly and
+    // the proof did not reproduce. That is positive evidence the fix
+    // landed, but only for a finding that was verified before. A hint
+    // that still does not reproduce tells us nothing new.
     if (finding.verification?.status !== 'verified') {
       return inconclusive(
         'the re-run did not reproduce the proof, but the finding was never verified — an unproven hint that stays unproven is not evidence of a fix.',
