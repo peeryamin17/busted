@@ -60,6 +60,8 @@ export const DATA_ESCALATION_KINDS: ReadonlySet<string> = new Set([
   'cors-credentialed-read', // credentialed cross-origin GET returned data
   'idor-second-neighbor-shape', // a second neighbour record matched by shape
   'xss-second-context', // canary reflected via a second parameter/context
+  'differential-sqli-second-context', // boolean SQLi signal via a second parameter
+  'differential-ssti-second-context', // SSTI signal via a second parameter
 ]);
 
 export interface PoeResult {

@@ -3,6 +3,12 @@ import {
   guardedFetch,
   type ToolExecutionContext,
 } from '../agent/tools.js';
+import {
+  buildCanaryPair,
+  checkOracleInput,
+  evaluatePair,
+  type DifferentialKind,
+} from './differentialOracle.js';
 import { redactHeaders, redactText } from '../guardrails/redact.js';
 import { assignPoe } from '../reports/poe.js';
 import type {
@@ -25,7 +31,8 @@ import type {
  *               (XSS: unique canary reflected; IDOR: a neighbour record
  *               reachable with the same shape; CORS: a canary origin is
  *               echoed with credentials allowed; GraphQL: a read-only
- *               `{ __typename }` query returns data).
+ *               `{ __typename }` query returns data; SQLi/SSTI: a control
+ *               vs attack pair differs after normalisation).
  *   ESCALATE, blast radius, READ-ONLY proofs only (second reflection
  *               context, second neighbour record, credentialed cross-origin
  *               GET returning data, read-only introspection).
@@ -54,7 +61,7 @@ import type {
  * without executing the chain.
  */
 
-export type LadderKind = 'xss' | 'idor' | 'cors' | 'graphql' | 'unprobeable';
+export type LadderKind = 'xss' | 'idor' | 'cors' | 'graphql' | 'sqli' | 'ssti' | 'unprobeable';
 
 /** Minimal shape the ladder needs, satisfied by WorkerFinding and Finding. */
 export interface LadderFindingInput {
@@ -144,6 +151,8 @@ export function classifyFinding(finding: LadderFindingInput): LadderKind {
   if (/\bidor\b|insecure direct object/.test(hay)) return 'idor';
   if (/\bcors\b|cross-origin resource sharing/.test(hay)) return 'cors';
   if (/\bgraphql\b/.test(hay)) return 'graphql';
+  if (/\bsqli\b|sql injection|boolean-based/.test(hay)) return 'sqli';
+  if (/\bssti\b|server-side template injection|template injection/.test(hay)) return 'ssti';
   return 'unprobeable';
 }
 
@@ -323,7 +332,11 @@ function impactFor(depth: DepthLevel, kind: LadderKind): { impact: DepthImpact; 
             ? 'a canary cross-origin request was accepted with credentials allowed'
             : kind === 'graphql'
               ? 'a read-only query returned data from the GraphQL endpoint'
-              : 'a benign canary probe reproduced the claimed behaviour';
+              : kind === 'sqli'
+                ? 'true/false conditions returned different responses after normalisation (differential oracle)'
+                : kind === 'ssti'
+                  ? 'an inert arithmetic expression was evaluated server-side (differential oracle)'
+                  : 'a benign canary probe reproduced the claimed behaviour';
     return {
       impact: 'single-context',
       summary: `Measured impact (single context): ${what}. Cross-context blast radius was not proven — the finding is confirmed, not escalated.`,
@@ -338,7 +351,11 @@ function impactFor(depth: DepthLevel, kind: LadderKind): { impact: DepthImpact; 
           ? 'a credentialed cross-origin request actually returned data to a canary origin'
           : kind === 'graphql'
             ? 'read-only introspection returned the full schema'
-            : 'the behaviour reproduced across more than one context';
+            : kind === 'sqli'
+              ? 'the boolean-SQLi signal reproduced via a second parameter'
+              : kind === 'ssti'
+                ? 'the SSTI signal reproduced via a second parameter'
+                : 'the behaviour reproduced across more than one context';
   return {
     impact: 'cross-context',
     summary: `Measured impact (cross-context): ${what}. This is the observed blast radius — it proves reach, not exploitability to code execution or data theft, which the ladder never attempts.`,
@@ -646,6 +663,90 @@ async function runGraphql(
   return 'confirmed';
 }
 
+// ── Differential oracle rung (SQLi boolean / SSTI) ───────────────────────
+
+const DIFFERENTIAL_KIND: Record<'sqli' | 'ssti', DifferentialKind> = {
+  sqli: 'sqli-boolean',
+  ssti: 'ssti',
+};
+
+async function runDifferential(
+  kind: 'sqli' | 'ssti',
+  finding: LadderFindingInput,
+  url: URL,
+  canary: string,
+  probe: DepthProber,
+  state: LadderState,
+): Promise<DepthLevel> {
+  const diffKind = DIFFERENTIAL_KIND[kind];
+  const pair = buildCanaryPair(diffKind, canary);
+  const gate = checkOracleInput(url.toString(), [pair.control, pair.attack]);
+  if (!gate.allowed) {
+    state.stopReason = `differential oracle refused: ${gate.reason}`;
+    return 'unproven';
+  }
+  const params = [...url.searchParams.keys()];
+  const mentioned = (finding.evidence ?? '').match(/param(?:eter)?\s*["']?([A-Za-z0-9_]+)/i)?.[1];
+  const firstParam = params[0] ?? mentioned ?? 'q';
+  const secondParam =
+    ['q', 'search', 'query', 'name', 'keyword'].find((p) => p !== firstParam) ?? 'search';
+
+  // One control/attack pair per parameter. A probe error on either side
+  // is inconclusive, never a pass or a fail.
+  async function probePair(
+    param: string,
+    label: string,
+  ): Promise<{ verdict: string; similarity: number; reason: string } | null> {
+    const mkUrl = (value: string): string => {
+      const u = new URL(url.toString());
+      u.searchParams.set(param, value);
+      return u.toString();
+    };
+    if (state.probesUsed >= state.maxProbes) return null;
+    state.probesUsed += 1;
+    const control = await probe({ method: 'GET', url: mkUrl(pair.control), label: `${label}-control` });
+    const stop = checkStop(control, state);
+    if (stop) {
+      state.stopReason = stop;
+      return null;
+    }
+    if (control.error || !control.ok) return null;
+    if (state.probesUsed >= state.maxProbes) return null;
+    state.probesUsed += 1;
+    const attack = await probe({ method: 'GET', url: mkUrl(pair.attack), label: `${label}-attack` });
+    const stop2 = checkStop(attack, state);
+    if (stop2) {
+      state.stopReason = stop2;
+      return null;
+    }
+    if (attack.error || !attack.ok) return null;
+    const out = evaluatePair(diffKind, pair, control.body, attack.body);
+    return { verdict: out.verdict, similarity: out.similarity, reason: out.reason };
+  }
+
+  const confirm = await probePair(firstParam, `differential-${kind}-confirm`);
+  if (!confirm || confirm.verdict !== 'confirmed') return 'unproven';
+  state.evidence.push({
+    rung: 'confirm',
+    kind: `differential-${kind}`,
+    request: `GET ${new URL(url.toString()).pathname}?${firstParam}=<differential ${diffKind} canary> (control vs attack pair)`,
+    observed: `HTTP 200 pair: ${confirm.reason} (Jaccard ${confirm.similarity.toFixed(3)}).`,
+    status: 200,
+  });
+  const esc = await probePair(secondParam, `differential-${kind}-escalate`);
+  if (esc && esc.verdict === 'confirmed') {
+    state.evidence.push({
+      rung: 'escalate',
+      kind: `differential-${kind}-second-context`,
+      request: `GET ${new URL(url.toString()).pathname}?${secondParam}=<differential ${diffKind} canary> (control vs attack pair)`,
+      observed: `HTTP 200 pair via a second parameter (${secondParam}): ${esc.reason} (Jaccard ${esc.similarity.toFixed(3)}).`,
+      status: 200,
+    });
+    return 'escalated';
+  }
+  return 'confirmed';
+}
+
 // ── Entry point ────────────────────────────────────────────────────────────
 
 /**
@@ -663,7 +764,7 @@ export async function validateFindingWithLadder(
   const kind = classifyFinding(finding);
   if (kind === 'unprobeable') {
     return untestedVerification(
-      `no read-only live probe exists for category "${finding.category}" — the ladder only tests XSS, IDOR, CORS and GraphQL findings live.`,
+      `no read-only live probe exists for category "${finding.category}" — the ladder only tests XSS, IDOR, CORS, GraphQL, SQLi and SSTI findings live.`,
       now,
     );
   }
@@ -709,6 +810,7 @@ export async function validateFindingWithLadder(
       depth = await runIdor(finding, url, canary, tracingProber, state, opts.allowNeighborShapeProbe ?? true);
     } else if (kind === 'cors') depth = await runCors(finding, url, canary, tracingProber, state);
     else if (kind === 'graphql') depth = await runGraphql(finding, url, canary, tracingProber, state);
+    else if (kind === 'sqli' || kind === 'ssti') depth = await runDifferential(kind, finding, url, canary, tracingProber, state);
   } catch (err) {
     // A ladder crash is a ladder failure, never a finding failure.
     state.stopReason = `ladder error: ${(err as Error).message.slice(0, 200)}`;
