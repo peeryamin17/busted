@@ -15,10 +15,19 @@ import { getSpecialist, allSpecialists, ALWAYS_SPAWN, CONDITIONAL_SPAWN } from '
 import { buildFixInIdePrompt } from '../reports/remediation.js';
 import {
   createDepthProber,
+  classifyFinding,
   isLadderTestable,
   untestedVerification,
   validateFindingWithLadder,
 } from './depthLadder.js';
+import {
+  CorroborationPolicy,
+  isHighStakes,
+  isOracleKind,
+  strongJudgementConfirms,
+  strongModelRecheck,
+} from './corroboration.js';
+import type { CorroborationCounterStore } from './corroboration.js';
 import { runWorker } from './worker.js';
 import { decomposeGoal } from './goals.js';
 import {
@@ -152,6 +161,8 @@ export interface PhaseCStores {
   approvals: ApprovalStore;
   approvalRules: ApprovalRuleStore;
   pins: PinStore;
+  /** Durable corroboration counters; absent = per-run memory caps. */
+  corroboration?: CorroborationCounterStore;
 }
 
 export interface PhaseCContextInput {
@@ -209,6 +220,7 @@ export async function buildPhaseCContext(
       approvals: stores.approvals,
       approvalRules: stores.approvalRules,
       pins: stores.pins,
+      ...(stores.corroboration ? { corroboration: stores.corroboration } : {}),
       userId: input.userId,
       pinCheck,
       gateCache: new Map(),
@@ -841,10 +853,38 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
   if (ladderCandidates.length > 0) {
     event('head_review', `Depth ladder: validating ${ladderCandidates.length} finding(s) with benign canary probes (read-only)`);
     const prober = createDepthProber(toolCtx);
+    // Corroboration order for this run: free tool-grounded checks
+    // first (the ladder), oracles next (capped per campaign), then a
+    // reasoning-tier re-check only for unsettled high-stakes findings.
+    // A counter failure never breaks the scan: the tier runs and the
+    // miss is recorded as an error.
+    const corroboration = new CorroborationPolicy(taskCtx?.corroboration);
+    const campaignId = taskCtx?.taskId ?? 'local';
     for (const f of ladderCandidates) {
       if (opts.shouldContinue && opts.shouldContinue() !== 'run') {
         f.verification = untestedVerification('swarm run paused/cancelled before the depth ladder ran.');
         continue;
+      }
+      // Oracle cap: an oracle-kind finding spends one oracle run. At
+      // the cap the rung is skipped and the skip is on the record.
+      const findingRef = `${f.title} @ ${f.location ?? opts.targetUrl}`.slice(0, 500);
+      let skipOracle = false;
+      if (isOracleKind(classifyFinding(f))) {
+        const oracle = await corroboration
+          .tryOracleRun(campaignId, findingRef)
+          .catch((err) => {
+            errors.push(
+              `corroboration counter failed for "${f.title}": ${(err as Error).message}`,
+            );
+            return { allowed: true, skippedForCap: false };
+          });
+        if (!oracle.allowed) {
+          skipOracle = true;
+          event(
+            'head_review',
+            `Corroboration: oracle cap reached for this campaign, skipping oracle rung for "${f.title}" (recorded as skipped-for-cap)`,
+          );
+        }
       }
       // Collect the (redacted) probe bodies + structured proof records +
       // content-addressed snapshots for this finding, so the proof gate
@@ -882,7 +922,7 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
         );
       };
       try {
-        f.verification = await validateFindingWithLadder(f, prober, { targetUrl: opts.targetUrl, onProbe });
+        f.verification = await validateFindingWithLadder(f, prober, { targetUrl: opts.targetUrl, onProbe, skipOracle });
         // Proof gate (records version): 'verified' only at POE ≥ 3 with
         // a verbatim receipt in a bound proof record, plus the shape
         // receipt where the category's proof lives in field names (see
@@ -899,11 +939,62 @@ export async function runHeadAgent(opts: MultiAgentOptions): Promise<MultiAgentO
           f.verification.impactSummary +=
             ` Held as a hint by the proof gate (${gate.verdict}): ${gate.reason.replace(/^Not verified: /, '')}.`;
         }
+        // Strong-model re-check, last tier only: a high-stakes finding
+        // the free and oracle tiers left as a hint, with tool-grounded
+        // evidence to re-check. A routine-tier judgement never confirms
+        // it, so this runs at the reasoning tier, capped per campaign.
+        let strongNote = '';
+        if (
+          isHighStakes(f.severity) &&
+          f.verification.status === 'hint' &&
+          f.verification.evidence.length > 0
+        ) {
+          const strong = await corroboration
+            .tryStrongRecheck(campaignId, findingRef)
+            .catch((err) => {
+              errors.push(
+                `corroboration counter failed for "${f.title}": ${(err as Error).message}`,
+              );
+              return { allowed: true, skippedForCap: false };
+            });
+          if (!strong.allowed) {
+            strongNote = ' (strong-model re-check skipped: cap reached, recorded as skipped-for-cap)';
+            event(
+              'head_review',
+              `Corroboration: strong-model cap reached for this campaign, no re-check for "${f.title}"`,
+            );
+          } else {
+            try {
+              const judgement = await strongModelRecheck(opts.provider, {
+                findingRef,
+                title: f.title,
+                category: f.category,
+                severity: f.severity,
+                targetHost: target.hostname,
+                scopeSummary: `swarm scope: ${target.hostname}`,
+                evidenceSummary: f.verification.impactSummary,
+              });
+              if (strongJudgementConfirms(judgement.verdict)) {
+                f.verification.status = 'verified';
+                f.verification.impactSummary += ` Confirmed by strong-model re-check (reasoning tier): ${judgement.reason}`;
+                strongNote = ' (confirmed by strong-model re-check)';
+              } else {
+                f.verification.impactSummary += ` Strong-model re-check did not confirm: ${judgement.reason}`;
+                strongNote = ' (strong-model re-check did not confirm)';
+              }
+            } catch (err) {
+              errors.push(
+                `strong-model re-check failed for "${f.title}": ${(err as Error).message}`,
+              );
+            }
+          }
+        }
         if (snaps.length > 0) proofSnapshotsByFinding.set(f, snaps);
         event(
           'head_review',
           `Depth ladder: "${f.title}" → ${f.verification.status}/${f.verification.depth} (POE ${gate.poe}, receipt ${gate.receipt ? 'pass' : 'fail'}, verdict ${gate.verdict}${gate.verdict === 'confirmed' ? '' : ', held as hint'})` +
-            (f.verification.stopReason ? ` (stopped: ${f.verification.stopReason})` : ''),
+            (f.verification.stopReason ? ` (stopped: ${f.verification.stopReason})` : '') +
+            strongNote,
         );
       } catch (err) {
         // The ladder never throws, but if it ever did, the finding degrades

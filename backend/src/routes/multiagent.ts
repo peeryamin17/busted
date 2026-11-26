@@ -230,6 +230,7 @@ export async function swarmRoutes(app: FastifyInstance, deps: RouteDeps): Promis
             approvals: deps.approvals,
             approvalRules: deps.approvalRules,
             pins: deps.pins,
+            ...(deps.corroboration ? { corroboration: deps.corroboration } : {}),
           },
           {
             userId: user.id,

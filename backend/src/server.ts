@@ -55,6 +55,11 @@ import { MemoryEvidenceStore, PostgresEvidenceStore, type EvidenceStore } from '
 import { MemoryApprovalStore, PostgresApprovalStore, type ApprovalStore } from './approvals/store.js';
 import { MemoryApprovalRuleStore, PostgresApprovalRuleStore, type ApprovalRuleStore } from './approvals/rules.js';
 import { MemoryPinStore, PostgresPinStore, type PinStore } from './guardrails/pins.js';
+import {
+  MemoryCorroborationCounterStore,
+  PostgresCorroborationCounterStore,
+  type CorroborationCounterStore,
+} from './multiagent/corroboration.js';
 import { createToolContext } from './agent/tools.js';
 import { createDepthProber } from './multiagent/depthLadder.js';
 import { buildPinCheck } from './multiagent/head.js';
@@ -138,6 +143,11 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
       ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
         new PostgresPinStore((sql, params) => (pool as any).query(sql, params))
       : new MemoryPinStore();
+  const corroboration: CorroborationCounterStore =
+    deps.db.kind === 'postgres' && pool
+      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        new PostgresCorroborationCounterStore((sql, params) => (pool as any).query(sql, params))
+      : new MemoryCorroborationCounterStore();
 
   // ── stores (skills, MCP, search, notifications, workspace,
   // companies, side questions, lessons) ──
@@ -290,7 +300,7 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
   // The legacy scan paths run supervised too: the orchestrator builds a
   // Phase C task for active scans and gates every default tool through
   // it (see orchestrator.ts runActive/runPassive).
-  deps.orchestrator.setPhaseCStores({ graph, coverage, evidence, approvals, approvalRules, pins });
+  deps.orchestrator.setPhaseCStores({ graph, coverage, evidence, approvals, approvalRules, pins, corroboration });
 
   app.register(async (instance) => {
     await healthRoutes(instance, routeDeps);
@@ -298,7 +308,7 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
     await googleAuthRoutes(instance, routeDeps);
     await aiKeyRoutes(instance, routeDeps);
     await scanRoutes(instance, routeDeps);
-    await swarmRoutes(instance, { ...routeDeps, graph, coverage, evidence, approvals, approvalRules, pins, onSwarmCompleted });
+    await swarmRoutes(instance, { ...routeDeps, graph, coverage, evidence, approvals, approvalRules, pins, corroboration, onSwarmCompleted });
     await tasksRoutes(instance, { db: deps.db, graph });
     await approvalsRoutes(instance, { db: deps.db, graph, approvals, rules: approvalRules });
     await pinsRoutes(instance, { db: deps.db, graph, pins });

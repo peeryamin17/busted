@@ -140,6 +140,12 @@ export interface LadderOptions {
     headers?: Record<string, string>;
     shape?: string[];
   }) => void;
+  /**
+   * Skip the oracle rung (differential / timing) for this finding. The
+   * caller sets it when the per-campaign oracle cap is reached, so no
+   * oracle probe runs past the cap.
+   */
+  skipOracle?: boolean;
   now?: () => string;
   /**
    * Wall-clock source for the timing rung, milliseconds. Defaults to
@@ -912,6 +918,15 @@ export async function validateFindingWithLadder(
     );
   }
   const canary = generateCanary();
+  if (
+    opts.skipOracle &&
+    (kind === 'sqli' || kind === 'ssti' || kind === 'timing')
+  ) {
+    return untestedVerification(
+      'oracle rung skipped by the caller (corroboration policy), no differential or timing probe ran, so the finding stays an unconfirmed hint.',
+      now,
+    );
+  }
   const state: LadderState = newLadderState(maxProbes);
   // Wrap the prober so every probe response is offered to the caller's
   // snapshot hook (proof gate) without changing probe behaviour.

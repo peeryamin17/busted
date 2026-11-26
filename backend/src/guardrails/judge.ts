@@ -136,7 +136,8 @@ function askResult(reason: string): JudgeResult {
  */
 export async function judgeToolCall(
   provider: LLMProvider,
-  input: JudgeInput
+  input: JudgeInput,
+  opts?: { tier?: 'routine' | 'reasoning' },
 ): Promise<JudgeResult> {
   if (!input.tool || typeof input.tool !== 'string') {
     return askResult('No tool name supplied — failing closed to human approval.');
@@ -149,7 +150,7 @@ export async function judgeToolCall(
       messages: toMessages(prompt),
       maxTokens: JUDGE_MAX_TOKENS,
       temperature: JUDGE_TEMPERATURE,
-      tier: 'routine',
+      tier: opts?.tier ?? 'routine',
     });
     const timeout = new Promise<never>((_, reject) => {
       setTimeout(

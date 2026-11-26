@@ -14,6 +14,7 @@ import type { EvidenceSnapshot, EvidenceStore } from '../evidence/snapshots.js';
 import type { ApprovalStore } from '../approvals/store.js';
 import type { ApprovalRuleStore } from '../approvals/rules.js';
 import type { PinStore } from '../guardrails/pins.js';
+import type { CorroborationCounterStore } from './corroboration.js';
 import type { NoiseProfileName } from '../egress/noise.js';
 
 /**
@@ -37,6 +38,8 @@ export interface SwarmTaskContext {
   approvals?: ApprovalStore;
   approvalRules?: ApprovalRuleStore;
   pins?: PinStore;
+  /** Durable per-campaign corroboration counters; absent = per-run memory. */
+  corroboration?: CorroborationCounterStore;
   userId?: string;
   pinCheck?: (url: URL) => { decision: 'allowed' | 'ask' | 'blocked'; reason: string };
   gateCache?: Map<string, 'allowed' | 'denied'>;

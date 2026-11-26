@@ -11,6 +11,7 @@ import type { EvidenceStore } from '../evidence/snapshots.js';
 import type { ApprovalStore } from '../approvals/store.js';
 import type { ApprovalRuleStore } from '../approvals/rules.js';
 import type { PinStore } from '../guardrails/pins.js';
+import type { CorroborationCounterStore } from '../multiagent/corroboration.js';
 import { PROVIDER_REGISTRY, type ModelTier, type ProviderId } from '../llm/registry.js';
 
 export interface RouteDeps {
@@ -25,6 +26,8 @@ export interface RouteDeps {
   approvals?: ApprovalStore;
   approvalRules?: ApprovalRuleStore;
   pins?: PinStore;
+  /** Per-campaign corroboration counters (migration 035). */
+  corroboration?: CorroborationCounterStore;
   /**
    * hook, called best-effort when a swarm run completes
    * (server.ts wires it to the notification fan-out). A throwing or
