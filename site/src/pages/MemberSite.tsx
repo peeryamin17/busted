@@ -1,5 +1,5 @@
 import { ArrowRight } from 'lucide-react';
-import { AiKeyCard } from '../components/AiKeyCard';
+import { AiKeyStatus } from '../components/AiKeyStatus';
 import { DetectionsPanel } from '../components/DetectionsPanel';
 import { PlatformPanel } from '../components/PlatformPanel';
 import { Bento } from '../components/Bento';
@@ -121,8 +121,8 @@ export function MemberSite() {
         <Ticker />
         <ConnectSiteCard />
         <WebDemoBanner />
-        <section className="relative mx-auto max-w-6xl px-4 py-6 sm:px-6" aria-label="AI Engine Key">
-          <AiKeyCard />
+        <section className="relative mx-auto max-w-6xl px-4 py-6 sm:px-6" aria-label="AI keys">
+          <AiKeyStatus />
         </section>
         <section className="relative mx-auto max-w-6xl px-4 py-6 sm:px-6" aria-label="Runtime detections">
           <DetectionsPanel />

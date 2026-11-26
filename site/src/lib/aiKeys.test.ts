@@ -1,18 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  deleteAiKey,
-  fetchCapabilities,
-  formatRoutingBadge,
-  formatSaveKeyError,
-  listAiKeys,
-  ollamaCapability,
-  resolveQwenBaseUrl,
-  saveAiKey,
-  shortProviderLabel,
-  updateRouting,
-} from './aiKeys.ts';
-import type { CapabilitiesResponse } from './aiKeys.ts';
+import { formatKeyStatus, listAiKeys } from './aiKeys.ts';
+import type { SavedAiKey } from './aiKeys.ts';
 
 function stubFetch(status: number, body: unknown = {}): typeof fetch {
   return (async () => ({
@@ -22,67 +11,40 @@ function stubFetch(status: number, body: unknown = {}): typeof fetch {
   })) as unknown as typeof fetch;
 }
 
-const cloudCapabilities: CapabilitiesResponse = {
-  version: '0.4.0',
-  runtime: 'cloud',
-  llmProviders: [
-    {
-      id: 'qwen',
-      label: 'Qwen (DashScope)',
-      mode: 'hosted',
-      available: true,
-      defaultModels: { worker: 'qwen3.7-plus', reasoning: 'qwen4-max' },
-    },
-    {
-      id: 'ollama',
-      label: 'Ollama (Local)',
-      mode: 'local',
-      available: false,
-      reason: 'Requires local backend',
-      defaultModels: { worker: 'qwen2.5:14b', reasoning: 'deepseek-r1:14b' },
-    },
-  ],
-  engines: [],
-};
+function savedKey(providerId: SavedAiKey['providerId']): SavedAiKey {
+  return {
+    providerId,
+    keyHint: '****1a2b',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    verifiedAt: '2026-11-24T00:00:00.000Z',
+  };
+}
 
-test('deleteAiKey surfaces non-ok errors instead of silently succeeding', async () => {
-  const failed = await deleteAiKey('qwen', stubFetch(500, { error: 'database down' }));
-  assert.equal(failed.ok, false);
-  if (!failed.ok) {
-    assert.equal(failed.status, 500);
-    assert.equal(failed.error, 'database down');
-  }
-
-  const missing = await deleteAiKey(
-    'kimi',
-    (async () => ({
-      ok: false,
-      status: 404,
-      json: async () => {
-        throw new Error('no body');
-      },
-    })) as unknown as typeof fetch,
-  );
-  assert.equal(missing.ok, false);
-  if (!missing.ok) {
-    assert.equal(missing.status, 404);
-    assert.match(missing.error, /404/);
+test('listAiKeys returns the typed keys list on success', async () => {
+  const body = { keys: [savedKey('qwen')], hasByok: true };
+  const result = await listAiKeys(stubFetch(200, body));
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.data.keys[0]?.providerId, 'qwen');
+    assert.equal(result.data.keys[0]?.keyHint, '****1a2b');
+    assert.equal(result.data.hasByok, true);
   }
 });
 
-test('cloud capabilities disable Ollama with its exact reason string', () => {
-  const ollama = ollamaCapability(cloudCapabilities);
-  assert.notEqual(ollama, undefined);
-  assert.equal(ollama?.available, false);
-  assert.equal(ollama?.reason, 'Requires local backend');
-  assert.equal(cloudCapabilities.runtime, 'cloud');
+test('listAiKeys surfaces a non-ok status and error instead of throwing', async () => {
+  const result = await listAiKeys(stubFetch(500, { error: 'database down' }));
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.status, 500);
+    assert.equal(result.error, 'database down');
+  }
 });
 
-test('fetchCapabilities reports a network failure instead of throwing', async () => {
+test('listAiKeys reports a network failure instead of throwing', async () => {
   const throwing = (async () => {
     throw new Error('fetch failed');
   }) as unknown as typeof fetch;
-  const result = await fetchCapabilities(throwing);
+  const result = await listAiKeys(throwing);
   assert.equal(result.ok, false);
   if (!result.ok) {
     assert.equal(result.status, 0);
@@ -90,151 +52,28 @@ test('fetchCapabilities reports a network failure instead of throwing', async ()
   }
 });
 
-test('listAiKeys returns the typed keys list and routing on success', async () => {
-  const body = {
-    keys: [
-      {
-        providerId: 'qwen',
-        keyHint: '****1a2b',
-        baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-        verifiedAt: '2026-11-24T00:00:00.000Z',
-      },
-    ],
-    routing: {
-      workerProvider: 'qwen',
-      workerModel: 'qwen3.7-plus',
-      reasoningProvider: 'qwen',
-      reasoningModel: 'qwen4-max',
-    },
-    hasByok: true,
-  };
-  const result = await listAiKeys(stubFetch(200, body));
-  assert.equal(result.ok, true);
-  if (result.ok) {
-    assert.equal(result.data.keys[0]?.keyHint, '****1a2b');
-    assert.equal(result.data.routing.workerModel, 'qwen3.7-plus');
-    assert.equal(result.data.routing.reasoningModel, 'qwen4-max');
-    assert.equal(result.data.hasByok, true);
-  }
-});
-
-test('saveAiKey sends the provider payload and surfaces a 400 error', async () => {
-  const seen: { url: string; body: string }[] = [];
-  const recording = (async (url: string, init: { body?: string }) => {
-    seen.push({ url, body: init.body ?? '' });
-    return { ok: false, status: 400, json: async () => ({ error: 'Invalid Qwen API key.' }) };
-  }) as unknown as typeof fetch;
-  const result = await saveAiKey(
-    { providerId: 'qwen', apiKey: 'sk-bad', baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1' },
-    recording,
-  );
-  assert.equal(result.ok, false);
-  if (!result.ok) assert.equal(result.error, 'Invalid Qwen API key.');
-  assert.equal(seen[0]?.url, '/api/v1/ai-keys');
-  assert.equal(JSON.parse(seen[0]?.body ?? '{}').providerId, 'qwen');
-});
-
-test('saveAiKey returns the POST routing so the card can update without a reload', async () => {
-  const body = {
-    providerId: 'qwen',
-    keyHint: '****9z8y',
-    baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-    verifiedAt: '2026-11-24T00:00:00.000Z',
-    hasByok: true,
-    routingAutoSet: true,
-    routing: {
-      workerProvider: 'qwen',
-      workerModel: 'qwen3.7-plus',
-      reasoningProvider: 'qwen',
-      reasoningModel: 'qwen3.8-max',
-    },
-  };
-  const result = await saveAiKey(
-    { providerId: 'qwen', apiKey: 'placeholder-key-value' },
-    stubFetch(200, body),
-  );
-  assert.equal(result.ok, true);
-  if (result.ok) {
-    assert.equal(result.data.routingAutoSet, true);
-    assert.equal(result.data.routing.workerModel, 'qwen3.7-plus');
-    assert.equal(result.data.routing.reasoningModel, 'qwen3.8-max');
-    assert.equal(
-      formatRoutingBadge(result.data.routing, (id) =>
-        shortProviderLabel(id === 'qwen' ? 'Qwen (DashScope)' : id),
-      ),
-      'Active: Qwen · worker qwen3.7-plus · reasoning qwen3.8-max',
-    );
-  }
-});
-
-test('saveAiKey surfaces a 500 with its status for the inline error', async () => {
-  const result = await saveAiKey(
-    { providerId: 'qwen', apiKey: 'placeholder-key-value' },
-    stubFetch(500, { error: 'table missing, run migrations' }),
-  );
-  assert.equal(result.ok, false);
-  if (!result.ok) {
-    assert.equal(result.status, 500);
-    assert.equal(result.error, 'table missing, run migrations');
-    assert.equal(
-      formatSaveKeyError(result.status, result.error),
-      'Save failed (HTTP 500): table missing, run migrations',
-    );
-  }
-});
-
-test('formatSaveKeyError falls back to a plain message when there is no HTTP status', () => {
-  assert.equal(formatSaveKeyError(0, 'Backend unreachable'), 'Save failed: Backend unreachable');
+test('formatKeyStatus names the one saved provider', () => {
   assert.equal(
-    formatSaveKeyError(400, 'Please enter a valid key.'),
-    'Save failed (HTTP 400): Please enter a valid key.',
-  );
-});
-
-test('formatRoutingBadge names both providers when the tiers differ', () => {
-  assert.equal(
-    formatRoutingBadge(
-      {
-        workerProvider: 'qwen',
-        workerModel: 'qwen3.7-plus',
-        reasoningProvider: 'claude',
-        reasoningModel: 'claude-sonnet-4-5',
-      },
-      (id) => (id === 'qwen' ? 'Qwen' : id === 'claude' ? 'Claude' : id),
-    ),
-    'Active: worker Qwen qwen3.7-plus · reasoning Claude claude-sonnet-4-5',
-  );
-});
-
-test('shortProviderLabel strips the parenthetical qualifier', () => {
-  assert.equal(shortProviderLabel('Qwen (DashScope)'), 'Qwen');
-  assert.equal(shortProviderLabel('Gemini'), 'Gemini');
-});
-
-test('updateRouting returns the saved routing on success', async () => {
-  const routing = {
-    workerProvider: 'deepseek',
-    workerModel: 'deepseek-chat',
-    reasoningProvider: 'claude',
-    reasoningModel: 'claude-sonnet-4-5',
-  };
-  const result = await updateRouting(routing, stubFetch(200, { routing }));
-  assert.equal(result.ok, true);
-  if (result.ok) assert.equal(result.data.routing.reasoningModel, 'claude-sonnet-4-5');
-});
-
-test('resolveQwenBaseUrl maps regions and rejects an empty custom URL', () => {
-  assert.equal(
-    resolveQwenBaseUrl('intl', ''),
-    'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    formatKeyStatus([savedKey('qwen')]),
+    'AI keys live in your extension — Qwen key saved',
   );
   assert.equal(
-    resolveQwenBaseUrl('cn', ''),
-    'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    formatKeyStatus([savedKey('gemini')]),
+    'AI keys live in your extension — Gemini key saved',
   );
-  assert.equal(resolveQwenBaseUrl('custom', ''), null);
+});
+
+test('formatKeyStatus joins several saved providers', () => {
   assert.equal(
-    resolveQwenBaseUrl('custom', 'https://x.aliyuncs.com/compatible-mode/v1/'),
-    'https://x.aliyuncs.com/compatible-mode/v1',
+    formatKeyStatus([savedKey('qwen'), savedKey('gemini')]),
+    'AI keys live in your extension — Qwen, Gemini keys saved',
   );
+});
+
+test('formatKeyStatus says so when no key is saved', () => {
+  assert.equal(formatKeyStatus([]), 'No key saved yet');
+});
+
+test('formatKeyStatus stays neutral while loading or when the check fails', () => {
+  assert.equal(formatKeyStatus(null), 'AI keys live in your extension');
 });
