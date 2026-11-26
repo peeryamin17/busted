@@ -905,27 +905,36 @@ export async function validateFindingWithLadder(
   const kind = classifyFinding(finding);
   const maxProbes = opts.maxProbes ?? (kind === 'timing' ? TIMING_MAX_PROBES : MAX_PROBES_DEFAULT);
   if (kind === 'unprobeable') {
-    return untestedVerification(
-      `no read-only live probe exists for category "${finding.category}" — the ladder only tests XSS, IDOR, CORS, GraphQL, SQLi, SSTI and timing findings live.`,
-      now,
-    );
+    return {
+      ...untestedVerification(
+        `no read-only live probe exists for category "${finding.category}" — the ladder only tests XSS, IDOR, CORS, GraphQL, SQLi, SSTI and timing findings live.`,
+        now,
+      ),
+      stopReason: 'no read-only live probe exists for this category',
+    };
   }
   const url = resolveUrl(finding, opts.targetUrl);
   if (!url) {
-    return untestedVerification(
-      'no usable URL could be resolved from the finding location — the ladder needs a target URL to probe.',
-      now,
-    );
+    return {
+      ...untestedVerification(
+        'no usable URL could be resolved from the finding location — the ladder needs a target URL to probe.',
+        now,
+      ),
+      stopReason: 'no usable URL could be resolved from the finding location',
+    };
   }
   const canary = generateCanary();
   if (
     opts.skipOracle &&
     (kind === 'sqli' || kind === 'ssti' || kind === 'timing')
   ) {
-    return untestedVerification(
-      'oracle rung skipped by the caller (corroboration policy), no differential or timing probe ran, so the finding stays an unconfirmed hint.',
-      now,
-    );
+    return {
+      ...untestedVerification(
+        'oracle rung skipped by the caller (corroboration policy), no differential or timing probe ran, so the finding stays an unconfirmed hint.',
+        now,
+      ),
+      stopReason: 'oracle rung skipped (corroboration cap reached)',
+    };
   }
   const state: LadderState = newLadderState(maxProbes);
   // Wrap the prober so every probe response is offered to the caller's

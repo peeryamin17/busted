@@ -56,12 +56,14 @@ import { MemoryApprovalStore, PostgresApprovalStore, type ApprovalStore } from '
 import { MemoryApprovalRuleStore, PostgresApprovalRuleStore, type ApprovalRuleStore } from './approvals/rules.js';
 import { MemoryPinStore, PostgresPinStore, type PinStore } from './guardrails/pins.js';
 import {
+  CorroborationPolicy,
+  isOracleKind,
   MemoryCorroborationCounterStore,
   PostgresCorroborationCounterStore,
   type CorroborationCounterStore,
 } from './multiagent/corroboration.js';
 import { createToolContext } from './agent/tools.js';
-import { createDepthProber } from './multiagent/depthLadder.js';
+import { classifyFinding, createDepthProber } from './multiagent/depthLadder.js';
 import { buildPinCheck } from './multiagent/head.js';
 import { NoiseGovernor } from './egress/noise.js';
 import { retestFinding } from './multiagent/retester.js';
@@ -277,6 +279,7 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
     targetUrl: string,
     _userId: string,
     scope?: ScopePolicy,
+    taskId?: string,
   ) => {
     const target = new URL(targetUrl);
     const toolCtx = createToolContext(
@@ -294,7 +297,19 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
         noise: new NoiseGovernor('balanced'),
       },
     );
-    return retestFinding({ finding, targetUrl, prober: createDepthProber(toolCtx) });
+    // Oracle cap: a retest of an oracle-kind finding spends one oracle run
+    // from the same per-campaign counter the head uses, so retests cannot
+    // bypass the cap. At the cap the oracle rung is skipped, no probe sent,
+    // and the retest reads inconclusive, never fixed.
+    let skipOracle = false;
+    if (taskId && isOracleKind(classifyFinding(finding))) {
+      const findingRef = `${finding.title} @ ${finding.location ?? targetUrl}`.slice(0, 500);
+      const oracle = await new CorroborationPolicy(corroboration)
+        .tryOracleRun(taskId, findingRef)
+        .catch(() => ({ allowed: true, skippedForCap: false }));
+      skipOracle = !oracle.allowed;
+    }
+    return retestFinding({ finding, targetUrl, prober: createDepthProber(toolCtx), skipOracle });
   };
 
   // The legacy scan paths run supervised too: the orchestrator builds a

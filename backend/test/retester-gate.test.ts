@@ -362,6 +362,40 @@ async function main() {
       kept.status === 'verified', kept);
   }
 
+  // ── 11. Cap-skipped oracle retest → inconclusive, never fixed ──────────
+  {
+    const sqliFinding = (verification?: FindingVerification): RetestFindingInput => ({
+      id: 'f-sqli',
+      category: 'sqli',
+      title: 'Boolean-based SQL injection in search',
+      location: 'http://127.0.0.1:9/search?q=hello',
+      ...(verification ? { verification } : {}),
+    });
+    let ladderProbes = 0;
+    const counting: DepthProber = async (req) => {
+      if (req.label === 'retest-baseline') return resp({ body: '<html>search page</html>' });
+      ladderProbes++;
+      return resp({ body: '<html>search page</html>' });
+    };
+    const r = await retestFinding({
+      finding: sqliFinding(verifiedVerification()),
+      targetUrl: TARGET,
+      prober: counting,
+      now: () => FIXED_NOW,
+      skipOracle: true,
+    });
+    check('gate: cap-skipped oracle retest → inconclusive, never fixed',
+      r.verdict === 'inconclusive', r);
+    check('gate: cap-skipped oracle retest sends zero ladder probes',
+      ladderProbes === 0, ladderProbes);
+    check('gate: cap-skipped oracle retest names the skip',
+      r.impactSummary.includes('oracle rung skipped'), r.impactSummary);
+    const rec = findingRecord(sqliFinding(verifiedVerification()));
+    const kept = applyRetestVerdict(rec, r);
+    check('gate: cap-skipped oracle retest keeps the finding verified',
+      kept.status === 'verified', kept);
+  }
+
   if (failures > 0) { console.error(`${failures} retester-gate test(s) failed`); process.exit(1); }
   console.log('ALL RETESTER-GATE TESTS PASSED');
   process.exit(0);

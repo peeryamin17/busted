@@ -50,6 +50,7 @@ export interface RetestRouteDeps {
     targetUrl: string,
     userId: string,
     scope?: ScopePolicy,
+    taskId?: string,
   ) => Promise<RetestResult>;
 }
 
@@ -121,7 +122,7 @@ export async function retestRoutes(app: FastifyInstance, deps: RetestRouteDeps):
 
       let result: RetestResult;
       try {
-        result = await runRetest(finding, scan.targetUrl, user.id, scan.scope);
+        result = await runRetest(finding, scan.targetUrl, user.id, scan.scope, id);
       } catch (err) {
         return reply.status(500).send({ error: (err as Error).message });
       }

@@ -290,6 +290,8 @@ export async function retestFinding(input: {
   targetUrl: string;
   prober: DepthProber;
   now?: () => string;
+  /** Skip the oracle rung (sqli/ssti/timing) — set by the corroboration policy at the cap. */
+  skipOracle?: boolean;
 }): Promise<RetestResult> {
   const { finding, targetUrl, prober } = input;
   const now = input.now ?? (() => new Date().toISOString());
@@ -376,7 +378,11 @@ export async function retestFinding(input: {
     }
 
     // 2. Re-run the finding's own proof with a fresh canary.
-    const ladder = await validateFindingWithLadder(finding, tracingProber, { targetUrl, now });
+    const ladder = await validateFindingWithLadder(finding, tracingProber, {
+      targetUrl,
+      now,
+      skipOracle: input.skipOracle,
+    });
     const evidence = [baseline.evidence, ...ladder.evidence];
     if (ladder.depth !== 'unproven') {
       return {
