@@ -210,7 +210,7 @@ export function gradingNotes(f: Finding): string[] {
   if (rest.length > 0) notes.push(`Grading note: ${rest}`);
   if (f.nvdCheck === 'mismatch') {
     notes.push(
-      `NVD cross-check: mismatch (NVD ${f.nvdScore?.toFixed(1) ?? 'n/a'}) — treated as unverified hint`,
+      `NVD cross-check: mismatch (NVD ${f.nvdScore?.toFixed(1) ?? 'n/a'}): treated as unverified hint`,
     );
   } else if (f.nvdCheck === 'unchecked') {
     notes.push('NVD cross-check: unchecked (NVD unreachable or no entry for this CVE)');

@@ -62,7 +62,7 @@ export interface OracleInputCheck {
 /** Guardrail gate: refuse BOLA targets and forbidden payloads, never probe them. */
 export function checkOracleInput(url: string, payloads: string[]): OracleInputCheck {
   if (isBolaShapedUrl(url)) {
-    return { allowed: false, reason: 'BOLA-shaped target (another user object id) — refused, not probed' };
+    return { allowed: false, reason: 'BOLA-shaped target (another user object id): refused, not probed' };
   }
   for (const p of payloads) {
     if (isForbiddenPayload(p)) {
@@ -140,14 +140,14 @@ export function compareResponses(
       similarity,
       signal: false,
       verdict: 'inconclusive',
-      reason: `responses identical after normalisation (Jaccard ${similarity.toFixed(3)} >= ${SIMILARITY_THRESHOLD}) — no signal`,
+      reason: `responses identical after normalisation (Jaccard ${similarity.toFixed(3)} >= ${SIMILARITY_THRESHOLD}): no signal`,
     };
   }
   return {
     similarity,
     signal: true,
     verdict: 'confirmed',
-    reason: `responses differ after normalisation (Jaccard ${similarity.toFixed(3)} < ${SIMILARITY_THRESHOLD}) — payload changed server behaviour`,
+    reason: `responses differ after normalisation (Jaccard ${similarity.toFixed(3)} < ${SIMILARITY_THRESHOLD}): payload changed server behaviour`,
   };
 }
 
