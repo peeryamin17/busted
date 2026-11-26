@@ -2,6 +2,11 @@ import type { Finding, ReproduceBlock, Scan } from '../types.js';
 import { SEVERITY_ORDER } from '../types.js';
 import { verificationLabel } from './verification.js';
 import type { ReportInput } from './markdown.js';
+import {
+  coverageVerdict,
+  emptyCoverageVerdict,
+  type CoverageTier,
+} from './coverageHonesty.js';
 
 /**
  * JSON findings export, the same findings the Markdown report shows,
@@ -50,6 +55,19 @@ export interface JsonReport {
     authorizationId?: string;
   };
   summary: { total: number; bySeverity: Record<string, number> };
+  /**
+   * Coverage honesty: how much of the intended surface was examined.
+   * inconclusive is true only when the report has zero findings and the
+   * surface was not fully examined. Absent coverage data counts as none.
+   */
+  coverage: {
+    tier: CoverageTier;
+    inconclusive: boolean;
+    testedClasses: number;
+    applicableClasses: number;
+    untestedClasses: string[];
+    testedAssets: number;
+  };
   findings: JsonFinding[];
 }
 
@@ -89,6 +107,9 @@ export function buildJsonReport(input: ReportInput): JsonReport {
   );
   const bySeverity: Record<string, number> = {};
   for (const f of sorted) bySeverity[f.severity] = (bySeverity[f.severity] ?? 0) + 1;
+  const verdict = input.coverage
+    ? coverageVerdict(input.coverage, sorted.length)
+    : emptyCoverageVerdict(sorted.length);
   return {
     format: 'bugseek-findings-v1',
     generatedBy: input.generatedBy,
@@ -103,6 +124,14 @@ export function buildJsonReport(input: ReportInput): JsonReport {
       ...(scan.authorizationId ? { authorizationId: scan.authorizationId } : {}),
     },
     summary: { total: sorted.length, bySeverity },
+    coverage: {
+      tier: verdict.tier,
+      inconclusive: verdict.inconclusive,
+      testedClasses: verdict.testedClasses,
+      applicableClasses: verdict.applicableClasses,
+      untestedClasses: verdict.untestedClasses,
+      testedAssets: verdict.testedAssets,
+    },
     findings: sorted.map(toJsonFinding),
   };
 }

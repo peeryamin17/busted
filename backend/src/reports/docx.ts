@@ -8,6 +8,8 @@ import {
 } from 'docx';
 import type { Finding, Scan } from '../types.js';
 import { SEVERITY_ORDER } from '../types.js';
+import type { CoverageSummary } from '../coverage/ledger.js';
+import { coverageVerdict, emptyCoverageVerdict, zeroFindingsLines } from './coverageHonesty.js';
 import { splitWhiteBoxFindings, WHITEBOX_SECTION_NOTE } from './whitebox.js';
 import { chainLines, hintFindings, verifiedFindings, verificationLabel } from './verification.js';
 import { gradingNotes } from './gradeFindings.js';
@@ -23,6 +25,8 @@ export interface ReportInput {
   scan: Scan;
   findings: Finding[];
   generatedBy: string;
+  /** Absent means no coverage data: the report treats the surface as unexamined. */
+  coverage?: CoverageSummary;
 }
 
 function p(text: string, opts: { bold?: boolean; size?: number; color?: string } = {}): Paragraph {
@@ -191,7 +195,10 @@ export async function generateDocxReport(input: ReportInput): Promise<Buffer> {
   children.push(new Paragraph({ text: '' }), heading('Findings', HeadingLevel.HEADING_1));
 
   if (rest.length === 0) {
-    children.push(p('No findings were identified during this scan.'));
+    const verdict = input.coverage
+      ? coverageVerdict(input.coverage, sorted.length)
+      : emptyCoverageVerdict(sorted.length);
+    for (const l of zeroFindingsLines(verdict)) children.push(p(l));
   }
 
   rest.forEach((f, idx) => {

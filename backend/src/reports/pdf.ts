@@ -1,6 +1,8 @@
 import PDFDocument from 'pdfkit';
 import type { Finding, Scan } from '../types.js';
 import { SEVERITY_ORDER } from '../types.js';
+import type { CoverageSummary } from '../coverage/ledger.js';
+import { coverageVerdict, emptyCoverageVerdict, zeroFindingsLines } from './coverageHonesty.js';
 import { splitWhiteBoxFindings, WHITEBOX_SECTION_NOTE } from './whitebox.js';
 import { chainLines, hintFindings, verifiedFindings, verificationLabel } from './verification.js';
 import { gradingNotes } from './gradeFindings.js';
@@ -16,6 +18,8 @@ export interface ReportInput {
   scan: Scan;
   findings: Finding[];
   generatedBy: string;
+  /** Absent means no coverage data: the report treats the surface as unexamined. */
+  coverage?: CoverageSummary;
 }
 
 /**
@@ -184,7 +188,11 @@ export function generatePdfReport(input: ReportInput): Promise<Buffer> {
     doc.moveDown();
 
     if (rest.length === 0) {
-      doc.fontSize(11).fillColor('#374151').text('No findings were identified during this scan.');
+      const verdict = input.coverage
+        ? coverageVerdict(input.coverage, sorted.length)
+        : emptyCoverageVerdict(sorted.length);
+      doc.fontSize(11).fillColor('#374151');
+      for (const l of zeroFindingsLines(verdict)) doc.text(l);
     }
 
     for (const [idx, f] of rest.entries()) {

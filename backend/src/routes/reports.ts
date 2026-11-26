@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { buildAuthenticate, requireUser } from '../middleware/auth.js';
 import { PLAN_QUOTAS } from '../auth/usage.js';
+import { coverageSummary, type CoverageSummary } from '../coverage/ledger.js';
 import { generatePdfReport } from '../reports/pdf.js';
 import { generateDocxReport } from '../reports/docx.js';
 import { generateMarkdownReport } from '../reports/markdown.js';
@@ -19,6 +20,29 @@ const CONTENT_TYPES: Record<ReportFormat, string> = {
   json: 'application/json',
   csv: 'text/csv; charset=utf-8',
 };
+
+/**
+ * Coverage summary for a scan, via the swarm task that ran it (the graph
+ * task carries the scan id; the ledger is keyed by task). No task, no
+ * stores, or any store failure means an empty summary: every class
+ * untested, never clean. A coverage failure must not break the report.
+ */
+async function loadScanCoverage(
+  deps: ScanRouteDeps,
+  userId: string,
+  scanId: string,
+): Promise<CoverageSummary> {
+  try {
+    if (!deps.coverage || !deps.graph) return coverageSummary([]);
+    const task = (await deps.graph.listTasks(userId)).find(
+      (t) => t.scanId === scanId,
+    );
+    if (!task) return coverageSummary([]);
+    return coverageSummary(await deps.coverage.listEntries(task.id));
+  } catch {
+    return coverageSummary([]);
+  }
+}
 
 export async function reportRoutes(app: FastifyInstance, deps: ScanRouteDeps): Promise<void> {
   const { db } = deps;
@@ -51,7 +75,8 @@ export async function reportRoutes(app: FastifyInstance, deps: ScanRouteDeps): P
       context: { internetFacing: isPublicTarget(scan.targetUrl) },
       fetchNvdScore,
     });
-    const input = { scan, findings, generatedBy: `BugSeek AI backend (${user.email})` };
+    const coverage = await loadScanCoverage(deps, user.id, id);
+    const input = { scan, findings, generatedBy: `BugSeek AI backend (${user.email})`, coverage };
 
     await db.recordUsage(user.id, 'report', 1, id);
 

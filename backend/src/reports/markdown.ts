@@ -1,5 +1,7 @@
 import type { Finding, Scan } from '../types.js';
 import { SEVERITY_ORDER } from '../types.js';
+import type { CoverageSummary } from '../coverage/ledger.js';
+import { coverageVerdict, emptyCoverageVerdict, zeroFindingsLines } from './coverageHonesty.js';
 import { splitWhiteBoxFindings, WHITEBOX_SECTION_NOTE } from './whitebox.js';
 import { chainLines, hintFindings, verifiedFindings, verificationLabel } from './verification.js';
 import { buildDefensiveSection, defensiveClassesFromFindings } from './defensive.js';
@@ -9,6 +11,8 @@ export interface ReportInput {
   scan: Scan;
   findings: Finding[];
   generatedBy: string;
+  /** Absent means no coverage data: the report treats the surface as unexamined. */
+  coverage?: CoverageSummary;
 }
 
 /** Markdown report, the free-tier format and the base for bounty-platform templates. */
@@ -120,7 +124,12 @@ export function generateMarkdownReport(input: ReportInput): string {
 
   lines.push('## Findings', '');
   if (rest.length === 0) {
-    lines.push('No findings were identified during this scan.', '');
+    // findingCount counts every finding in the report, white-box included:
+    // an empty Findings section on its own is not a zero-finding report.
+    const verdict = input.coverage
+      ? coverageVerdict(input.coverage, sorted.length)
+      : emptyCoverageVerdict(sorted.length);
+    zeroFindingsLines(verdict).forEach((l) => lines.push(l, ''));
   }
   rest.forEach((f, idx) => {
     lines.push(

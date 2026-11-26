@@ -331,7 +331,7 @@ export function buildApp(deps: ServerDeps): FastifyInstance {
     });
     await retestRoutes(instance, { db: deps.db, graph, runRetest });
     await v1CompatRoutes(instance, routeDeps);
-    await reportRoutes(instance, routeDeps);
+    await reportRoutes(instance, { ...routeDeps, graph, coverage });
     await oastRoutes(instance, routeDeps);
     await engineRoutes(instance, routeDeps);
     await codeIntakeRoutes(instance, routeDeps);

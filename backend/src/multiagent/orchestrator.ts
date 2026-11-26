@@ -90,7 +90,22 @@ export function renderMarkdownReport(outcome: MultiAgentOutcome): string {
   if (outcome.findings.length === 0) {
     lines.push('## Findings');
     lines.push('');
-    lines.push('No findings. The swarm found nothing worth reporting — this is not a guarantee of security.');
+    // The swarm records no ledger here; its own signals are tests run and
+    // errors. A run that executed nothing, or recorded any error, left
+    // part of the target unexamined, so a zero-finding report from it is
+    // inconclusive, never clean.
+    const errorCount =
+      outcome.errors.length +
+      outcome.workerReports.reduce((n, r) => n + r.errors.length, 0);
+    if (outcome.testsRun === 0 || errorCount > 0) {
+      lines.push(
+        `INCONCLUSIVE: no findings were identified, but the swarm ran ${outcome.testsRun} test(s) ` +
+          `and recorded ${errorCount} error(s), so part of the target may not have been examined. ` +
+          `Unexamined is not clean. This is not a guarantee of security.`
+      );
+    } else {
+      lines.push('No findings. The swarm found nothing worth reporting — this is not a guarantee of security.');
+    }
     lines.push('');
   } else {
     lines.push(`## Findings (${outcome.findings.length})`);
