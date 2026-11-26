@@ -62,6 +62,7 @@ export const DATA_ESCALATION_KINDS: ReadonlySet<string> = new Set([
   'xss-second-context', // canary reflected via a second parameter/context
   'differential-sqli-second-context', // boolean SQLi signal via a second parameter
   'differential-ssti-second-context', // SSTI signal via a second parameter
+  'timing-second-context', // timing signal via a second parameter, latency scaling with delay
 ]);
 
 export interface PoeResult {

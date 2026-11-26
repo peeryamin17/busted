@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import {
   guardedFetch,
   type ToolExecutionContext,
@@ -9,6 +10,15 @@ import {
   evaluatePair,
   type DifferentialKind,
 } from './differentialOracle.js';
+import {
+  buildTimingPair,
+  checkTimingInput,
+  evaluateTimingLadder,
+  evaluateTimingStep,
+  TIMING_DELAYS_MS,
+  TIMING_REPEATS,
+  type TimingStepOutcome,
+} from './timingOracle.js';
 import { redactHeaders, redactText } from '../guardrails/redact.js';
 import { assignPoe } from '../reports/poe.js';
 import type {
@@ -32,7 +42,9 @@ import type {
  *               reachable with the same shape; CORS: a canary origin is
  *               echoed with credentials allowed; GraphQL: a read-only
  *               `{ __typename }` query returns data; SQLi/SSTI: a control
- *               vs attack pair differs after normalisation).
+ *               vs attack pair differs after normalisation; timing: a
+ *               delay ladder shows latency scaling with the injected
+ *               delay, majority of repeats agreeing).
  *   ESCALATE, blast radius, READ-ONLY proofs only (second reflection
  *               context, second neighbour record, credentialed cross-origin
  *               GET returning data, read-only introspection).
@@ -61,7 +73,7 @@ import type {
  * without executing the chain.
  */
 
-export type LadderKind = 'xss' | 'idor' | 'cors' | 'graphql' | 'sqli' | 'ssti' | 'unprobeable';
+export type LadderKind = 'xss' | 'idor' | 'cors' | 'graphql' | 'sqli' | 'ssti' | 'timing' | 'unprobeable';
 
 /** Minimal shape the ladder needs, satisfied by WorkerFinding and Finding. */
 export interface LadderFindingInput {
@@ -129,10 +141,22 @@ export interface LadderOptions {
     shape?: string[];
   }) => void;
   now?: () => string;
+  /**
+   * Wall-clock source for the timing rung, milliseconds. Defaults to
+   * performance.now. Injectable so tests can drive latency exactly
+   * without real sleeps; the rung still measures around each probe.
+   */
+  clock?: () => number;
 }
 
 const LADDER_METHOD = 'depth-ladder v1 (benign canary, read-only proofs)';
 const MAX_PROBES_DEFAULT = 6;
+/**
+ * Timing budget: 2 parameters x (3 baseline + 3 steps x 3 repeats).
+ * The ladder needs repeats and scaling steps to say anything, so this
+ * kind gets its own budget instead of the default 6.
+ */
+export const TIMING_MAX_PROBES = 24;
 const MAX_BODY_BYTES = 200_000;
 const SERVER_ERROR_STOP = 3;
 
@@ -151,6 +175,8 @@ export function classifyFinding(finding: LadderFindingInput): LadderKind {
   if (/\bidor\b|insecure direct object/.test(hay)) return 'idor';
   if (/\bcors\b|cross-origin resource sharing/.test(hay)) return 'cors';
   if (/\bgraphql\b/.test(hay)) return 'graphql';
+  // Timing before SQLi: "time-based blind SQL injection" names both.
+  if (/\btime-based\b|timing-based|\btiming\b|timing attack|time delay/.test(hay)) return 'timing';
   if (/\bsqli\b|sql injection|boolean-based/.test(hay)) return 'sqli';
   if (/\bssti\b|server-side template injection|template injection/.test(hay)) return 'ssti';
   return 'unprobeable';
@@ -336,7 +362,9 @@ function impactFor(depth: DepthLevel, kind: LadderKind): { impact: DepthImpact; 
                 ? 'true/false conditions returned different responses after normalisation (differential oracle)'
                 : kind === 'ssti'
                   ? 'an inert arithmetic expression was evaluated server-side (differential oracle)'
-                  : 'a benign canary probe reproduced the claimed behaviour';
+                  : kind === 'timing'
+                    ? 'a timing ladder (1s/2s/4s delay) showed latency scaling with the injected delay, majority of repeats agreeing (timing oracle)'
+                    : 'a benign canary probe reproduced the claimed behaviour';
     return {
       impact: 'single-context',
       summary: `Measured impact (single context): ${what}. Cross-context blast radius was not proven — the finding is confirmed, not escalated.`,
@@ -355,7 +383,9 @@ function impactFor(depth: DepthLevel, kind: LadderKind): { impact: DepthImpact; 
               ? 'the boolean-SQLi signal reproduced via a second parameter'
               : kind === 'ssti'
                 ? 'the SSTI signal reproduced via a second parameter'
-                : 'the behaviour reproduced across more than one context';
+                : kind === 'timing'
+                  ? 'the timing signal reproduced via a second parameter, latency scaling with the injected delay'
+                  : 'the behaviour reproduced across more than one context';
   return {
     impact: 'cross-context',
     summary: `Measured impact (cross-context): ${what}. This is the observed blast radius — it proves reach, not exploitability to code execution or data theft, which the ladder never attempts.`,
@@ -747,6 +777,112 @@ async function runDifferential(
   return 'confirmed';
 }
 
+// ── Timing oracle rung (latency only) ────────────────────────────────────
+
+async function runTiming(
+  finding: LadderFindingInput,
+  url: URL,
+  _canary: string,
+  probe: DepthProber,
+  state: LadderState,
+  clock: () => number,
+): Promise<DepthLevel> {
+  const params = [...url.searchParams.keys()];
+  const mentioned = (finding.evidence ?? '').match(/param(?:eter)?\s*["']?([A-Za-z0-9_]+)/i)?.[1];
+  const firstParam = params[0] ?? mentioned ?? 'q';
+  const secondParam =
+    ['q', 'search', 'query', 'name', 'keyword'].find((p) => p !== firstParam) ?? 'search';
+  const payloads = TIMING_DELAYS_MS.flatMap((d) => {
+    const pair = buildTimingPair(d);
+    return [pair.control, pair.attack];
+  });
+  const gate = checkTimingInput(url.toString(), payloads);
+  if (!gate.allowed) {
+    state.stopReason = `timing oracle refused: ${gate.reason}`;
+    return 'unproven';
+  }
+
+  // One timed probe. Returns the wall-clock latency, or null when the
+  // probe errored or was refused. A null is a missing sample, never a
+  // signal. A stop condition aborts the whole rung via state.stopReason.
+  // The response body is never read here, latency is the whole signal.
+  async function timed(req: DepthProbeRequest): Promise<number | null> {
+    if (state.probesUsed >= state.maxProbes) return null;
+    state.probesUsed += 1;
+    const t0 = clock();
+    let res: DepthProbeResponse;
+    try {
+      res = await probe(req);
+    } catch {
+      return null;
+    }
+    const stop = checkStop(res, state);
+    if (stop) {
+      state.stopReason = stop;
+      return null;
+    }
+    if (res.error || !res.ok) return null;
+    return clock() - t0;
+  }
+
+  // One full ladder on one parameter: a fast baseline, then the attack
+  // payload at each delay step. The baseline uses the largest-delay
+  // control, the strictest fast case, and is shared across steps.
+  // Returns null when a stop condition aborted the rung.
+  async function measureLadder(param: string, label: string): Promise<TimingStepOutcome[] | null> {
+    const mkUrl = (value: string): string => {
+      const u = new URL(url.toString());
+      u.searchParams.set(param, value);
+      return u.toString();
+    };
+    const baselinePair = buildTimingPair(TIMING_DELAYS_MS[TIMING_DELAYS_MS.length - 1]);
+    const baseline: number[] = [];
+    for (let i = 0; i < TIMING_REPEATS; i++) {
+      const ms = await timed({ method: 'GET', url: mkUrl(baselinePair.control), label: `${label}-baseline` });
+      if (state.stopReason) return null;
+      if (ms !== null) baseline.push(ms);
+    }
+    const steps: TimingStepOutcome[] = [];
+    for (const delayMs of TIMING_DELAYS_MS) {
+      const pair = buildTimingPair(delayMs);
+      const delayed: number[] = [];
+      for (let i = 0; i < TIMING_REPEATS; i++) {
+        const ms = await timed({ method: 'GET', url: mkUrl(pair.attack), label: `${label}-attack-${delayMs}` });
+        if (state.stopReason) return null;
+        if (ms !== null) delayed.push(ms);
+      }
+      steps.push(evaluateTimingStep({ delayMs, baselineMs: baseline, delayedMs: delayed }));
+    }
+    return steps;
+  }
+
+  const confirmSteps = await measureLadder(firstParam, 'timing-confirm');
+  if (!confirmSteps) return 'unproven';
+  const confirm = evaluateTimingLadder(confirmSteps);
+  if (confirm.verdict !== 'confirmed') return 'unproven';
+  state.evidence.push({
+    rung: 'confirm',
+    kind: 'timing',
+    request: `GET ${new URL(url.toString()).pathname}?${firstParam}=<timing delay trigger> (1s/2s/4s ladder, ${TIMING_REPEATS} repeats each)`,
+    observed: `Timing ladder: ${confirm.reason}. Response bodies were not read, latency only.`,
+    status: 200,
+  });
+  const escSteps = await measureLadder(secondParam, 'timing-escalate');
+  if (!escSteps) return 'confirmed';
+  const esc = evaluateTimingLadder(escSteps);
+  if (esc.verdict === 'confirmed') {
+    state.evidence.push({
+      rung: 'escalate',
+      kind: 'timing-second-context',
+      request: `GET ${new URL(url.toString()).pathname}?${secondParam}=<timing delay trigger> (1s/2s/4s ladder, ${TIMING_REPEATS} repeats each)`,
+      observed: `Timing ladder via a second parameter (${secondParam}): ${esc.reason}. Response bodies were not read, latency only.`,
+      status: 200,
+    });
+    return 'escalated';
+  }
+  return 'confirmed';
+}
+
 // ── Entry point ────────────────────────────────────────────────────────────
 
 /**
@@ -760,11 +896,11 @@ export async function validateFindingWithLadder(
   opts: LadderOptions = {},
 ): Promise<FindingVerification> {
   const now = opts.now ?? (() => new Date().toISOString());
-  const maxProbes = opts.maxProbes ?? MAX_PROBES_DEFAULT;
   const kind = classifyFinding(finding);
+  const maxProbes = opts.maxProbes ?? (kind === 'timing' ? TIMING_MAX_PROBES : MAX_PROBES_DEFAULT);
   if (kind === 'unprobeable') {
     return untestedVerification(
-      `no read-only live probe exists for category "${finding.category}" — the ladder only tests XSS, IDOR, CORS, GraphQL, SQLi and SSTI findings live.`,
+      `no read-only live probe exists for category "${finding.category}" — the ladder only tests XSS, IDOR, CORS, GraphQL, SQLi, SSTI and timing findings live.`,
       now,
     );
   }
@@ -804,6 +940,7 @@ export async function validateFindingWithLadder(
     return res;
   };
   let depth: DepthLevel = 'unproven';
+  const clock = opts.clock ?? (() => performance.now());
   try {
     if (kind === 'xss') depth = await runXss(finding, url, canary, tracingProber, state);
     else if (kind === 'idor') {
@@ -811,6 +948,7 @@ export async function validateFindingWithLadder(
     } else if (kind === 'cors') depth = await runCors(finding, url, canary, tracingProber, state);
     else if (kind === 'graphql') depth = await runGraphql(finding, url, canary, tracingProber, state);
     else if (kind === 'sqli' || kind === 'ssti') depth = await runDifferential(kind, finding, url, canary, tracingProber, state);
+    else if (kind === 'timing') depth = await runTiming(finding, url, canary, tracingProber, state, clock);
   } catch (err) {
     // A ladder crash is a ladder failure, never a finding failure.
     state.stopReason = `ladder error: ${(err as Error).message.slice(0, 200)}`;
