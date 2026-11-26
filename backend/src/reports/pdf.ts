@@ -3,6 +3,7 @@ import type { Finding, Scan } from '../types.js';
 import { SEVERITY_ORDER } from '../types.js';
 import { splitWhiteBoxFindings, WHITEBOX_SECTION_NOTE } from './whitebox.js';
 import { chainLines, hintFindings, verifiedFindings, verificationLabel } from './verification.js';
+import { gradingNotes } from './gradeFindings.js';
 import {
   CLASS_LABELS,
   REMEDIATION,
@@ -194,6 +195,9 @@ export function generatePdfReport(input: ReportInput): Promise<Buffer> {
       doc.fontSize(13).fillColor('#111827').text(`${idx + 1}. ${f.title}`);
       doc.fontSize(10).fillColor(sevColor[f.severity] ?? '#4b5563')
         .text(`Severity: ${f.severity.toUpperCase()}${f.cvssScore != null ? `  ·  CVSS: ${f.cvssScore.toFixed(1)}` : ''}  ·  Confidence: ${f.confidence}`);
+      for (const n of gradingNotes(f)) {
+        doc.fillColor('#92400e').fontSize(10).text(n);
+      }
       if (f.honeypotSuspect) {
         doc.fillColor('#92400e').text(`⚠ Possible trap (trap probability ${(f.trapProbability * 100).toFixed(0)}%) — verify manually before reporting.`);
       }
@@ -222,6 +226,13 @@ export function generatePdfReport(input: ReportInput): Promise<Buffer> {
         doc.fontSize(10).fillColor('#111827').text('Reproduction steps:');
         doc.fillColor('#374151');
         f.reproSteps.forEach((s, i) => doc.text(`${i + 1}. ${s}`));
+      }
+      if (f.reproduce) {
+        doc.moveDown(0.25);
+        doc.fontSize(10).fillColor('#111827').text('Reproduce (copy-paste):');
+        doc.fillColor('#374151').font('Courier').fontSize(9).text(f.reproduce.command);
+        doc.text(f.reproduce.request);
+        doc.font('Helvetica').fontSize(10).text(`Expected: ${f.reproduce.expected}`);
       }
       doc.moveDown(0.25);
       doc.fontSize(10).fillColor('#111827').text('Remediation:');

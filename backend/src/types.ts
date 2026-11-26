@@ -143,6 +143,16 @@ export interface Scan {
   finishedAt?: string; // ISO
 }
 
+/** Copy-pasteable reproduction: shell command, raw HTTP request, expected indicator. */
+export interface ReproduceBlock {
+  command: string;
+  request: string;
+  expected: string;
+}
+
+/** NVD cross-check outcome for a finding's CVE, when one was checked. */
+export type NvdCheck = 'match' | 'mismatch' | 'unchecked';
+
 /**
  * Canonical server-side finding.
  *
@@ -167,6 +177,16 @@ export interface Finding {
   /** CVSS v3.1 base-score estimate (see reports/cvss.ts). */
   cvssScore?: number;
   cvssVector?: string;
+  /** Set by the grading pass (reports/gradeFindings.ts) when the CVSS band disagreed with the recorded severity. */
+  severityRewritten?: boolean;
+  /** Why the grade changed: original severity/score and what replaced them. */
+  gradeReason?: string;
+  /** NVD cross-check outcome for the finding's CVE, when one was checked. */
+  nvdCheck?: NvdCheck;
+  /** NVD published base score, when the CVE has an NVD entry. */
+  nvdScore?: number;
+  /** Copy-pasteable reproduction block, built by the grading pass. */
+  reproduce?: ReproduceBlock;
   confidence: Confidence;
   /**
    * Honeypot/trap suspicion, 0..1 (plan §4.5). Findings with

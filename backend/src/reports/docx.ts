@@ -10,6 +10,7 @@ import type { Finding, Scan } from '../types.js';
 import { SEVERITY_ORDER } from '../types.js';
 import { splitWhiteBoxFindings, WHITEBOX_SECTION_NOTE } from './whitebox.js';
 import { chainLines, hintFindings, verifiedFindings, verificationLabel } from './verification.js';
+import { gradingNotes } from './gradeFindings.js';
 import {
   CLASS_LABELS,
   REMEDIATION,
@@ -201,6 +202,7 @@ export async function generateDocxReport(input: ReportInput): Promise<Buffer> {
         { bold: true, color: SEV_COLORS[f.severity] ?? '4B5563' }
       )
     );
+    gradingNotes(f).forEach((n) => children.push(p(n, { bold: true, color: '92400E' })));
     if (f.honeypotSuspect) {
       children.push(
         p(
@@ -217,6 +219,14 @@ export async function generateDocxReport(input: ReportInput): Promise<Buffer> {
     if (f.reproSteps.length > 0) {
       children.push(p('Reproduction steps:', { bold: true }));
       f.reproSteps.forEach((s, i) => children.push(p(`${i + 1}. ${s}`)));
+    }
+    if (f.reproduce) {
+      children.push(
+        p('Reproduce (copy-paste):', { bold: true }),
+        p(f.reproduce.command),
+        p(f.reproduce.request),
+        p(`Expected: ${f.reproduce.expected}`),
+      );
     }
     children.push(p('Remediation:', { bold: true }), p(f.remediation));
     if (f.suggestedFix) {

@@ -6,6 +6,7 @@ import { generateDocxReport } from '../reports/docx.js';
 import { generateMarkdownReport } from '../reports/markdown.js';
 import { generateCsvReport } from '../reports/csv.js';
 import { generateJsonReport } from '../reports/json.js';
+import { fetchNvdScore, gradeFindings, isPublicTarget } from '../reports/gradeFindings.js';
 import type { ScanRouteDeps } from './scans.js';
 
 const FORMATS = ['pdf', 'docx', 'md', 'json', 'csv'] as const;
@@ -46,7 +47,10 @@ export async function reportRoutes(app: FastifyInstance, deps: ScanRouteDeps): P
       return reply.status(409).send({ error: `Report is only available for completed scans (current: ${scan.status})` });
     }
 
-    const findings = await db.listFindings(id);
+    const findings = await gradeFindings(await db.listFindings(id), {
+      context: { internetFacing: isPublicTarget(scan.targetUrl) },
+      fetchNvdScore,
+    });
     const input = { scan, findings, generatedBy: `BugSeek AI backend (${user.email})` };
 
     await db.recordUsage(user.id, 'report', 1, id);

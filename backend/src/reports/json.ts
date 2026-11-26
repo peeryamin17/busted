@@ -1,4 +1,4 @@
-import type { Finding, Scan } from '../types.js';
+import type { Finding, ReproduceBlock, Scan } from '../types.js';
 import { SEVERITY_ORDER } from '../types.js';
 import { verificationLabel } from './verification.js';
 import type { ReportInput } from './markdown.js';
@@ -17,6 +17,11 @@ export interface JsonFinding {
   severity: string;
   cvssScore?: number;
   cvssVector?: string;
+  severityRewritten?: boolean;
+  gradeReason?: string;
+  nvdCheck?: string;
+  nvdScore?: number;
+  reproduce?: ReproduceBlock;
   confidence: string;
   verification: string;
   location?: string;
@@ -56,6 +61,11 @@ function toJsonFinding(f: Finding): JsonFinding {
     severity: f.severity,
     ...(f.cvssScore != null ? { cvssScore: f.cvssScore } : {}),
     ...(f.cvssVector ? { cvssVector: f.cvssVector } : {}),
+    ...(f.severityRewritten ? { severityRewritten: true } : {}),
+    ...(f.gradeReason ? { gradeReason: f.gradeReason } : {}),
+    ...(f.nvdCheck ? { nvdCheck: f.nvdCheck } : {}),
+    ...(f.nvdScore != null ? { nvdScore: f.nvdScore } : {}),
+    ...(f.reproduce ? { reproduce: f.reproduce } : {}),
     confidence: f.confidence,
     verification: verificationLabel(f),
     ...(f.location ? { location: f.location } : {}),

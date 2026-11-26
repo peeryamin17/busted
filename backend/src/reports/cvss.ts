@@ -96,3 +96,45 @@ export function severityLabel(score: number): Severity {
   if (score > 0) return 'low';
   return 'info';
 }
+
+const VECTOR_KEYS: Record<string, string[]> = {
+  AV: ['N', 'A', 'L', 'P'],
+  AC: ['L', 'H'],
+  PR: ['N', 'L', 'H'],
+  UI: ['N', 'R'],
+  S: ['U', 'C'],
+  C: ['N', 'L', 'H'],
+  I: ['N', 'L', 'H'],
+  A: ['N', 'L', 'H'],
+};
+
+/** Parse a CVSS:3.1 vector string into its metric set; null when malformed. */
+export function parseCvssVector(vector: string): MetricSet | null {
+  const match = vector.trim().match(/^CVSS:3\.1\/(.+)$/);
+  if (!match) return null;
+  const out = {} as Record<string, string>;
+  for (const part of match[1].split('/')) {
+    const [key, value] = part.split(':');
+    if (!key || !value) return null;
+    if (!(key in VECTOR_KEYS) || !VECTOR_KEYS[key].includes(value)) return null;
+    if (key in out) return null;
+    out[key] = value;
+  }
+  if (Object.keys(out).length !== 8) return null;
+  return {
+    av: out.AV as MetricSet['av'],
+    ac: out.AC as MetricSet['ac'],
+    pr: out.PR as MetricSet['pr'],
+    ui: out.UI as MetricSet['ui'],
+    s: out.S as MetricSet['s'],
+    c: out.C as MetricSet['c'],
+    i: out.I as MetricSet['i'],
+    a: out.A as MetricSet['a'],
+  };
+}
+
+/** Base score computed from a CVSS:3.1 vector string; null when malformed. */
+export function scoreFromVector(vector: string): number | null {
+  const m = parseCvssVector(vector);
+  return m ? baseScore(m) : null;
+}

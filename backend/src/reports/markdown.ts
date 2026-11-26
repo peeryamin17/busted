@@ -3,6 +3,7 @@ import { SEVERITY_ORDER } from '../types.js';
 import { splitWhiteBoxFindings, WHITEBOX_SECTION_NOTE } from './whitebox.js';
 import { chainLines, hintFindings, verifiedFindings, verificationLabel } from './verification.js';
 import { buildDefensiveSection, defensiveClassesFromFindings } from './defensive.js';
+import { gradingNotes } from './gradeFindings.js';
 
 export interface ReportInput {
   scan: Scan;
@@ -128,6 +129,7 @@ export function generateMarkdownReport(input: ReportInput): string {
       `**Severity:** ${f.severity.toUpperCase()}${f.cvssScore != null ? ` · **CVSS:** ${f.cvssScore.toFixed(1)}` : ''} · **Confidence:** ${f.confidence}`,
       ''
     );
+    gradingNotes(f).forEach((n) => lines.push(`> ${n}`, ''));
     if (f.honeypotSuspect) {
       lines.push(
         `> ⚠ **Possible trap** (trap probability ${(f.trapProbability * 100).toFixed(0)}%) — verify manually before reporting.`,
@@ -143,6 +145,22 @@ export function generateMarkdownReport(input: ReportInput): string {
       lines.push('**Reproduction steps:**', '');
       f.reproSteps.forEach((s, i) => lines.push(`${i + 1}. ${s}`));
       lines.push('');
+    }
+    if (f.reproduce) {
+      lines.push(
+        '**Reproduce (copy-paste):**',
+        '',
+        '```sh',
+        f.reproduce.command,
+        '```',
+        '',
+        '```http',
+        f.reproduce.request,
+        '```',
+        '',
+        `Expected: ${f.reproduce.expected}`,
+        ''
+      );
     }
     lines.push('**Remediation:**', '', f.remediation, '');
     if (f.suggestedFix) {
