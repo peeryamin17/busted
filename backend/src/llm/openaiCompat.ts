@@ -6,7 +6,7 @@ import {
 } from './provider.js';
 import { PROVIDER_REGISTRY, validateProviderBaseUrl, type ProviderId } from './registry.js';
 
-export type OpenAiCompatProviderId = 'qwen' | 'kimi' | 'glm' | 'deepseek' | 'openrouter' | 'openai' | 'ollama';
+export type OpenAiCompatProviderId = 'qwen' | 'kimi' | 'glm' | 'deepseek' | 'openrouter' | 'openai' | 'ollama' | 'omniroute';
 
 export const OPENAI_COMPAT_TIMEOUT_MS = 45_000;
 

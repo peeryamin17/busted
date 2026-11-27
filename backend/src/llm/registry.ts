@@ -7,7 +7,8 @@ export type ProviderId =
   | 'deepseek'
   | 'openrouter'
   | 'openai'
-  | 'ollama';
+  | 'ollama'
+  | 'omniroute';
 
 export type ModelTier = 'worker' | 'reasoning';
 
@@ -19,6 +20,8 @@ export interface ProviderSpec {
   defaultBaseUrl: string;
   allowedBaseUrlPatterns: RegExp[];
   defaultModels: Record<ModelTier, string>;
+  /** No fixed host: the caller must supply a public base URL at save time. */
+  requiresCustomBaseUrl?: boolean;
 }
 
 export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
@@ -107,6 +110,16 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
     allowedBaseUrlPatterns: [/^http:\/\/(127\.0\.0\.1|localhost):11434(\/v1)?$/],
     defaultModels: { worker: 'qwen2.5:14b', reasoning: 'deepseek-r1:14b' },
   },
+  omniroute: {
+    id: 'omniroute',
+    label: 'OmniRoute',
+    protocol: 'openai_compat',
+    mode: 'hosted',
+    defaultBaseUrl: '',
+    allowedBaseUrlPatterns: [],
+    defaultModels: { worker: 'auto', reasoning: 'auto/coding' },
+    requiresCustomBaseUrl: true,
+  },
 };
 
 export function isProviderId(value: string): value is ProviderId {
@@ -135,6 +148,25 @@ export function defaultModelsFor(
 
 export function validateProviderBaseUrl(providerId: ProviderId, url?: string): string {
   const spec = PROVIDER_REGISTRY[providerId];
+  if (spec.requiresCustomBaseUrl) {
+    // No fixed host, so no pattern to match: the URL must be supplied and
+    // must be https. Scheme and public-host checks happen at save time,
+    // where DNS can run; the adapter trusts the stored URL from there.
+    const candidate = (url ?? '').trim().replace(/\/$/, '');
+    if (!candidate) {
+      throw new Error(`Provider ${providerId} needs a base URL; there is no default to fall back to`);
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(candidate);
+    } catch {
+      throw new Error(`Disallowed base URL for provider ${providerId}`);
+    }
+    if (parsed.protocol !== 'https:') {
+      throw new Error(`Disallowed base URL for provider ${providerId}`);
+    }
+    return candidate;
+  }
   const candidate = (url?.trim() || spec.defaultBaseUrl).replace(/\/$/, '');
   const ok = spec.allowedBaseUrlPatterns.some((re) => re.test(candidate));
   if (!ok) {
