@@ -5,6 +5,7 @@ import { refreshAiKey, saveAiKey } from '../lib/apiClient.js';
 import {
   formatRoutingBadge,
   formatSaveKeyError,
+  resolveOmniRouteBaseUrl,
   shortProviderLabel,
 } from '../lib/popupHelpers.js';
 
@@ -80,7 +81,7 @@ test('saveAiKey returns the POST routing so the badge can update without a reloa
   }
 });
 
-test('provider list includes OpenAI alongside the other eight providers', () => {
+test('provider list includes OpenAI and OmniRoute alongside the other eight providers', () => {
   const apiClient = readFileSync(new URL('../lib/apiClient.ts', import.meta.url), 'utf8');
   for (const id of [
     'gemini',
@@ -91,10 +92,37 @@ test('provider list includes OpenAI alongside the other eight providers', () => 
     'deepseek',
     'openrouter',
     'openai',
+    'omniroute',
     'ollama',
   ]) {
     assert.ok(apiClient.includes(`'${id}'`), `${id} is a known provider id`);
   }
+});
+
+test('OmniRoute URL check rejects empty, http, and local or private hosts', () => {
+  for (const bad of [
+    '',
+    '   ',
+    'not a url',
+    'http://omni.example.com/v1',
+    'https://localhost:8080/v1',
+    'https://localhost/v1',
+    'https://127.0.0.1/v1',
+    'https://[::1]/v1',
+    'https://192.168.1.5/v1',
+    'https://10.0.0.2/v1',
+    'https://172.16.0.5/v1',
+    'https://169.254.1.1/v1',
+  ]) {
+    assert.ok('error' in resolveOmniRouteBaseUrl(bad), `${bad || '(empty)'} is rejected`);
+  }
+});
+
+test('OmniRoute URL check passes a public https URL through, trailing slash trimmed', () => {
+  const res = resolveOmniRouteBaseUrl('https://omni.example.com/v1/');
+  assert.deepEqual(res, { baseUrl: 'https://omni.example.com/v1' });
+  const ported = resolveOmniRouteBaseUrl('https://omni.example.com:8443/v1');
+  assert.deepEqual(ported, { baseUrl: 'https://omni.example.com:8443/v1' });
 });
 
 test('saveAiKey verifies an OpenAI key and reports its GPT models', async () => {

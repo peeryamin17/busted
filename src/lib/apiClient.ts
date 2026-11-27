@@ -269,6 +269,7 @@ export type ProviderId =
   | 'deepseek'
   | 'openrouter'
   | 'openai'
+  | 'omniroute'
   | 'ollama';
 
 export type ModelTier = 'worker' | 'reasoning';

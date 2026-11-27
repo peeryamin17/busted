@@ -47,6 +47,60 @@ export function formatSaveKeyError(status: number, message: string): string {
     : `Save failed: ${message}`;
 }
 
+/** Localhost, loopback, or private-network host. The cloud backend cannot reach those. */
+function isLocalOrPrivateHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host === '::' || host === '::1' || host === '0.0.0.0') return true;
+  const parts = host.split('.');
+  if (parts.length === 4 && parts.every((p) => /^\d+$/.test(p) && Number(p) <= 255)) {
+    const [a, b] = parts.map(Number);
+    if (a === 127) return true;
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    return false;
+  }
+  // IPv6 unique-local (fc00::/7) and link-local (fe80::/10).
+  return (
+    host.startsWith('fc') ||
+    host.startsWith('fd') ||
+    host.startsWith('fe8') ||
+    host.startsWith('fe9') ||
+    host.startsWith('fea') ||
+    host.startsWith('feb')
+  );
+}
+
+/**
+ * OmniRoute base URL check. The gateway runs on the user's own server,
+ * so the URL must be a public https endpoint. Mirrors the server-side
+ * rule, so a bad URL fails in the popup instead of after the round trip.
+ */
+export function resolveOmniRouteBaseUrl(
+  customUrl: string | undefined,
+): { baseUrl: string } | { error: string } {
+  const raw = (customUrl ?? '').trim().replace(/\/+$/, '');
+  if (!raw) return { error: 'Enter the public URL of your OmniRoute instance.' };
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return { error: 'That OmniRoute URL does not look like a valid URL.' };
+  }
+  if (url.protocol !== 'https:' || url.username !== '' || url.password !== '') {
+    return { error: 'OmniRoute URL must be a public https:// endpoint.' };
+  }
+  if (isLocalOrPrivateHost(url.hostname)) {
+    return {
+      error:
+        'OmniRoute URL must be a public address. The cloud backend cannot reach localhost or a private network.',
+    };
+  }
+  return { baseUrl: url.toString().replace(/\/+$/, '') };
+}
+
 /** Short display name for a provider label ("Qwen (DashScope)" -> "Qwen"). */
 export function shortProviderLabel(label: string): string {
   const short = label.replace(/\s*\(.*\)$/, '').trim();
