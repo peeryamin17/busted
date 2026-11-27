@@ -1777,14 +1777,33 @@ function renderSavedKeys(
     remove.addEventListener('click', () => {
       void (async () => {
         remove.disabled = true;
-        const res = await deleteAiKey(k.providerId);
-        if (!res.ok) {
-          showAiKeyError(res.error);
+        try {
+          const res = await deleteAiKey(k.providerId);
+          if (!res.ok && res.status !== 404) {
+            showAiKeyError(res.error);
+            return;
+          }
+          // DELETE ok, or 404: the key is gone server-side either way.
+          // Drop the row from the local list first, so a refresh that
+          // fails afterwards cannot bring it back.
+          aiKeysSaved = aiKeysSaved.filter((saved) => saved.providerId !== k.providerId);
+          renderSavedKeys(aiKeysSaved, aiKeysCapabilities?.llmProviders ?? []);
+          hideAiKeyError();
+          try {
+            await refreshAiKeysSection();
+          } catch (err) {
+            showAiKeyError(err instanceof Error ? err.message : 'Could not load saved keys.');
+          }
+          if (aiKeysSaved.some((saved) => saved.providerId === k.providerId)) {
+            showAiKeyError(`${label} key is still saved.`);
+            return;
+          }
+          setStatus(`${label} key removed.`);
+        } catch (err) {
+          showAiKeyError(err instanceof Error ? err.message : 'Could not remove this key.');
+        } finally {
           remove.disabled = false;
-          return;
         }
-        await refreshAiKeysSection();
-        setStatus(`${label} key removed.`);
       })();
     });
     row.appendChild(remove);
@@ -1923,6 +1942,10 @@ async function refreshAiKeysSection(): Promise<void> {
     showAiKeyError(`Could not load saved keys: ${keys.error}`);
     return;
   }
+  if (!Array.isArray(caps.data.llmProviders)) {
+    showAiKeyError('Could not load providers: unexpected response');
+    return;
+  }
   aiKeysCapabilities = caps.data;
   aiKeysSaved = keys.data.keys;
   aiKeysRouting = keys.data.routing;
@@ -1931,6 +1954,7 @@ async function refreshAiKeysSection(): Promise<void> {
   fillProviderSelect('routing-worker-provider', hosted);
   fillProviderSelect('routing-reasoning-provider', hosted);
   renderSavedKeys(keys.data.keys, hosted);
+  hideAiKeyError();
 
   const routing = keys.data.routing;
   const workerProviderSel = document.getElementById(
