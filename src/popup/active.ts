@@ -1665,7 +1665,7 @@ function renderModelField(
   select.innerHTML = '';
   const def = document.createElement('option');
   def.value = '';
-  def.textContent = placeholder ? `Default (${placeholder})` : 'Default';
+  def.textContent = placeholder ? `Default (${placeholder})` : 'Pick a model';
   select.appendChild(def);
   for (const m of models) {
     const opt = document.createElement('option');

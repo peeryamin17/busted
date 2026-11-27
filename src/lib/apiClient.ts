@@ -280,7 +280,7 @@ export interface LlmProviderCapability {
   mode: 'hosted' | 'local';
   available: boolean;
   reason?: string;
-  defaultModels: Record<ModelTier, string>;
+  defaultModels: Record<ModelTier, string | null>;
 }
 
 export interface CapabilitiesResponse {

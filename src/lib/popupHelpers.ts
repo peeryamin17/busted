@@ -117,16 +117,17 @@ export interface RoutingBadgeInput {
 /**
  * Status badge text for the active routing, e.g.
  * "Active: Qwen · worker qwen3.7-plus · reasoning qwen4-max".
- * Models are the effective values from the routing (GET or the POST
- * save response), never placeholders or registry defaults shown as
- * if they were the current configuration.
+ * A tier with no model picked reads "— pick a model" instead of
+ * a blank gap. Models are the effective values from the routing
+ * (GET or the POST save response), never placeholders or registry
+ * defaults shown as if they were the current configuration.
  */
 export function formatRoutingBadge(
   routing: RoutingBadgeInput,
   labelFor: (providerId: string) => string,
 ): string {
-  const workerModel = routing.workerModel ?? '';
-  const reasoningModel = routing.reasoningModel ?? '';
+  const workerModel = routing.workerModel || '— pick a model';
+  const reasoningModel = routing.reasoningModel || '— pick a model';
   const workerLabel = labelFor(routing.workerProvider);
   if (routing.workerProvider === routing.reasoningProvider) {
     return `Active: ${workerLabel} · worker ${workerModel} · reasoning ${reasoningModel}`;
