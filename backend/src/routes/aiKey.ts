@@ -669,7 +669,19 @@ export async function aiKeyRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       return reply.code(400).send({ error: `Unknown AI provider "${providerIdRaw}".` });
     }
     const deleted = await db.deleteUserAiKey(user.id, providerId);
-    if (!deleted) {
+    // The v1 save also writes the legacy single-key row on users, so the
+    // delete has to clear it too — but only when it names this provider,
+    // so deleting one provider never wipes another's legacy row. The
+    // legacy row can also outlive its user_ai_keys row (older single-key
+    // saves), in which case clearing it is the whole delete.
+    const legacy = await db.getAiKey(user.id).catch(() => null);
+    const legacyIsThisProvider =
+      Boolean(legacy?.encryptedAiKey || legacy?.aiKeyHint) &&
+      (legacy?.aiProvider ?? 'gemini') === providerId;
+    if (legacyIsThisProvider) {
+      await db.deleteAiKey(user.id).catch(() => undefined);
+    }
+    if (!deleted && !legacyIsThisProvider) {
       return reply.code(404).send({ error: `No saved key for provider ${providerId}.` });
     }
     const remaining = await db.listUserAiKeys(user.id).catch(() => []);

@@ -36,7 +36,7 @@ async function main() {
   const { MockProvider } = await import('../src/llm/mock.js');
   const { generateSessionToken, hashSessionToken } = await import('../src/auth/session.js');
   const { generateApiKey } = await import('../src/auth/auth.js');
-  const { decryptSecret } = await import('../src/lib/crypto.js');
+  const { decryptSecret, encryptSecret } = await import('../src/lib/crypto.js');
   const { monthStartIso } = await import('../src/auth/usage.js');
 
   // Provider verification + swarm LLM calls are answered in-process; the
@@ -285,6 +285,64 @@ async function main() {
       headers: { cookie },
     });
     check('DELETE missing provider → 404', delAgain.statusCode === 404, delAgain.statusCode);
+
+    // 10b. The legacy single-key row follows the delete: kimi's delete left
+    // claude's legacy row alone (claude was saved last), deleting claude
+    // clears it, and a legacy-only row is cleared by its own delete.
+    const legacyMe = async () =>
+      JSON.parse(
+        (await app.inject({ method: 'GET', url: '/api/me/ai-key', headers: { cookie } })).body,
+      ) as { connected: boolean; provider: string };
+    const legacyAfterKimiDel = await legacyMe();
+    check(
+      'legacy row still connected after deleting a different provider',
+      legacyAfterKimiDel.connected === true && legacyAfterKimiDel.provider === 'claude',
+      legacyAfterKimiDel,
+    );
+    const delClaude = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/ai-keys/claude',
+      headers: { cookie },
+    });
+    check('DELETE claude → 200', delClaude.statusCode === 200, delClaude.body);
+    const legacyAfterClaudeDel = await legacyMe();
+    check(
+      'legacy row disconnected after deleting its provider',
+      legacyAfterClaudeDel.connected === false,
+      legacyAfterClaudeDel,
+    );
+    await db.setAiKey(user.id, encryptSecret(KIMI_KEY), 'kimi', '****7890', null);
+    const legacyOnly = await legacyMe();
+    check(
+      'legacy-only kimi row reports connected',
+      legacyOnly.connected === true && legacyOnly.provider === 'kimi',
+      legacyOnly,
+    );
+    const delLegacyOnly = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/ai-keys/kimi',
+      headers: { cookie },
+    });
+    check('DELETE legacy-only kimi → 200', delLegacyOnly.statusCode === 200, delLegacyOnly.body);
+    const legacyOnlyGone = await legacyMe();
+    check(
+      'legacy-only row cleared by its own delete',
+      legacyOnlyGone.connected === false,
+      legacyOnlyGone,
+    );
+    await db.setAiKey(user.id, encryptSecret(KIMI_KEY), 'kimi', '****7890', null);
+    const delOther = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/ai-keys/claude',
+      headers: { cookie },
+    });
+    check('DELETE other provider with legacy-only kimi → 404', delOther.statusCode === 404, delOther.statusCode);
+    const legacyOnlyKept = await legacyMe();
+    check(
+      'legacy-only kimi row survives deleting another provider',
+      legacyOnlyKept.connected === true && legacyOnlyKept.provider === 'kimi',
+      legacyOnlyKept,
+    );
 
     // 11. Paired bs_ user with a saved Kimi key: swarm waives the 25-credit charge
     // and routes Worker/Reasoning calls through the stored key.
