@@ -170,6 +170,15 @@ test('formatKeyStatus shows models across several keys', () => {
   );
 });
 
+test('formatKeyStatus is unaffected by a provider with no free-tier default', () => {
+  // The site line names providers and their discovered models only;
+  // a null registry default has nothing to render here.
+  assert.equal(
+    formatKeyStatus([savedKey('claude'), savedKey('deepseek')]),
+    'AI keys live in your extension — Claude, Deepseek keys saved · refresh the keys in the extension to see their models',
+  );
+});
+
 test('formatKeyStatus says so when no key is saved', () => {
   assert.equal(formatKeyStatus([]), 'No key saved yet');
 });
