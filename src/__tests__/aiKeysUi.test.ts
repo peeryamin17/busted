@@ -331,6 +331,89 @@ test('formatRoutingBadge never prints null or undefined for a missing model', ()
   assert.match(badge, /Active: Qwen/);
 });
 
+test('formatRoutingBadge says pick a model when a tier has no model', () => {
+  assert.equal(
+    formatRoutingBadge(
+      {
+        workerProvider: 'claude',
+        workerModel: null,
+        reasoningProvider: 'claude',
+        reasoningModel: null,
+      },
+      labelFor,
+    ),
+    'Active: Claude · worker — pick a model · reasoning — pick a model',
+  );
+});
+
+test('formatRoutingBadge says pick a model for the null tier only', () => {
+  assert.equal(
+    formatRoutingBadge(
+      {
+        workerProvider: 'qwen',
+        workerModel: 'qwen3.7-plus',
+        reasoningProvider: 'claude',
+        reasoningModel: null,
+      },
+      labelFor,
+    ),
+    'Active: worker Qwen qwen3.7-plus · reasoning Claude — pick a model',
+  );
+});
+
+test('saveAiKey with null routing models still badges without a blank gap', async () => {
+  mockChromeStorage();
+  mockFetch(async () =>
+    new Response(
+      JSON.stringify({
+        providerId: 'claude',
+        keyHint: '****cccc',
+        baseUrl: 'https://api.anthropic.com/v1',
+        verifiedAt: '2026-11-27T00:00:00.000Z',
+        discoveredModels: ['claude-sonnet-4-5'],
+        hasByok: true,
+        routingAutoSet: true,
+        routing: {
+          workerProvider: 'claude',
+          workerModel: null,
+          reasoningProvider: 'claude',
+          reasoningModel: null,
+        },
+      }),
+      { status: 200 },
+    ),
+  );
+
+  const res = await saveAiKey('claude', 'placeholder-key-value');
+  assert.equal(res.ok, true);
+  if (res.ok) {
+    assert.equal(res.data.routing.workerModel, null);
+    assert.equal(res.data.routing.reasoningModel, null);
+    assert.equal(
+      formatRoutingBadge(res.data.routing, (id) => shortProviderLabel(labelFor(id))),
+      'Active: Claude · worker — pick a model · reasoning — pick a model',
+    );
+  }
+});
+
+test('override dropdown labels the empty pick honestly when there is no default', () => {
+  const active = readFileSync(new URL('../popup/active.ts', import.meta.url), 'utf8');
+  assert.ok(
+    active.includes(
+      "def.textContent = placeholder ? `Default (${placeholder})` : 'Pick a model';",
+    ),
+    'no-default dropdown option reads Pick a model, not Default',
+  );
+});
+
+test('model field with no default and no discovered list stays a plain text input', () => {
+  const active = readFileSync(new URL('../popup/active.ts', import.meta.url), 'utf8');
+  // A null default resolves to an empty placeholder, never a made-up model.
+  assert.match(active, /defaultModels\[tier\] \?\? ''/);
+  assert.match(active, /if \(!models\) \{\n    select\.hidden = true;\n    input\.hidden = false;/);
+  assert.match(active, /input\.placeholder = placeholder;/);
+});
+
 test('shortProviderLabel strips the parenthetical qualifier', () => {
   assert.equal(shortProviderLabel('Qwen (DashScope)'), 'Qwen');
   assert.equal(shortProviderLabel('Gemini'), 'Gemini');
