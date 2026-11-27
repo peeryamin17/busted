@@ -11,6 +11,7 @@ import {
   validateProviderBaseUrl,
   type ProviderId,
 } from '../llm/registry.js';
+import { assertPublicHost, isPrivateIp } from '../guardrails/scope.js';
 
 export type AiProvider = 'gemini' | 'qwen' | 'ollama';
 
@@ -72,6 +73,43 @@ export function regionForQwenBaseUrl(baseUrl: string | null | undefined): QwenRe
     ([, url]) => url === baseUrl,
   );
   return known ? known[0] : 'custom';
+}
+
+/**
+ * Validate the user-supplied OmniRoute gateway URL. OmniRoute runs on
+ * hardware the user hosts, so there is no fixed host to allowlist: the
+ * URL must be public https, and its host must resolve to public IPs.
+ * Localhost and private addresses never reach the hosted backend.
+ */
+export async function validateOmniRouteBaseUrl(
+  raw: string | undefined,
+): Promise<{ baseUrl: string } | { error: string }> {
+  const candidate = (raw ?? '').trim().replace(/\/+$/, '');
+  if (!candidate) {
+    return { error: 'Enter the public URL where your OmniRoute gateway is hosted.' };
+  }
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return { error: 'That OmniRoute URL does not look like a valid URL.' };
+  }
+  if (url.protocol !== 'https:') {
+    return { error: 'OmniRoute URL must use https.' };
+  }
+  if (url.username !== '' || url.password !== '') {
+    return { error: 'OmniRoute URL must not contain credentials.' };
+  }
+  const host = url.hostname.toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost') || isPrivateIp(host)) {
+    return { error: 'OmniRoute URL must point at a public host, not localhost or a private address.' };
+  }
+  try {
+    await assertPublicHost(host, false);
+  } catch {
+    return { error: 'OmniRoute host must resolve to a public IP address.' };
+  }
+  return { baseUrl: url.toString().replace(/\/+$/, '') };
 }
 
 export interface VerifyResult {
@@ -483,10 +521,20 @@ export async function aiKeyRoutes(app: FastifyInstance, deps: RouteDeps): Promis
     }
 
     let baseUrl: string;
-    try {
-      baseUrl = validateProviderBaseUrl(providerId, body.baseUrl);
-    } catch {
-      return reply.code(400).send({ error: `Disallowed base URL for provider ${providerId}.` });
+    if (providerId === 'omniroute') {
+      // Custom host, so the registry allowlist cannot check it: https
+      // plus the public-host DNS check above, before any key verification.
+      const checked = await validateOmniRouteBaseUrl(body.baseUrl);
+      if ('error' in checked) {
+        return reply.code(400).send({ error: checked.error });
+      }
+      baseUrl = checked.baseUrl;
+    } else {
+      try {
+        baseUrl = validateProviderBaseUrl(providerId, body.baseUrl);
+      } catch {
+        return reply.code(400).send({ error: `Disallowed base URL for provider ${providerId}.` });
+      }
     }
 
     const rawKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
