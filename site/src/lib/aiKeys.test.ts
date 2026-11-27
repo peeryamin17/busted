@@ -67,6 +67,30 @@ test('formatKeyStatus names the one saved provider', () => {
   );
 });
 
+test('formatKeyStatus names an OpenAI key with a capital AI', () => {
+  assert.equal(
+    formatKeyStatus([savedKey('openai')]),
+    'AI keys live in your extension — OpenAI key saved · refresh the key in the extension to see its models',
+  );
+});
+
+test('formatKeyStatus names the GPT models an OpenAI key can use', () => {
+  assert.equal(
+    formatKeyStatus([savedKey('openai', ['gpt-6-luna', 'gpt-6.2-astra'])]),
+    'AI keys live in your extension — OpenAI key saved · can use: gpt-6-luna, gpt-6.2-astra',
+  );
+});
+
+test('listAiKeys returns a saved OpenAI key', async () => {
+  const body = { keys: [savedKey('openai', ['gpt-6-luna'])], hasByok: true };
+  const result = await listAiKeys(stubFetch(200, body));
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.data.keys[0]?.providerId, 'openai');
+    assert.deepEqual(result.data.keys[0]?.discoveredModels, ['gpt-6-luna']);
+  }
+});
+
 test('formatKeyStatus joins several saved providers', () => {
   assert.equal(
     formatKeyStatus([savedKey('qwen'), savedKey('gemini')]),

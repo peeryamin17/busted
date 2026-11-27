@@ -268,6 +268,7 @@ export type ProviderId =
   | 'glm'
   | 'deepseek'
   | 'openrouter'
+  | 'openai'
   | 'ollama';
 
 export type ModelTier = 'worker' | 'reasoning';

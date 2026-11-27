@@ -6,6 +6,7 @@ export type ProviderId =
   | 'glm'
   | 'deepseek'
   | 'openrouter'
+  | 'openai'
   | 'ollama';
 
 export interface SavedAiKey {
@@ -26,6 +27,7 @@ export type ApiResult<T> =
   | { ok: false; status: number; error: string };
 
 function providerLabel(providerId: ProviderId): string {
+  if (providerId === 'openai') return 'OpenAI';
   return providerId.charAt(0).toUpperCase() + providerId.slice(1);
 }
 

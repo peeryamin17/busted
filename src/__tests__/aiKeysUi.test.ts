@@ -38,7 +38,7 @@ function mockFetch(handler: (input: unknown, init?: RequestInit) => Promise<Resp
 }
 
 const labelFor = (id: string) =>
-  ({ qwen: 'Qwen', gemini: 'Gemini', claude: 'Claude' })[id] ?? id;
+  ({ qwen: 'Qwen', gemini: 'Gemini', claude: 'Claude', openai: 'OpenAI' })[id] ?? id;
 
 test('saveAiKey returns the POST routing so the badge can update without a reload', async () => {
   mockChromeStorage();
@@ -77,6 +77,87 @@ test('saveAiKey returns the POST routing so the badge can update without a reloa
       formatRoutingBadge(res.data.routing, (id) => shortProviderLabel(labelFor(id))),
       'Active: Qwen · worker qwen3.7-plus · reasoning qwen3.8-max',
     );
+  }
+});
+
+test('provider list includes OpenAI alongside the other eight providers', () => {
+  const apiClient = readFileSync(new URL('../lib/apiClient.ts', import.meta.url), 'utf8');
+  for (const id of [
+    'gemini',
+    'claude',
+    'qwen',
+    'kimi',
+    'glm',
+    'deepseek',
+    'openrouter',
+    'openai',
+    'ollama',
+  ]) {
+    assert.ok(apiClient.includes(`'${id}'`), `${id} is a known provider id`);
+  }
+});
+
+test('saveAiKey verifies an OpenAI key and reports its GPT models', async () => {
+  mockChromeStorage();
+  let seenUrl = '';
+  mockFetch(async (input) => {
+    seenUrl = String(input);
+    return new Response(
+      JSON.stringify({
+        providerId: 'openai',
+        keyHint: '****yyyy',
+        baseUrl: 'https://api.openai.com/v1',
+        verifiedAt: '2026-11-27T00:00:00.000Z',
+        discoveredModels: ['gpt-6-luna', 'gpt-6.2-astra'],
+        hasByok: true,
+        routingAutoSet: true,
+        routing: {
+          workerProvider: 'openai',
+          workerModel: 'gpt-6-luna',
+          reasoningProvider: 'openai',
+          reasoningModel: 'gpt-6.2-astra',
+        },
+      }),
+      { status: 200 },
+    );
+  });
+
+  const res = await saveAiKey('openai', 'placeholder-key-value');
+  assert.equal(res.ok, true);
+  assert.match(seenUrl, /\/api\/v1\/ai-keys$/);
+  if (res.ok) {
+    assert.equal(res.data.providerId, 'openai');
+    assert.deepEqual(res.data.discoveredModels, ['gpt-6-luna', 'gpt-6.2-astra']);
+    assert.equal(
+      formatRoutingBadge(res.data.routing, (id) => shortProviderLabel(labelFor(id))),
+      'Active: OpenAI · worker gpt-6-luna · reasoning gpt-6.2-astra',
+    );
+  }
+});
+
+test('refreshAiKey posts to the OpenAI refresh endpoint and returns its models', async () => {
+  mockChromeStorage();
+  let seenUrl = '';
+  let seenMethod = '';
+  mockFetch(async (input, init) => {
+    seenUrl = String(input);
+    seenMethod = init?.method ?? '';
+    return new Response(
+      JSON.stringify({
+        providerId: 'openai',
+        discoveredModels: ['gpt-6-luna', 'gpt-6.2-astra'],
+      }),
+      { status: 200 },
+    );
+  });
+
+  const res = await refreshAiKey('openai');
+  assert.equal(seenMethod, 'POST');
+  assert.match(seenUrl, /\/api\/v1\/ai-keys\/openai\/refresh$/);
+  assert.equal(res.ok, true);
+  if (res.ok) {
+    assert.equal(res.data.providerId, 'openai');
+    assert.deepEqual(res.data.discoveredModels, ['gpt-6-luna', 'gpt-6.2-astra']);
   }
 });
 
