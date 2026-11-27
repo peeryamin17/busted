@@ -13,6 +13,7 @@ export interface SavedAiKey {
   keyHint: string;
   baseUrl: string;
   verifiedAt: string;
+  discoveredModels: string[] | null;
 }
 
 export interface AiKeysListResponse {
@@ -28,17 +29,23 @@ function providerLabel(providerId: ProviderId): string {
   return providerId.charAt(0).toUpperCase() + providerId.slice(1);
 }
 
-/**
- * One-line status for the AI keys line on the member site.
- * `null` means the check is still loading or failed, so the line
- * stays neutral and never claims keys exist (or don't) before it
- * knows. Otherwise it names the saved providers, if any.
- */
+// One-line status for the AI keys line on the member site.
+// null means the check is still loading or failed, so the line stays
+// neutral and never claims keys exist (or don't) before it knows.
+// Otherwise it names the saved providers, and what they can use
+// when the backend has discovered the models for a key.
 export function formatKeyStatus(keys: SavedAiKey[] | null): string {
   if (keys === null) return 'AI keys live in your extension';
   if (keys.length === 0) return 'No key saved yet';
   const labels = keys.map((key) => providerLabel(key.providerId)).join(', ');
-  return `AI keys live in your extension — ${labels} ${keys.length === 1 ? 'key' : 'keys'} saved`;
+  const base = `AI keys live in your extension — ${labels} ${keys.length === 1 ? 'key' : 'keys'} saved`;
+  const models = [...new Set(keys.flatMap((key) => key.discoveredModels ?? []))];
+  if (models.length > 0) {
+    const shown = models.slice(0, 4);
+    const rest = models.length - shown.length;
+    return `${base} · can use: ${shown.join(', ')}${rest > 0 ? `, +${rest} more` : ''}`;
+  }
+  return `${base} · refresh the ${keys.length === 1 ? 'key' : 'keys'} in the extension to see ${keys.length === 1 ? 'its' : 'their'} models`;
 }
 
 async function readError(res: Response): Promise<string> {

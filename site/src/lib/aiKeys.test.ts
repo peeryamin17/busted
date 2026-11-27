@@ -11,12 +11,16 @@ function stubFetch(status: number, body: unknown = {}): typeof fetch {
   })) as unknown as typeof fetch;
 }
 
-function savedKey(providerId: SavedAiKey['providerId']): SavedAiKey {
+function savedKey(
+  providerId: SavedAiKey['providerId'],
+  discoveredModels: string[] | null = null,
+): SavedAiKey {
   return {
     providerId,
     keyHint: '****1a2b',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     verifiedAt: '2026-11-24T00:00:00.000Z',
+    discoveredModels,
   };
 }
 
@@ -55,18 +59,66 @@ test('listAiKeys reports a network failure instead of throwing', async () => {
 test('formatKeyStatus names the one saved provider', () => {
   assert.equal(
     formatKeyStatus([savedKey('qwen')]),
-    'AI keys live in your extension — Qwen key saved',
+    'AI keys live in your extension — Qwen key saved · refresh the key in the extension to see its models',
   );
   assert.equal(
     formatKeyStatus([savedKey('gemini')]),
-    'AI keys live in your extension — Gemini key saved',
+    'AI keys live in your extension — Gemini key saved · refresh the key in the extension to see its models',
   );
 });
 
 test('formatKeyStatus joins several saved providers', () => {
   assert.equal(
     formatKeyStatus([savedKey('qwen'), savedKey('gemini')]),
-    'AI keys live in your extension — Qwen, Gemini keys saved',
+    'AI keys live in your extension — Qwen, Gemini keys saved · refresh the keys in the extension to see their models',
+  );
+});
+
+test('formatKeyStatus names the models a key can use, capped at four', () => {
+  const models = [
+    'qwen3.7-plus',
+    'qwen4-max',
+    'qwen3.5',
+    'qwen3.2',
+    'qwen3.1',
+    'qwen3',
+  ];
+  assert.equal(
+    formatKeyStatus([savedKey('qwen', models)]),
+    'AI keys live in your extension — Qwen key saved · can use: qwen3.7-plus, qwen4-max, qwen3.5, qwen3.2, +2 more',
+  );
+});
+
+test('formatKeyStatus lists every model when four or fewer were found', () => {
+  assert.equal(
+    formatKeyStatus([savedKey('qwen', ['qwen3.7-plus', 'qwen4-max'])]),
+    'AI keys live in your extension — Qwen key saved · can use: qwen3.7-plus, qwen4-max',
+  );
+});
+
+test('formatKeyStatus hints at a refresh when no models were discovered', () => {
+  assert.equal(
+    formatKeyStatus([savedKey('qwen', null)]),
+    'AI keys live in your extension — Qwen key saved · refresh the key in the extension to see its models',
+  );
+});
+
+test('formatKeyStatus treats a missing discoveredModels field as null', () => {
+  const key = savedKey('qwen');
+  delete (key as Partial<SavedAiKey>).discoveredModels;
+  assert.equal(
+    formatKeyStatus([key]),
+    'AI keys live in your extension — Qwen key saved · refresh the key in the extension to see its models',
+  );
+});
+
+test('formatKeyStatus shows models across several keys', () => {
+  assert.equal(
+    formatKeyStatus([
+      savedKey('qwen', ['qwen3.7-plus', 'qwen4-max']),
+      savedKey('gemini', ['gemini-2.5-flash']),
+    ]),
+    'AI keys live in your extension — Qwen, Gemini keys saved · can use: qwen3.7-plus, qwen4-max, gemini-2.5-flash',
   );
 });
 
