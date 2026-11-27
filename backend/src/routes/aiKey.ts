@@ -271,7 +271,9 @@ export async function verifyProviderKey(
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: PROVIDER_REGISTRY.claude.defaultModels.reasoning,
+          // One-token ping, not a default: cheapest Haiku model, since
+          // Claude has no free tier and no registry default any more.
+          model: 'claude-haiku-4-5',
           max_tokens: 1,
           messages: [{ role: 'user', content: 'ping' }],
         }),
@@ -306,6 +308,7 @@ export interface SavedProviderKeyOut {
   apiKey: string;
   baseUrl: string;
   verifiedAt: string;
+  discoveredModels: string[] | null;
 }
 
 /** Decrypted saved keys for a user. Rows that fail to decrypt are skipped. */
@@ -329,6 +332,7 @@ export async function getUserAiKeysDecrypted(
         apiKey: decryptSecret(row.encryptedKey),
         baseUrl: row.baseUrl,
         verifiedAt: row.verifiedAt,
+        discoveredModels: row.discoveredModels ?? null,
       });
     } catch {
       // A corrupt row must not break the swarm; it is skipped.

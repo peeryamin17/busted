@@ -1,7 +1,7 @@
 import { config } from '../config.js';
 import { makeCompletion, type LLMCompletion, type LLMCompletionRequest, type LLMProvider } from './provider.js';
 import { finiteInt, safeErrorCode } from './openaiCompat.js';
-import { PROVIDER_REGISTRY } from './registry.js';
+import { PROVIDER_REGISTRY, noFreeDefaultError } from './registry.js';
 
 /**
  * Claude (Anthropic Messages API) implementation.
@@ -15,15 +15,24 @@ export class ClaudeProvider implements LLMProvider {
   private readonly workerModel: string;
   private readonly reasoningModel: string;
 
-  constructor(apiKey?: string, reasoningModel?: string, workerModel?: string) {
+  constructor(apiKey?: string, reasoningModel?: string, workerModel?: string, opts?: { allowConfigModels?: boolean }) {
     const key = apiKey ?? config.anthropicApiKey;
     if (!key) {
       throw new Error('ANTHROPIC_API_KEY is required for the Claude provider');
     }
     this.apiKey = key;
-    this.reasoningModel = (reasoningModel ?? config.anthropicModel).trim();
-    this.workerModel =
-      (workerModel ?? PROVIDER_REGISTRY.claude.defaultModels.worker).trim();
+    // BYOK keys never fall back to the paid config model: with no free
+    // registry default and no explicit model, fail loudly instead. The
+    // platform-key path opts into the config model explicitly.
+    const reasoning =
+      (reasoningModel ??
+        (opts?.allowConfigModels ? config.anthropicModel : PROVIDER_REGISTRY.claude.defaultModels.reasoning)
+      )?.trim() || null;
+    if (!reasoning) throw noFreeDefaultError('claude', 'reasoning');
+    this.reasoningModel = reasoning;
+    const worker = (workerModel ?? PROVIDER_REGISTRY.claude.defaultModels.worker)?.trim() || null;
+    if (!worker) throw noFreeDefaultError('claude', 'worker');
+    this.workerModel = worker;
   }
 
   modelForTier(tier: 'worker' | 'reasoning'): string {

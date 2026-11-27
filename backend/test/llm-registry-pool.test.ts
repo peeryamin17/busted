@@ -237,7 +237,7 @@ async function main() {
         headers: { 'content-type': 'application/json' },
       });
     }) as typeof fetch;
-    const compat = new OpenAiCompatProvider('kimi', 'test-kimi-key-1234567890');
+    const compat = new OpenAiCompatProvider('kimi', 'test-kimi-key-1234567890', undefined, 'moonshot-v1-32k', 'kimi-k2-0711-preview');
     let stripped = false;
     try {
       await compat.complete({ messages: [{ role: 'user', content: 'hi' }] });
@@ -353,7 +353,7 @@ async function main() {
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
     }) as typeof fetch;
-    const claude = new ClaudeProvider('test-claude-key-1234567890');
+    const claude = new ClaudeProvider('test-claude-key-1234567890', 'claude-sonnet-4-5', 'claude-haiku-4-5');
     const claudeWorker = await claude.complete({ messages: [{ role: 'user', content: 'w' }], tier: 'routine' });
     const claudeReasoning = await claude.complete({ messages: [{ role: 'user', content: 'r' }], tier: 'reasoning' });
     check('claude maps worker tier to haiku', claudeModels[0] === 'claude-haiku-4-5', claudeModels);
@@ -550,14 +550,13 @@ async function main() {
     check('defaultModelsFor qwen with no base URL reasoning is qwen4-max', noUrlDefaults.reasoning === 'qwen4-max', noUrlDefaults);
     check(
       'defaultModelsFor gemini unchanged',
-      defaultModelsFor('gemini').worker === 'gemini-2.5-flash' &&
-        defaultModelsFor('gemini').reasoning === 'gemini-2.5-pro',
+      defaultModelsFor('gemini').worker === 'gemini-3.8-flash' &&
+        defaultModelsFor('gemini').reasoning === 'gemini-3.8-flash',
       defaultModelsFor('gemini'),
     );
     check(
-      'defaultModelsFor kimi unchanged',
-      defaultModelsFor('kimi').worker === 'moonshot-v1-32k' &&
-        defaultModelsFor('kimi').reasoning === 'kimi-k2-0711-preview',
+      'defaultModelsFor kimi is null for both tiers',
+      defaultModelsFor('kimi').worker === null && defaultModelsFor('kimi').reasoning === null,
       defaultModelsFor('kimi'),
     );
 
@@ -580,17 +579,18 @@ async function main() {
     const beijingReasoning = await beijingPool!.completeTier('reasoning', [{ role: 'user', content: 'r' }]);
     check('pool qwen beijing key uses qwen4-max for reasoning', beijingReasoning.model === 'qwen4-max', beijingReasoning.model);
 
-    // 21. OpenAI registry entry, allowlist, adapter models, pool.
+    // 21. OpenAI registry entry, allowlist, adapter models, pool. No free
+    // default: the adapter needs explicit models and the pool needs a
+    // discovered list to resolve a model from.
     check(
-      'registry openai defaults are gpt-6-luna / gpt-6.2-astra',
-      PROVIDER_REGISTRY.openai.defaultModels.worker === 'gpt-6-luna' &&
-        PROVIDER_REGISTRY.openai.defaultModels.reasoning === 'gpt-6.2-astra',
+      'registry openai defaults are null for both tiers',
+      PROVIDER_REGISTRY.openai.defaultModels.worker === null &&
+        PROVIDER_REGISTRY.openai.defaultModels.reasoning === null,
       PROVIDER_REGISTRY.openai.defaultModels,
     );
     check(
-      'defaultModelsFor openai unchanged',
-      defaultModelsFor('openai').worker === 'gpt-6-luna' &&
-        defaultModelsFor('openai').reasoning === 'gpt-6.2-astra',
+      'defaultModelsFor openai is null for both tiers',
+      defaultModelsFor('openai').worker === null && defaultModelsFor('openai').reasoning === null,
       defaultModelsFor('openai'),
     );
     check(
@@ -606,7 +606,7 @@ async function main() {
       openaiModels.push(body.model ?? '');
       return chatOk('openai ok');
     }) as typeof fetch;
-    const openaiCompat = new OpenAiCompatProvider('openai', 'sk-proj-test-key-1234567890');
+    const openaiCompat = new OpenAiCompatProvider('openai', 'sk-proj-test-key-1234567890', undefined, 'gpt-6-luna', 'gpt-6.2-astra');
     await openaiCompat.complete({ messages: [{ role: 'user', content: 'w' }], tier: 'routine' });
     await openaiCompat.complete({ messages: [{ role: 'user', content: 'r' }], tier: 'reasoning' });
     check('adapter sends gpt-6-luna for the worker tier', openaiModels[0] === 'gpt-6-luna', openaiModels);
@@ -617,14 +617,21 @@ async function main() {
       openaiUrls,
     );
     const openaiPool = buildPoolFromKeys(
-      [{ providerId: 'openai', apiKey: 'sk-proj-test-key-1234567890', baseUrl: null }],
+      [
+        {
+          providerId: 'openai',
+          apiKey: 'sk-proj-test-key-1234567890',
+          baseUrl: null,
+          discoveredModels: ['gpt-6-luna', 'gpt-6.2-astra'],
+        },
+      ],
       { workerProvider: 'gemini', reasoningProvider: 'gemini' },
     );
     check('buildPoolFromKeys builds a pool from a single openai key', openaiPool !== null);
     const openaiReasoning = await openaiPool!.completeTier('reasoning', [{ role: 'user', content: 'r' }]);
-    check('pool openai key serves reasoning as gpt-6.2-astra', openaiReasoning.model === 'gpt-6.2-astra', openaiReasoning.model);
+    check('pool openai key serves reasoning as the first discovered text model', openaiReasoning.model === 'gpt-6-luna', openaiReasoning.model);
     const openaiWorker = await openaiPool!.completeTier('worker', [{ role: 'user', content: 'w' }]);
-    check('pool openai key serves worker as gpt-6-luna', openaiWorker.model === 'gpt-6-luna', openaiWorker.model);
+    check('pool openai key serves worker as the first discovered text model', openaiWorker.model === 'gpt-6-luna', openaiWorker.model);
 
     // 22. OmniRoute registry entry, adapter models, pool with a stored URL.
     const omniModels: string[] = [];

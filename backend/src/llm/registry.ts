@@ -19,7 +19,7 @@ export interface ProviderSpec {
   mode: 'hosted' | 'local';
   defaultBaseUrl: string;
   allowedBaseUrlPatterns: RegExp[];
-  defaultModels: Record<ModelTier, string>;
+  defaultModels: Record<ModelTier, string | null>;
   /** No fixed host: the caller must supply a public base URL at save time. */
   requiresCustomBaseUrl?: boolean;
 }
@@ -32,7 +32,7 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
     mode: 'hosted',
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     allowedBaseUrlPatterns: [/^https:\/\/generativelanguage\.googleapis\.com\/v1beta$/],
-    defaultModels: { worker: 'gemini-2.5-flash', reasoning: 'gemini-2.5-pro' },
+    defaultModels: { worker: 'gemini-3.8-flash', reasoning: 'gemini-3.8-flash' },
   },
   claude: {
     id: 'claude',
@@ -41,7 +41,7 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
     mode: 'hosted',
     defaultBaseUrl: 'https://api.anthropic.com/v1',
     allowedBaseUrlPatterns: [/^https:\/\/api\.anthropic\.com\/v1$/],
-    defaultModels: { worker: 'claude-haiku-4-5', reasoning: 'claude-sonnet-4-5' },
+    defaultModels: { worker: null, reasoning: null },
   },
   qwen: {
     id: 'qwen',
@@ -63,7 +63,7 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
     mode: 'hosted',
     defaultBaseUrl: 'https://api.moonshot.ai/v1',
     allowedBaseUrlPatterns: [/^https:\/\/api\.moonshot\.(ai|cn)\/v1$/],
-    defaultModels: { worker: 'moonshot-v1-32k', reasoning: 'kimi-k2-0711-preview' },
+    defaultModels: { worker: null, reasoning: null },
   },
   glm: {
     id: 'glm',
@@ -72,7 +72,7 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
     mode: 'hosted',
     defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     allowedBaseUrlPatterns: [/^https:\/\/open\.bigmodel\.cn\/api\/paas\/v4$/],
-    defaultModels: { worker: 'glm-4-air', reasoning: 'glm-4-plus' },
+    defaultModels: { worker: 'glm-4-flash', reasoning: null },
   },
   deepseek: {
     id: 'deepseek',
@@ -81,7 +81,7 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
     mode: 'hosted',
     defaultBaseUrl: 'https://api.deepseek.com/v1',
     allowedBaseUrlPatterns: [/^https:\/\/api\.deepseek\.com(\/v1)?$/],
-    defaultModels: { worker: 'deepseek-chat', reasoning: 'deepseek-reasoner' },
+    defaultModels: { worker: null, reasoning: null },
   },
   openrouter: {
     id: 'openrouter',
@@ -90,7 +90,7 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
     mode: 'hosted',
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
     allowedBaseUrlPatterns: [/^https:\/\/openrouter\.ai\/api\/v1$/],
-    defaultModels: { worker: 'deepseek/deepseek-chat', reasoning: 'anthropic/claude-sonnet-4.5' },
+    defaultModels: { worker: 'google/gemma-4-31b-it:free', reasoning: 'nvidia/nemotron-3-ultra-550b-a55b:free' },
   },
   openai: {
     id: 'openai',
@@ -99,7 +99,7 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
     mode: 'hosted',
     defaultBaseUrl: 'https://api.openai.com/v1',
     allowedBaseUrlPatterns: [/^https:\/\/api\.openai\.com\/v1$/],
-    defaultModels: { worker: 'gpt-6-luna', reasoning: 'gpt-6.2-astra' },
+    defaultModels: { worker: null, reasoning: null },
   },
   ollama: {
     id: 'ollama',
@@ -127,6 +127,16 @@ export function isProviderId(value: string): value is ProviderId {
 }
 
 /**
+ * A provider with no free-tier default has no model to fall back to.
+ * Callers must resolve one from the key's discovered list instead.
+ */
+export function noFreeDefaultError(providerId: ProviderId, tier: ModelTier): Error {
+  return new Error(
+    `No free default model for provider ${providerId} (${tier} tier): pick a model from the key's discovered list in routing instead.`,
+  );
+}
+
+/**
  * Region-aware default models for a provider. Qwen reasoning varies by
  * DashScope region: the international endpoint gets qwen3.8-max, every
  * other endpoint (Beijing, US, custom workspaces) gets qwen4-max, which
@@ -136,7 +146,7 @@ export function isProviderId(value: string): value is ProviderId {
 export function defaultModelsFor(
   providerId: ProviderId,
   baseUrl?: string | null,
-): Record<ModelTier, string> {
+): Record<ModelTier, string | null> {
   const spec = PROVIDER_REGISTRY[providerId];
   if (providerId === 'qwen') {
     const reasoning =

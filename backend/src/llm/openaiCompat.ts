@@ -4,7 +4,7 @@ import {
   type LLMCompletionRequest,
   type LLMProvider,
 } from './provider.js';
-import { PROVIDER_REGISTRY, validateProviderBaseUrl, type ProviderId } from './registry.js';
+import { PROVIDER_REGISTRY, noFreeDefaultError, validateProviderBaseUrl, type ProviderId } from './registry.js';
 
 export type OpenAiCompatProviderId = 'qwen' | 'kimi' | 'glm' | 'deepseek' | 'openrouter' | 'openai' | 'ollama' | 'omniroute';
 
@@ -61,8 +61,14 @@ export class OpenAiCompatProvider implements LLMProvider {
     this.name = providerId;
     this.apiKey = apiKey.trim();
     this.baseUrl = validateProviderBaseUrl(providerId, baseUrl);
-    this.workerModel = (workerModel ?? spec.defaultModels.worker).trim();
-    this.reasoningModel = (reasoningModel ?? spec.defaultModels.reasoning).trim();
+    // No free default for this tier means no model at all: fail loudly
+    // here instead of sending a call with a dead or paid model.
+    const worker = (workerModel ?? spec.defaultModels.worker)?.trim() || null;
+    if (!worker) throw noFreeDefaultError(providerId, 'worker');
+    const reasoning = (reasoningModel ?? spec.defaultModels.reasoning)?.trim() || null;
+    if (!reasoning) throw noFreeDefaultError(providerId, 'reasoning');
+    this.workerModel = worker;
+    this.reasoningModel = reasoning;
   }
 
   modelForTier(tier: 'worker' | 'reasoning'): string {

@@ -57,6 +57,14 @@ async function main() {
     if (url === 'https://dashscope.aliyuncs.com/compatible-mode/v1/models') {
       return new Response(JSON.stringify({ data: [] }), { status: 200 });
     }
+    if (
+      url === 'https://api.deepseek.com/v1/models' ||
+      url === 'https://api.openai.com/v1/models' ||
+      url === 'https://open.bigmodel.cn/api/paas/v4/models' ||
+      url === 'https://openrouter.ai/api/v1/models'
+    ) {
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    }
     if (url === 'https://api.anthropic.com/v1/messages' && method === 'POST') {
       const body = JSON.parse(String(init?.body ?? '{}')) as { max_tokens?: number };
       if (body.max_tokens === 1) {
@@ -469,7 +477,7 @@ async function main() {
     check('second key (claude) → 200', claudeSecond.res.statusCode === 200, claudeSecond.res.body);
     check('second key does not auto-set routing', claudeSecond.body?.routingAutoSet === false, claudeSecond.body);
     check('second key leaves routing on kimi', claudeSecond.body?.routing.workerProvider === 'kimi' && claudeSecond.body?.routing.reasoningProvider === 'kimi', claudeSecond.body?.routing);
-    check('second key leaves routing models on kimi', claudeSecond.body?.routing.workerModel === 'moonshot-v1-32k' && claudeSecond.body?.routing.reasoningModel === 'kimi-k2-0711-preview', claudeSecond.body?.routing);
+    check('second key leaves routing models on kimi as null', claudeSecond.body?.routing.workerModel === null && claudeSecond.body?.routing.reasoningModel === null, claudeSecond.body?.routing);
 
     // 12d. Routing still on the Gemini defaults, no Gemini key held:
     // saving another provider auto-routes to it.
@@ -487,6 +495,23 @@ async function main() {
     check('key saved over gemini-default routing → 200', claudeAfterDefaults.res.statusCode === 200, claudeAfterDefaults.res.body);
     check('key saved over gemini-default routing auto-sets to claude', claudeAfterDefaults.body?.routingAutoSet === true, claudeAfterDefaults.body);
     check('key saved over gemini-default routing points both tiers at claude', claudeAfterDefaults.body?.routing.workerProvider === 'claude' && claudeAfterDefaults.body?.routing.reasoningProvider === 'claude', claudeAfterDefaults.body?.routing);
+    check('key saved over gemini-default routing stores null models for claude', claudeAfterDefaults.body?.routing.workerModel === null && claudeAfterDefaults.body?.routing.reasoningModel === null, claudeAfterDefaults.body?.routing);
+
+    // 12e. No-default providers auto-route to the provider with null
+    // models — never a paid or dead model. The pool resolves the model
+    // from the key's discovered list instead.
+    const DEEPSEEK_KEY = 'test-' + 'd'.repeat(20);
+    const OPENAI_KEY = 'sk-proj-test-key-1234567890';
+    const deepseekCookie = await freshUser('deepseek-first@example.com');
+    const deepseekFirst = await saveKey(deepseekCookie, 'deepseek', DEEPSEEK_KEY);
+    check('first deepseek key → 200', deepseekFirst.res.statusCode === 200, deepseekFirst.res.body);
+    check('first deepseek key auto-sets routing to deepseek', deepseekFirst.body?.routingAutoSet === true && deepseekFirst.body?.routing.workerProvider === 'deepseek', deepseekFirst.body);
+    check('first deepseek key stores null models', deepseekFirst.body?.routing.workerModel === null && deepseekFirst.body?.routing.reasoningModel === null, deepseekFirst.body?.routing);
+    const openaiCookie = await freshUser('openai-first@example.com');
+    const openaiFirst = await saveKey(openaiCookie, 'openai', OPENAI_KEY);
+    check('first openai key → 200', openaiFirst.res.statusCode === 200, openaiFirst.res.body);
+    check('first openai key auto-sets routing to openai', openaiFirst.body?.routingAutoSet === true && openaiFirst.body?.routing.workerProvider === 'openai', openaiFirst.body);
+    check('first openai key stores null models', openaiFirst.body?.routing.workerModel === null && openaiFirst.body?.routing.reasoningModel === null, openaiFirst.body?.routing);
 
     // 13. Qwen auto-routing stores concrete, region-aware models.
     const QWEN_BEIJING = 'https://dashscope.aliyuncs.com/compatible-mode/v1';

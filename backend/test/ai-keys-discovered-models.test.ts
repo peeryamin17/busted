@@ -283,7 +283,7 @@ async function main() {
 
     // 12. OpenAI end to end on a fresh user: sk-proj- key saves, the
     // discovered GPT list persists, and the first-key auto-route points
-    // both tiers at the GPT defaults.
+    // both tiers at openai with null models (no free default).
     const openaiUser = await db.createUser('openai-user@example.com', 'unused-hash');
     const openaiToken = generateSessionToken();
     await db.createSession(openaiUser.id, hashSessionToken(openaiToken), new Date(Date.now() + 3600_000).toISOString());
@@ -302,8 +302,8 @@ async function main() {
     check('POST openai saves against the api.openai.com base URL', openaiBody.baseUrl === 'https://api.openai.com/v1', openaiBody);
     check('first openai key auto-routes both tiers to openai', openaiBody.routingAutoSet === true
       && openaiBody.routing.workerProvider === 'openai' && openaiBody.routing.reasoningProvider === 'openai', openaiBody.routing);
-    check('openai auto-route worker model is gpt-6-luna', openaiBody.routing.workerModel === 'gpt-6-luna', openaiBody.routing);
-    check('openai auto-route reasoning model is gpt-6.2-astra', openaiBody.routing.reasoningModel === 'gpt-6.2-astra', openaiBody.routing);
+    check('openai auto-route worker model is null (no free default)', openaiBody.routing.workerModel === null, openaiBody.routing);
+    check('openai auto-route reasoning model is null (no free default)', openaiBody.routing.reasoningModel === null, openaiBody.routing);
     const openaiStored = (await db.listUserAiKeys(openaiUser.id)).find((r) => r.providerId === 'openai');
     check('stored openai row holds the model list', JSON.stringify(openaiStored?.discoveredModels) === JSON.stringify(['gpt-6-luna', 'gpt-6.2-astra']), openaiStored);
     check('stored openai row keeps only the key hint', openaiStored?.keyHint === '****7890', openaiStored);

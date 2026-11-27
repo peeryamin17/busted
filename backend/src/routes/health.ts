@@ -96,7 +96,7 @@ export interface CapabilitiesResponse {
     mode: 'hosted' | 'local';
     available: boolean;
     reason?: string;
-    defaultModels: Record<ModelTier, string>;
+    defaultModels: Record<ModelTier, string | null>;
   }>;
   engines: EngineStatus[];
 }

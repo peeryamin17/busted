@@ -3,9 +3,9 @@ import type { LLMCompletion, LLMCompletionRequest, LLMMessage, LLMProvider } fro
 import { ClaudeProvider } from './claude.js';
 import { GeminiProvider } from './gemini.js';
 import { MockProvider } from './mock.js';
-import { QwenProvider } from './qwen.js';
+import { QwenProvider, isTextGenerationModel } from './qwen.js';
 import { OpenAiCompatProvider, finiteInt, type OpenAiCompatProviderId } from './openaiCompat.js';
-import { PROVIDER_REGISTRY, defaultModelsFor, type ModelTier, type ProviderId } from './registry.js';
+import { PROVIDER_REGISTRY, defaultModelsFor, noFreeDefaultError, type ModelTier, type ProviderId } from './registry.js';
 
 export { PROVIDER_REGISTRY, validateProviderBaseUrl, type ProviderId, type ModelTier } from './registry.js';
 export { OpenAiCompatProvider, finiteInt, sanitizedProviderError } from './openaiCompat.js';
@@ -53,7 +53,12 @@ export function createLLMProvider(apiKey?: string): LLMProvider {
       return new QwenProvider(key);
     }
     case 'claude':
-      return new ClaudeProvider();
+      // Platform key: same models as before (config sonnet for reasoning,
+      // haiku for worker). BYOK construction goes through
+      // createProviderForUser and never gets the config fallback.
+      return new ClaudeProvider(undefined, config.anthropicModel, 'claude-haiku-4-5', {
+        allowConfigModels: true,
+      });
     case 'mock':
     default:
       return new MockProvider();
@@ -245,11 +250,12 @@ export class LlmProviderPool implements LLMProvider {
           const registryDefault =
             entry.providerId in PROVIDER_REGISTRY
               ? defaultModelsFor(entry.providerId as ProviderId, entry.baseUrl ?? null)[tier]
-              : undefined;
-          completion.model =
+              : null;
+          const label =
             tier === 'reasoning'
-              ? (entry.reasoningModel ?? registryDefault)
-              : (entry.workerModel ?? registryDefault);
+              ? (entry.reasoningModel ?? registryDefault ?? undefined)
+              : (entry.workerModel ?? registryDefault ?? undefined);
+          if (label) completion.model = label;
         }
         return completion;
       } catch (err) {
@@ -270,6 +276,8 @@ export interface SavedProviderKey {
   providerId: string;
   apiKey: string;
   baseUrl: string | null;
+  /** Models the key's /models list returned at save/refresh time. */
+  discoveredModels?: string[] | null;
 }
 
 export interface PoolRouting {
@@ -282,8 +290,10 @@ export interface PoolRouting {
 /**
  * Build a pool strictly from the user's verified saved keys. The routing
  * models apply to the matching tier provider; every other provider uses
- * its registry default models. Null when the user saved no keys: the
- * caller then falls back to the legacy single-key / platform path.
+ * its registry default models. A provider with no free default and no
+ * usable discovered model throws instead of running on a paid or dead
+ * model. Null when the user saved no keys: the caller then falls back
+ * to the legacy single-key / platform path.
  */
 export function buildPoolFromKeys(
   keys: SavedProviderKey[],
@@ -297,14 +307,8 @@ export function buildPoolFromKeys(
     const providerId = id as ProviderId;
     const defaults = defaultModelsFor(providerId, key.baseUrl ?? null);
     const overrides: ProviderModelOverrides = {
-      workerModel:
-        routing?.workerProvider === providerId && routing.workerModel
-          ? routing.workerModel
-          : defaults.worker,
-      reasoningModel:
-        routing?.reasoningProvider === providerId && routing.reasoningModel
-          ? routing.reasoningModel
-          : defaults.reasoning,
+      workerModel: resolvePoolModel(providerId, 'worker', routing, defaults, key),
+      reasoningModel: resolvePoolModel(providerId, 'reasoning', routing, defaults, key),
     };
     entries.push({
       providerId,
@@ -316,6 +320,27 @@ export function buildPoolFromKeys(
   }
   if (entries.length === 0) return null;
   return new LlmProviderPool(entries, { routing: routing ?? null });
+}
+
+/**
+ * One tier's model for a saved key: explicit routing first, then the
+ * registry free-tier default, then the first text model from the key's
+ * discovered list. Throws when none of those yields a model.
+ */
+function resolvePoolModel(
+  providerId: ProviderId,
+  tier: ModelTier,
+  routing: PoolRouting | null | undefined,
+  defaults: Record<ModelTier, string | null>,
+  key: SavedProviderKey,
+): string {
+  const routingProvider = tier === 'worker' ? routing?.workerProvider : routing?.reasoningProvider;
+  const routingModel = tier === 'worker' ? routing?.workerModel : routing?.reasoningModel;
+  if (routingProvider === providerId && routingModel) return routingModel;
+  if (defaults[tier]) return defaults[tier];
+  const discovered = (key.discoveredModels ?? []).find(isTextGenerationModel);
+  if (discovered) return discovered;
+  throw noFreeDefaultError(providerId, tier);
 }
 
 /** Pool with a mock entry, only when mockAllowed() says so. Never silent. */
