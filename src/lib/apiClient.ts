@@ -293,6 +293,8 @@ export interface SavedAiKey {
   keyHint: string;
   baseUrl: string;
   verifiedAt: string;
+  /** Model ids the provider key can use, null until the key is re-saved or refreshed. */
+  discoveredModels: string[] | null;
 }
 
 export interface LlmRouting {
@@ -314,6 +316,7 @@ export interface SaveAiKeyResult {
   keyHint: string;
   baseUrl: string;
   verifiedAt: string;
+  discoveredModels: string[] | null;
   hasByok: boolean;
   routingAutoSet: boolean;
   routing: LlmRouting;
@@ -355,6 +358,21 @@ export async function deleteAiKey(
   return fetchJson<{ deleted: boolean; hasByok: boolean }>(
     `/api/v1/ai-keys/${encodeURIComponent(providerId)}`,
     { method: 'DELETE' },
+  );
+}
+
+export interface RefreshAiKeyResult {
+  providerId: ProviderId;
+  discoveredModels: string[] | null;
+}
+
+/** POST /api/v1/ai-keys/:providerId/refresh, re-list the models a saved key can use. */
+export async function refreshAiKey(
+  providerId: ProviderId,
+): Promise<ApiResult<RefreshAiKeyResult>> {
+  return fetchJson<RefreshAiKeyResult>(
+    `/api/v1/ai-keys/${encodeURIComponent(providerId)}/refresh`,
+    { method: 'POST' },
   );
 }
 

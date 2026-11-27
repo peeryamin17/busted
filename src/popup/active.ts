@@ -38,6 +38,7 @@ import {
   getEnginesStatus,
   importFindingsReport,
   pairWithCode,
+  refreshAiKey,
   runEngineScan,
   runSwarmScan,
   saveAiKey,
@@ -1455,6 +1456,13 @@ async function initBackendKeyRow(): Promise<void> {
 
 let aiKeysWired = false;
 let aiKeysCapabilities: CapabilitiesResponse | null = null;
+let aiKeysSaved: SavedAiKey[] = [];
+let aiKeysRouting: LlmRouting | null = null;
+
+/** Dropdown value that reveals the free-text input for a model outside the discovered list. */
+const CUSTOM_MODEL_OPTION = '__custom__';
+/** How many discovered model ids the badge line shows before "+N more". */
+const MAX_MODELS_SHOWN = 6;
 
 function showAiKeyError(text: string): void {
   const errEl = document.getElementById('ai-key-error') as HTMLElement | null;
@@ -1497,6 +1505,76 @@ function hideRoutingBadge(): void {
     badge.hidden = true;
     badge.textContent = '';
   }
+  hideDiscoveredModels();
+}
+
+function hideDiscoveredModels(): void {
+  const box = document.getElementById('ai-keys-models') as HTMLElement | null;
+  if (box) {
+    box.hidden = true;
+    box.innerHTML = '';
+  }
+}
+
+/**
+ * Discovered-model line under the badge, for the worker tier's saved key
+ * (first saved key when the worker provider has none). A null list means
+ * the key predates discovery: show the re-save/refresh hint, never a
+ * guessed list.
+ */
+function renderDiscoveredModels(keys: SavedAiKey[], routing: LlmRouting): void {
+  const box = document.getElementById('ai-keys-models') as HTMLElement | null;
+  if (!box) return;
+  box.innerHTML = '';
+  if (keys.length === 0) {
+    box.hidden = true;
+    return;
+  }
+  const key = keys.find((k) => k.providerId === routing.workerProvider) ?? keys[0];
+  const cap = aiKeysCapabilities?.llmProviders.find((p) => p.id === key.providerId);
+  const label = cap ? shortProviderLabel(cap.label) : key.providerId;
+  box.hidden = false;
+  const text = document.createElement('span');
+  const models = key.discoveredModels;
+  if (models && models.length > 0) {
+    const shown = models.slice(0, MAX_MODELS_SHOWN);
+    const rest = models.length - shown.length;
+    text.textContent =
+      `${label} can use: ${shown.join(', ')}` + (rest > 0 ? ` +${rest} more` : '');
+    box.appendChild(text);
+    return;
+  }
+  text.textContent = 'Re-save the key, or refresh, to see its models';
+  box.appendChild(text);
+  const refreshBtn = document.createElement('button');
+  refreshBtn.type = 'button';
+  refreshBtn.textContent = 'Refresh';
+  refreshBtn.addEventListener('click', () => {
+    void (async () => {
+      refreshBtn.disabled = true;
+      hideAiKeyError();
+      try {
+        const res = await refreshAiKey(key.providerId);
+        if (!res.ok) {
+          showAiKeyError(
+            res.status > 0
+              ? `Refresh failed (HTTP ${res.status}): ${res.error}`
+              : `Refresh failed: ${res.error}`,
+          );
+          return;
+        }
+        await refreshAiKeysSection();
+        setStatus('Model list refreshed.');
+      } catch (err) {
+        showAiKeyError(
+          err instanceof Error ? `Refresh failed: ${err.message}` : 'Refresh failed.',
+        );
+      } finally {
+        refreshBtn.disabled = false;
+      }
+    })();
+  });
+  box.appendChild(refreshBtn);
 }
 
 /** Show the Qwen region block only when Qwen is the picked provider. */
@@ -1544,6 +1622,121 @@ function defaultModelFor(
   tier: 'worker' | 'reasoning',
 ): string {
   return providers.find((p) => p.id === providerId)?.defaultModels[tier] ?? '';
+}
+
+/** Discovered models for a provider, null when the key predates discovery or found none. */
+function discoveredModelsFor(providerId: string): string[] | null {
+  const found = aiKeysSaved.find((k) => k.providerId === providerId)?.discoveredModels;
+  return found && found.length > 0 ? found : null;
+}
+
+/**
+ * Worker/reasoning model field for one tier. With a discovered list it is
+ * a dropdown of the list plus a custom option; without one it stays the
+ * plain text input with the registry-default placeholder. A typed custom
+ * id is never wiped by a re-render: when the list loads under a typed
+ * value, the field lands on the custom option with the typed value kept.
+ */
+function renderModelField(
+  tier: 'worker' | 'reasoning',
+  providerId: string,
+  routingModel: string | null | undefined,
+  preserveTyped: boolean,
+): void {
+  const select = document.getElementById(
+    `routing-${tier}-model-select`,
+  ) as HTMLSelectElement | null;
+  const input = document.getElementById(`routing-${tier}-model`) as HTMLInputElement | null;
+  if (!select || !input) return;
+  const placeholder = aiKeysCapabilities
+    ? defaultModelFor(aiKeysCapabilities.llmProviders, providerId, tier)
+    : '';
+  const models = discoveredModelsFor(providerId);
+  if (!models) {
+    select.hidden = true;
+    input.hidden = false;
+    if (!preserveTyped) input.value = routingModel ?? '';
+    input.placeholder = placeholder;
+    return;
+  }
+  select.innerHTML = '';
+  const def = document.createElement('option');
+  def.value = '';
+  def.textContent = placeholder ? `Default (${placeholder})` : 'Default';
+  select.appendChild(def);
+  for (const m of models) {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    select.appendChild(opt);
+  }
+  const custom = document.createElement('option');
+  custom.value = CUSTOM_MODEL_OPTION;
+  custom.textContent = 'Custom model ID…';
+  select.appendChild(custom);
+  select.hidden = false;
+  input.placeholder = placeholder || 'Custom model ID';
+  const typed = input.value.trim();
+  if (routingModel && models.includes(routingModel)) {
+    select.value = routingModel;
+    input.hidden = true;
+  } else if (typed !== '' && models.includes(typed)) {
+    select.value = typed;
+    input.hidden = true;
+  } else if (typed !== '') {
+    select.value = CUSTOM_MODEL_OPTION;
+    input.hidden = false;
+  } else if (routingModel) {
+    select.value = CUSTOM_MODEL_OPTION;
+    input.hidden = false;
+    input.value = routingModel;
+  } else {
+    select.value = '';
+    input.hidden = true;
+  }
+}
+
+/** Effective model for one tier: dropdown pick, custom typed id, or the text input. */
+function readModelField(tier: 'worker' | 'reasoning'): string | null {
+  const select = document.getElementById(
+    `routing-${tier}-model-select`,
+  ) as HTMLSelectElement | null;
+  const input = document.getElementById(`routing-${tier}-model`) as HTMLInputElement | null;
+  if (select && !select.hidden) {
+    if (select.value === CUSTOM_MODEL_OPTION) return input?.value.trim() || null;
+    return select.value || null;
+  }
+  return input?.value.trim() || null;
+}
+
+/** Tier provider change re-renders that tier's model field; dropdown change reveals the custom input. */
+function wireModelField(tier: 'worker' | 'reasoning'): void {
+  const providerSel = document.getElementById(
+    `routing-${tier}-provider`,
+  ) as HTMLSelectElement | null;
+  const modelSelect = document.getElementById(
+    `routing-${tier}-model-select`,
+  ) as HTMLSelectElement | null;
+  const modelInput = document.getElementById(
+    `routing-${tier}-model`,
+  ) as HTMLInputElement | null;
+  providerSel?.addEventListener('change', () => {
+    const routing = aiKeysRouting;
+    const routingModel =
+      routing &&
+      providerSel.value ===
+        (tier === 'worker' ? routing.workerProvider : routing.reasoningProvider)
+        ? tier === 'worker'
+          ? routing.workerModel
+          : routing.reasoningModel
+        : null;
+    renderModelField(tier, providerSel.value, routingModel, true);
+  });
+  modelSelect?.addEventListener('change', () => {
+    if (!modelInput) return;
+    modelInput.hidden = modelSelect.value !== CUSTOM_MODEL_OPTION;
+    if (modelSelect.value === CUSTOM_MODEL_OPTION) modelInput.focus();
+  });
 }
 
 function renderSavedKeys(
@@ -1613,6 +1806,8 @@ async function initAiKeysSection(): Promise<void> {
 
   providerSelect.addEventListener('change', refreshAiKeyQwenUi);
   qwenRegion?.addEventListener('change', refreshAiKeyQwenUi);
+  wireModelField('worker');
+  wireModelField('reasoning');
 
   saveBtn.addEventListener('click', () => {
     void (async () => {
@@ -1665,15 +1860,11 @@ async function initAiKeysSection(): Promise<void> {
       const workerProvider = (
         document.getElementById('routing-worker-provider') as HTMLSelectElement
       ).value;
-      const workerModel =
-        (document.getElementById('routing-worker-model') as HTMLInputElement).value.trim() ||
-        null;
+      const workerModel = readModelField('worker');
       const reasoningProvider = (
         document.getElementById('routing-reasoning-provider') as HTMLSelectElement
       ).value;
-      const reasoningModel =
-        (document.getElementById('routing-reasoning-model') as HTMLInputElement)
-          .value.trim() || null;
+      const reasoningModel = readModelField('reasoning');
       const routing: LlmRouting = {
         workerProvider,
         workerModel,
@@ -1721,6 +1912,8 @@ async function refreshAiKeysSection(): Promise<void> {
     return;
   }
   aiKeysCapabilities = caps.data;
+  aiKeysSaved = keys.data.keys;
+  aiKeysRouting = keys.data.routing;
   const hosted = caps.data.llmProviders.filter((p) => p.mode === 'hosted');
   fillProviderSelect('ai-key-provider', hosted);
   fillProviderSelect('routing-worker-provider', hosted);
@@ -1745,40 +1938,43 @@ async function refreshAiKeysSection(): Promise<void> {
     // the whole story. Show no badge and no model names — the backend
     // default routing (Gemini) is not a configuration the user has.
     hideRoutingBadge();
+    for (const id of ['routing-worker-model-select', 'routing-reasoning-model-select']) {
+      const sel = document.getElementById(id) as HTMLSelectElement | null;
+      if (sel) sel.hidden = true;
+    }
     if (workerModelInput) {
       workerModelInput.value = '';
       workerModelInput.placeholder = '';
+      workerModelInput.hidden = false;
     }
     if (reasoningModelInput) {
       reasoningModelInput.value = '';
       reasoningModelInput.placeholder = '';
+      reasoningModelInput.hidden = false;
     }
     refreshAiKeyQwenUi();
     return;
   }
   renderRoutingBadge(routing);
+  renderDiscoveredModels(keys.data.keys, routing);
   if (workerProviderSel && hosted.some((p) => p.id === routing.workerProvider)) {
     workerProviderSel.value = routing.workerProvider;
   }
   if (reasoningProviderSel && hosted.some((p) => p.id === routing.reasoningProvider)) {
     reasoningProviderSel.value = routing.reasoningProvider;
   }
-  if (workerModelInput) {
-    workerModelInput.value = routing.workerModel ?? '';
-    workerModelInput.placeholder = defaultModelFor(
-      hosted,
-      workerProviderSel?.value ?? routing.workerProvider,
-      'worker',
-    );
-  }
-  if (reasoningModelInput) {
-    reasoningModelInput.value = routing.reasoningModel ?? '';
-    reasoningModelInput.placeholder = defaultModelFor(
-      hosted,
-      reasoningProviderSel?.value ?? routing.reasoningProvider,
-      'reasoning',
-    );
-  }
+  renderModelField(
+    'worker',
+    workerProviderSel?.value ?? routing.workerProvider,
+    routing.workerModel,
+    false,
+  );
+  renderModelField(
+    'reasoning',
+    reasoningProviderSel?.value ?? routing.reasoningProvider,
+    routing.reasoningModel,
+    false,
+  );
   refreshAiKeyQwenUi();
 }
 

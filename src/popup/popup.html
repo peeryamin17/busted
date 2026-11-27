@@ -188,6 +188,7 @@
           <div id="ai-keys-form" hidden>
             <div id="ai-keys-saved" class="ai-keys-list"></div>
             <div id="ai-keys-badge" class="ai-keys-badge" hidden></div>
+            <div id="ai-keys-models" class="backend-key-note" hidden></div>
             <div class="backend-key-row">
               <label for="ai-key-provider" class="label">Provider</label>
               <select id="ai-key-provider" aria-label="AI provider"></select>
@@ -232,11 +233,13 @@
               <div class="backend-key-row">
                 <label for="routing-worker-provider" class="label">Worker tier</label>
                 <select id="routing-worker-provider" aria-label="Worker tier provider"></select>
+                <select id="routing-worker-model-select" aria-label="Worker model" hidden></select>
                 <input id="routing-worker-model" type="text" placeholder="Worker model" autocomplete="off" spellcheck="false" />
               </div>
               <div class="backend-key-row">
                 <label for="routing-reasoning-provider" class="label">Reasoning tier</label>
                 <select id="routing-reasoning-provider" aria-label="Reasoning tier provider"></select>
+                <select id="routing-reasoning-model-select" aria-label="Reasoning model" hidden></select>
                 <input id="routing-reasoning-model" type="text" placeholder="Reasoning model" autocomplete="off" spellcheck="false" />
               </div>
               <div class="backend-key-row">
