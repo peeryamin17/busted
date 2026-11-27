@@ -167,8 +167,9 @@ export class GeminiProvider implements LLMProvider {
     }
 
     let configured = effectiveTier === 'reasoning' ? this.reasoningModel : this.routineModel;
-    // Normalize legacy or nonexistent model strings
-    if (configured.includes('3.8-flash') || configured.includes('3.5-flash')) {
+    // Normalize legacy model strings. gemini-3.8-flash is real (Google's
+    // free-tier model for new projects) and must not be rewritten.
+    if (configured.includes('3.5-flash')) {
       configured = 'gemini-2.0-flash';
     } else if (configured.includes('3.1-pro')) {
       configured = 'gemini-2.0-flash';
@@ -247,7 +248,7 @@ export class GeminiProvider implements LLMProvider {
    */
   private downgradeModel(failedModel: string): string | null {
     let routine = this.routineModel;
-    if (routine.includes('3.8-flash') || routine.includes('3.5-flash')) routine = 'gemini-2.0-flash';
+    if (routine.includes('3.5-flash')) routine = 'gemini-2.0-flash';
     if (isTextGenerationModel(routine) && routine !== failedModel) return routine;
     if (failedModel !== 'gemini-2.5-flash') return 'gemini-2.5-flash';
     return null;
