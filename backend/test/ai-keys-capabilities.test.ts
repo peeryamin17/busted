@@ -149,8 +149,8 @@ async function main() {
     };
     check('capabilities version matches package.json', caps.version === APP_VERSION, caps.version);
     check('capabilities runtime is cloud', caps.runtime === 'cloud', caps.runtime);
-    check('capabilities lists all 8 providers', caps.llmProviders.length === 8, caps.llmProviders.map((p) => p.id));
-    for (const id of ['gemini', 'claude', 'qwen', 'kimi', 'glm', 'deepseek', 'openrouter', 'ollama']) {
+    check('capabilities lists all 9 providers', caps.llmProviders.length === 9, caps.llmProviders.map((p) => p.id));
+    for (const id of ['gemini', 'claude', 'qwen', 'kimi', 'glm', 'deepseek', 'openrouter', 'openai', 'ollama']) {
       check(`capabilities lists ${id}`, caps.llmProviders.some((p) => p.id === id));
     }
     const ollama = caps.llmProviders.find((p) => p.id === 'ollama');

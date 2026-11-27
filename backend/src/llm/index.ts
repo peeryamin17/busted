@@ -75,7 +75,7 @@ export interface ProviderModelOverrides {
  * - 'qwen': DashScope key → QwenProvider against the configured (or given)
  *   DashScope base URL.
  * - 'claude': Anthropic key → ClaudeProvider.
- * - 'kimi' / 'glm' / 'deepseek' / 'openrouter': OpenAI-compatible adapter.
+ * - 'kimi' / 'glm' / 'deepseek' / 'openrouter' / 'openai': OpenAI-compatible adapter.
  * - 'ollama': local Ollama server, OpenAI-compatible adapter against the
  *   local endpoint with a keyless sentinel (Ollama ignores the Bearer
  *   token). Only used by local paths; never a hosted provider.
@@ -103,6 +103,7 @@ export function createProviderForUser(
     case 'glm':
     case 'deepseek':
     case 'openrouter':
+    case 'openai':
       return new OpenAiCompatProvider(
         id as OpenAiCompatProviderId,
         apiKey,

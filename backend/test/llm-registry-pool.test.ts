@@ -80,6 +80,9 @@ async function main() {
       ['gemini', 'https://generativelanguage.googleapis.com.evil.com/v1beta'],
       ['ollama', 'http://192.168.1.10:11434/v1'],
       ['deepseek', 'http://api.deepseek.com/v1'],
+      ['openai', 'https://api.openai.com.evil.com/v1'],
+      ['openai', 'http://api.openai.com/v1'],
+      ['openai', 'https://api.openai.com/v1/extra'],
       ['qwen', 'https://ws-x.ap-southeast-1.oss.aliyuncs.com/compatible-mode/v1'],
     ];
     for (const [provider, url] of rejected) {
@@ -518,6 +521,52 @@ async function main() {
     check('buildPoolFromKeys builds a pool from a beijing qwen key', beijingPool !== null);
     const beijingReasoning = await beijingPool!.completeTier('reasoning', [{ role: 'user', content: 'r' }]);
     check('pool qwen beijing key uses qwen4-max for reasoning', beijingReasoning.model === 'qwen4-max', beijingReasoning.model);
+
+    // 21. OpenAI registry entry, allowlist, adapter models, pool.
+    check(
+      'registry openai defaults are gpt-6-luna / gpt-6.2-astra',
+      PROVIDER_REGISTRY.openai.defaultModels.worker === 'gpt-6-luna' &&
+        PROVIDER_REGISTRY.openai.defaultModels.reasoning === 'gpt-6.2-astra',
+      PROVIDER_REGISTRY.openai.defaultModels,
+    );
+    check(
+      'defaultModelsFor openai unchanged',
+      defaultModelsFor('openai').worker === 'gpt-6-luna' &&
+        defaultModelsFor('openai').reasoning === 'gpt-6.2-astra',
+      defaultModelsFor('openai'),
+    );
+    check(
+      'openai base URL is api.openai.com',
+      PROVIDER_REGISTRY.openai.defaultBaseUrl === 'https://api.openai.com/v1',
+      PROVIDER_REGISTRY.openai.defaultBaseUrl,
+    );
+    const openaiModels: string[] = [];
+    const openaiUrls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      openaiUrls.push(String(input));
+      const body = JSON.parse(String(init?.body ?? '{}')) as { model?: string };
+      openaiModels.push(body.model ?? '');
+      return chatOk('openai ok');
+    }) as typeof fetch;
+    const openaiCompat = new OpenAiCompatProvider('openai', 'sk-proj-test-key-1234567890');
+    await openaiCompat.complete({ messages: [{ role: 'user', content: 'w' }], tier: 'routine' });
+    await openaiCompat.complete({ messages: [{ role: 'user', content: 'r' }], tier: 'reasoning' });
+    check('adapter sends gpt-6-luna for the worker tier', openaiModels[0] === 'gpt-6-luna', openaiModels);
+    check('adapter sends gpt-6.2-astra for the reasoning tier', openaiModels[1] === 'gpt-6.2-astra', openaiModels);
+    check(
+      'adapter calls api.openai.com chat completions',
+      openaiUrls.every((u) => u === 'https://api.openai.com/v1/chat/completions'),
+      openaiUrls,
+    );
+    const openaiPool = buildPoolFromKeys(
+      [{ providerId: 'openai', apiKey: 'sk-proj-test-key-1234567890', baseUrl: null }],
+      { workerProvider: 'gemini', reasoningProvider: 'gemini' },
+    );
+    check('buildPoolFromKeys builds a pool from a single openai key', openaiPool !== null);
+    const openaiReasoning = await openaiPool!.completeTier('reasoning', [{ role: 'user', content: 'r' }]);
+    check('pool openai key serves reasoning as gpt-6.2-astra', openaiReasoning.model === 'gpt-6.2-astra', openaiReasoning.model);
+    const openaiWorker = await openaiPool!.completeTier('worker', [{ role: 'user', content: 'w' }]);
+    check('pool openai key serves worker as gpt-6-luna', openaiWorker.model === 'gpt-6-luna', openaiWorker.model);
   } finally {
     globalThis.fetch = originalFetch;
   }

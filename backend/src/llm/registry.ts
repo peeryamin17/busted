@@ -6,6 +6,7 @@ export type ProviderId =
   | 'glm'
   | 'deepseek'
   | 'openrouter'
+  | 'openai'
   | 'ollama';
 
 export type ModelTier = 'worker' | 'reasoning';
@@ -87,6 +88,15 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderSpec> = {
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
     allowedBaseUrlPatterns: [/^https:\/\/openrouter\.ai\/api\/v1$/],
     defaultModels: { worker: 'deepseek/deepseek-chat', reasoning: 'anthropic/claude-sonnet-4.5' },
+  },
+  openai: {
+    id: 'openai',
+    label: 'OpenAI',
+    protocol: 'openai_compat',
+    mode: 'hosted',
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    allowedBaseUrlPatterns: [/^https:\/\/api\.openai\.com\/v1$/],
+    defaultModels: { worker: 'gpt-6-luna', reasoning: 'gpt-6.2-astra' },
   },
   ollama: {
     id: 'ollama',

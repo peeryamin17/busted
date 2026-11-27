@@ -21,6 +21,7 @@ const CLAUDE_KEY = 'sk-ant-test-key-1234567890';
 const QWEN_KEY = 'test-' + 'q'.repeat(20);
 const DEEPSEEK_KEY = 'sk-deepseek-test-key-123456';
 const GLM_KEY = 'test-' + 'z'.repeat(20);
+const OPENAI_KEY = 'sk-proj-test-key-1234567890';
 
 // Mutable so the refresh test can change what the provider returns.
 const modelLists: Record<string, unknown> = {
@@ -43,6 +44,9 @@ const modelLists: Record<string, unknown> = {
     data: [{ id: 'qwen-plus' }, { id: 'qwen-max' }, { id: 'qwen-plus' }],
   },
   'https://open.bigmodel.cn/api/paas/v4/models': { data: [] },
+  'https://api.openai.com/v1/models': {
+    data: [{ id: 'gpt-6-luna' }, { id: 'gpt-6.2-astra' }, { id: 'gpt-6-luna' }],
+  },
 };
 let kimiRejectAll = false;
 
@@ -79,6 +83,9 @@ async function main() {
       return new Response('not-json{{{', { status: 200, headers: { 'content-type': 'text/plain' } });
     }
     if (url === 'https://open.bigmodel.cn/api/paas/v4/models') {
+      return new Response(JSON.stringify(modelLists[url]), { status: 200 });
+    }
+    if (url === 'https://api.openai.com/v1/models') {
       return new Response(JSON.stringify(modelLists[url]), { status: 200 });
     }
     if (url === 'https://api.anthropic.com/v1/messages' && method === 'POST') {
@@ -127,6 +134,9 @@ async function main() {
       && JSON.stringify(qwenCheck.models) === JSON.stringify(['qwen-plus', 'qwen-max']), qwenCheck);
     const claudeCheck = await verifyProviderKey('claude', CLAUDE_KEY, 'https://api.anthropic.com/v1');
     check('verifyProviderKey claude is ok with null models', claudeCheck.ok === true && claudeCheck.models === null, claudeCheck);
+    const openaiCheck = await verifyProviderKey('openai', OPENAI_KEY, 'https://api.openai.com/v1');
+    check('verifyProviderKey openai returns deduped GPT model ids', openaiCheck.ok === true
+      && JSON.stringify(openaiCheck.models) === JSON.stringify(['gpt-6-luna', 'gpt-6.2-astra']), openaiCheck);
 
     // 2. POST persists the list and returns it; GET returns it per key.
     const kimiPost = await app.inject({
@@ -251,6 +261,54 @@ async function main() {
     check('refresh ollama → 400', ollamaRefresh.statusCode === 400, ollamaRefresh.body);
     const ollamaRow = (await db.listUserAiKeys(user.id)).find((r) => r.providerId === 'ollama');
     check('ollama refresh leaves the row in place', ollamaRow?.keyHint === 'local' && ollamaRow.discoveredModels === null, ollamaRow);
+
+    // 12. OpenAI end to end on a fresh user: sk-proj- key saves, the
+    // discovered GPT list persists, and the first-key auto-route points
+    // both tiers at the GPT defaults.
+    const openaiUser = await db.createUser('openai-user@example.com', 'unused-hash');
+    const openaiToken = generateSessionToken();
+    await db.createSession(openaiUser.id, hashSessionToken(openaiToken), new Date(Date.now() + 3600_000).toISOString());
+    const openaiCookie = `bs_session=${openaiToken}`;
+    const openaiPost = await app.inject({
+      method: 'POST', url: '/api/v1/ai-keys',
+      headers: { cookie: openaiCookie }, payload: { providerId: 'openai', apiKey: OPENAI_KEY },
+    });
+    check('POST openai key → 200', openaiPost.statusCode === 200, openaiPost.body);
+    const openaiBody = JSON.parse(openaiPost.body) as KeyOut & {
+      routingAutoSet: boolean;
+      routing: { workerProvider: string; workerModel: string; reasoningProvider: string; reasoningModel: string };
+    };
+    check('POST openai response carries discoveredModels', JSON.stringify(openaiBody.discoveredModels) === JSON.stringify(['gpt-6-luna', 'gpt-6.2-astra']), openaiBody);
+    check('POST openai response never contains the plaintext key', !openaiPost.body.includes(OPENAI_KEY));
+    check('POST openai saves against the api.openai.com base URL', openaiBody.baseUrl === 'https://api.openai.com/v1', openaiBody);
+    check('first openai key auto-routes both tiers to openai', openaiBody.routingAutoSet === true
+      && openaiBody.routing.workerProvider === 'openai' && openaiBody.routing.reasoningProvider === 'openai', openaiBody.routing);
+    check('openai auto-route worker model is gpt-6-luna', openaiBody.routing.workerModel === 'gpt-6-luna', openaiBody.routing);
+    check('openai auto-route reasoning model is gpt-6.2-astra', openaiBody.routing.reasoningModel === 'gpt-6.2-astra', openaiBody.routing);
+    const openaiStored = (await db.listUserAiKeys(openaiUser.id)).find((r) => r.providerId === 'openai');
+    check('stored openai row holds the model list', JSON.stringify(openaiStored?.discoveredModels) === JSON.stringify(['gpt-6-luna', 'gpt-6.2-astra']), openaiStored);
+    check('stored openai row keeps only the key hint', openaiStored?.keyHint === '****7890', openaiStored);
+
+    // 13. OpenAI refresh re-verifies and updates the list.
+    modelLists['https://api.openai.com/v1/models'] = {
+      data: [{ id: 'gpt-6-luna' }, { id: 'gpt-6.2-astra' }, { id: 'gpt-6-flash' }],
+    };
+    const openaiRefresh = await app.inject({
+      method: 'POST', url: '/api/v1/ai-keys/openai/refresh', headers: { cookie: openaiCookie },
+    });
+    check('POST refresh openai → 200', openaiRefresh.statusCode === 200, openaiRefresh.body);
+    const openaiRefreshBody = JSON.parse(openaiRefresh.body) as { discoveredModels: string[] | null };
+    check('refresh returns the new GPT list', JSON.stringify(openaiRefreshBody.discoveredModels) === JSON.stringify(['gpt-6-luna', 'gpt-6.2-astra', 'gpt-6-flash']), openaiRefreshBody);
+    const openaiAfterRefresh = (await db.listUserAiKeys(openaiUser.id)).find((r) => r.providerId === 'openai');
+    check('refresh persists the new GPT list', JSON.stringify(openaiAfterRefresh?.discoveredModels) === JSON.stringify(['gpt-6-luna', 'gpt-6.2-astra', 'gpt-6-flash']), openaiAfterRefresh);
+
+    // 14. A non-allowlisted base URL for openai is rejected.
+    const badBasePost = await app.inject({
+      method: 'POST', url: '/api/v1/ai-keys',
+      headers: { cookie: openaiCookie },
+      payload: { providerId: 'openai', apiKey: OPENAI_KEY, baseUrl: 'https://evil.example.com/v1' },
+    });
+    check('POST openai with a non-allowlisted base URL → 400', badBasePost.statusCode === 400, badBasePost.body);
 
     await app.close();
   } finally {
