@@ -39,7 +39,9 @@ function mockFetch(handler: (input: unknown, init?: RequestInit) => Promise<Resp
 }
 
 const labelFor = (id: string) =>
-  ({ qwen: 'Qwen', gemini: 'Gemini', claude: 'Claude', openai: 'OpenAI' })[id] ?? id;
+  ({ qwen: 'Qwen', gemini: 'Gemini', claude: 'Claude', openai: 'OpenAI', omniroute: 'OmniRoute' })[
+    id
+  ] ?? id;
 
 test('saveAiKey returns the POST routing so the badge can update without a reload', async () => {
   mockChromeStorage();
@@ -163,6 +165,63 @@ test('saveAiKey verifies an OpenAI key and reports its GPT models', async () => 
   }
 });
 
+test('saveAiKey sends the OmniRoute base URL and reports the auto routes', async () => {
+  mockChromeStorage();
+  let seenBody = '';
+  mockFetch(async (_input, init) => {
+    seenBody = String(init?.body ?? '');
+    return new Response(
+      JSON.stringify({
+        providerId: 'omniroute',
+        keyHint: '****omni',
+        baseUrl: 'https://omni.example.com/v1',
+        verifiedAt: '2026-11-27T00:00:00.000Z',
+        discoveredModels: ['auto', 'openai/gpt-6-luna'],
+        hasByok: true,
+        routingAutoSet: true,
+        routing: {
+          workerProvider: 'omniroute',
+          workerModel: 'auto',
+          reasoningProvider: 'omniroute',
+          reasoningModel: 'auto/coding',
+        },
+      }),
+      { status: 200 },
+    );
+  });
+
+  const res = await saveAiKey('omniroute', 'placeholder-key-value', 'https://omni.example.com/v1');
+  assert.equal(res.ok, true);
+  const body = JSON.parse(seenBody) as { providerId: string; baseUrl: string };
+  assert.equal(body.providerId, 'omniroute');
+  assert.equal(body.baseUrl, 'https://omni.example.com/v1');
+  if (res.ok) {
+    assert.equal(res.data.providerId, 'omniroute');
+    assert.deepEqual(res.data.discoveredModels, ['auto', 'openai/gpt-6-luna']);
+    assert.equal(
+      formatRoutingBadge(res.data.routing, (id) => shortProviderLabel(labelFor(id))),
+      'Active: OmniRoute · worker auto · reasoning auto/coding',
+    );
+  }
+});
+
+test('popup shows a mandatory OmniRoute URL field only for OmniRoute', () => {
+  const html = readFileSync(new URL('../popup/popup.html', import.meta.url), 'utf8');
+  const blockAt = html.indexOf('id="ai-key-omniroute"');
+  assert.notEqual(blockAt, -1, 'OmniRoute block exists');
+  assert.match(html.slice(blockAt, blockAt + 200), /hidden/);
+  const inputAt = html.indexOf('id="ai-omniroute-url"');
+  assert.ok(inputAt > blockAt, 'URL input lives inside the OmniRoute block');
+  assert.match(html.slice(inputAt, inputAt + 200), /https:\/\/omni\.example\.com\/v1/);
+  const noteAt = html.indexOf('Localhost will not work', blockAt);
+  assert.notEqual(noteAt, -1, 'hint says localhost will not work');
+  assert.match(html.slice(blockAt, noteAt + 100), /public URL/);
+  const active = readFileSync(new URL('../popup/active.ts', import.meta.url), 'utf8');
+  assert.match(active, /omniBlock\.hidden = provider !== 'omniroute'/);
+  assert.match(active, /if \(provider === 'omniroute'\)/);
+  assert.match(active, /resolveOmniRouteBaseUrl\(omniUrl\?\.value\)/);
+});
+
 test('refreshAiKey posts to the OpenAI refresh endpoint and returns its models', async () => {
   mockChromeStorage();
   let seenUrl = '';
@@ -186,6 +245,32 @@ test('refreshAiKey posts to the OpenAI refresh endpoint and returns its models',
   if (res.ok) {
     assert.equal(res.data.providerId, 'openai');
     assert.deepEqual(res.data.discoveredModels, ['gpt-6-luna', 'gpt-6.2-astra']);
+  }
+});
+
+test('refreshAiKey posts to the OmniRoute refresh endpoint and returns its models', async () => {
+  mockChromeStorage();
+  let seenUrl = '';
+  let seenMethod = '';
+  mockFetch(async (input, init) => {
+    seenUrl = String(input);
+    seenMethod = init?.method ?? '';
+    return new Response(
+      JSON.stringify({
+        providerId: 'omniroute',
+        discoveredModels: ['auto', 'openai/gpt-6-luna'],
+      }),
+      { status: 200 },
+    );
+  });
+
+  const res = await refreshAiKey('omniroute');
+  assert.equal(seenMethod, 'POST');
+  assert.match(seenUrl, /\/api\/v1\/ai-keys\/omniroute\/refresh$/);
+  assert.equal(res.ok, true);
+  if (res.ok) {
+    assert.equal(res.data.providerId, 'omniroute');
+    assert.deepEqual(res.data.discoveredModels, ['auto', 'openai/gpt-6-luna']);
   }
 });
 

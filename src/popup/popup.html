@@ -222,6 +222,20 @@
                 first if saving fails.
               </p>
             </div>
+            <div id="ai-key-omniroute" class="backend-key-sub" hidden>
+              <input
+                id="ai-omniroute-url"
+                type="url"
+                placeholder="https://omni.example.com/v1"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <p class="backend-key-note">
+                The public URL of your own OmniRoute instance, on a
+                server the backend can reach. Localhost will not work:
+                the cloud backend cannot reach your machine.
+              </p>
+            </div>
             <div class="backend-key-row">
               <label for="ai-key-input" class="label">Provider key</label>
               <input id="ai-key-input" type="password" placeholder="Paste provider API key" autocomplete="off" spellcheck="false" />

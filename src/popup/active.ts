@@ -67,6 +67,7 @@ import {
   formatWorkerTelemetry,
   getLocalOllamaEnabled,
   onProviderKeySaved,
+  resolveOmniRouteBaseUrl,
   restoreTabScanIfMatching,
   setLocalOllamaEnabled,
   shortProviderLabel,
@@ -1577,12 +1578,13 @@ function renderDiscoveredModels(keys: SavedAiKey[], routing: LlmRouting): void {
   box.appendChild(refreshBtn);
 }
 
-/** Show the Qwen region block only when Qwen is the picked provider. */
-function refreshAiKeyQwenUi(): void {
+/** Show the Qwen region block or the OmniRoute URL field for the picked provider. */
+function refreshAiKeyProviderUi(): void {
   const providerSelect = document.getElementById('ai-key-provider') as HTMLSelectElement | null;
   const qwenBlock = document.getElementById('ai-key-qwen') as HTMLElement | null;
   const qwenRegion = document.getElementById('ai-qwen-region') as HTMLSelectElement | null;
   const qwenCustomUrl = document.getElementById('ai-qwen-custom-url') as HTMLInputElement | null;
+  const omniBlock = document.getElementById('ai-key-omniroute') as HTMLElement | null;
   const keyInput = document.getElementById('ai-key-input') as HTMLInputElement | null;
   if (!providerSelect) return;
   const provider = providerSelect.value;
@@ -1590,6 +1592,7 @@ function refreshAiKeyQwenUi(): void {
   if (qwenCustomUrl) {
     qwenCustomUrl.hidden = provider !== 'qwen' || qwenRegion?.value !== 'custom';
   }
+  if (omniBlock) omniBlock.hidden = provider !== 'omniroute';
   if (keyInput) {
     const cap = aiKeysCapabilities?.llmProviders.find((p) => p.id === provider);
     keyInput.placeholder = cap ? `Paste ${cap.label} API key` : 'Paste provider API key';
@@ -1795,6 +1798,7 @@ async function initAiKeysSection(): Promise<void> {
   const saveBtn = document.getElementById('ai-key-save') as HTMLButtonElement | null;
   const qwenRegion = document.getElementById('ai-qwen-region') as HTMLSelectElement | null;
   const qwenCustomUrl = document.getElementById('ai-qwen-custom-url') as HTMLInputElement | null;
+  const omniUrl = document.getElementById('ai-omniroute-url') as HTMLInputElement | null;
   const routingSave = document.getElementById('routing-save') as HTMLButtonElement | null;
   if (!providerSelect || !keyInput || !saveBtn || !routingSave) return;
 
@@ -1804,8 +1808,8 @@ async function initAiKeysSection(): Promise<void> {
   }
   aiKeysWired = true;
 
-  providerSelect.addEventListener('change', refreshAiKeyQwenUi);
-  qwenRegion?.addEventListener('change', refreshAiKeyQwenUi);
+  providerSelect.addEventListener('change', refreshAiKeyProviderUi);
+  qwenRegion?.addEventListener('change', refreshAiKeyProviderUi);
   wireModelField('worker');
   wireModelField('reasoning');
 
@@ -1821,6 +1825,14 @@ async function initAiKeysSection(): Promise<void> {
       let baseUrl: string | undefined;
       if (provider === 'qwen') {
         const resolved = resolveQwenBaseUrl(qwenRegion?.value ?? 'intl', qwenCustomUrl?.value);
+        if ('error' in resolved) {
+          showAiKeyError(resolved.error);
+          return;
+        }
+        baseUrl = resolved.baseUrl;
+      }
+      if (provider === 'omniroute') {
+        const resolved = resolveOmniRouteBaseUrl(omniUrl?.value);
         if ('error' in resolved) {
           showAiKeyError(resolved.error);
           return;
@@ -1952,7 +1964,7 @@ async function refreshAiKeysSection(): Promise<void> {
       reasoningModelInput.placeholder = '';
       reasoningModelInput.hidden = false;
     }
-    refreshAiKeyQwenUi();
+    refreshAiKeyProviderUi();
     return;
   }
   renderRoutingBadge(routing);
@@ -1975,7 +1987,7 @@ async function refreshAiKeysSection(): Promise<void> {
     routing.reasoningModel,
     false,
   );
-  refreshAiKeyQwenUi();
+  refreshAiKeyProviderUi();
 }
 
 // ---------------------------------------------------------------------------
