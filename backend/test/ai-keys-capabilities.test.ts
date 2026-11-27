@@ -149,10 +149,17 @@ async function main() {
     };
     check('capabilities version matches package.json', caps.version === APP_VERSION, caps.version);
     check('capabilities runtime is cloud', caps.runtime === 'cloud', caps.runtime);
-    check('capabilities lists all 9 providers', caps.llmProviders.length === 9, caps.llmProviders.map((p) => p.id));
-    for (const id of ['gemini', 'claude', 'qwen', 'kimi', 'glm', 'deepseek', 'openrouter', 'openai', 'ollama']) {
+    check('capabilities lists all 10 providers', caps.llmProviders.length === 10, caps.llmProviders.map((p) => p.id));
+    for (const id of ['gemini', 'claude', 'qwen', 'kimi', 'glm', 'deepseek', 'openrouter', 'openai', 'ollama', 'omniroute']) {
       check(`capabilities lists ${id}`, caps.llmProviders.some((p) => p.id === id));
     }
+    const omniroute = caps.llmProviders.find((p) => p.id === 'omniroute');
+    check('capabilities omniroute is available in cloud', omniroute?.available === true, omniroute);
+    check(
+      'capabilities omniroute defaults are auto / auto/coding',
+      omniroute?.defaultModels.worker === 'auto' && omniroute?.defaultModels.reasoning === 'auto/coding',
+      omniroute?.defaultModels,
+    );
     const ollama = caps.llmProviders.find((p) => p.id === 'ollama');
     check('capabilities ollama unavailable in cloud', ollama?.available === false, ollama);
     check('capabilities ollama reason is exact', ollama?.reason === 'Requires local backend', ollama?.reason);

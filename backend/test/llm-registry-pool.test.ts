@@ -48,6 +48,8 @@ async function main() {
   try {
     // 1. validateProviderBaseUrl accepts every official URL
     for (const spec of Object.values(PROVIDER_REGISTRY)) {
+      // Providers with no fixed host have no default URL to accept.
+      if (spec.requiresCustomBaseUrl) continue;
       let accepted = '';
       try {
         accepted = validateProviderBaseUrl(spec.id);
@@ -94,6 +96,62 @@ async function main() {
       }
       check(`rejects SSRF URL for ${provider}: ${url}`, threw);
     }
+
+    // 2b. OmniRoute: no fixed host, a custom public URL is required.
+    check(
+      'registry omniroute is hosted openai_compat',
+      PROVIDER_REGISTRY.omniroute.protocol === 'openai_compat' &&
+        PROVIDER_REGISTRY.omniroute.mode === 'hosted' &&
+        PROVIDER_REGISTRY.omniroute.label === 'OmniRoute',
+      PROVIDER_REGISTRY.omniroute,
+    );
+    check(
+      'registry omniroute defaults are auto / auto/coding',
+      PROVIDER_REGISTRY.omniroute.defaultModels.worker === 'auto' &&
+        PROVIDER_REGISTRY.omniroute.defaultModels.reasoning === 'auto/coding',
+      PROVIDER_REGISTRY.omniroute.defaultModels,
+    );
+    check(
+      'registry omniroute has no default base URL',
+      PROVIDER_REGISTRY.omniroute.requiresCustomBaseUrl === true &&
+        PROVIDER_REGISTRY.omniroute.defaultBaseUrl === '',
+      PROVIDER_REGISTRY.omniroute,
+    );
+    check(
+      'defaultModelsFor omniroute unchanged',
+      defaultModelsFor('omniroute').worker === 'auto' &&
+        defaultModelsFor('omniroute').reasoning === 'auto/coding',
+      defaultModelsFor('omniroute'),
+    );
+    let omniNoUrl = false;
+    try {
+      validateProviderBaseUrl('omniroute');
+    } catch {
+      omniNoUrl = true;
+    }
+    check('omniroute with no URL throws instead of falling back', omniNoUrl);
+    let omniEmptyUrl = false;
+    try {
+      validateProviderBaseUrl('omniroute', '   ');
+    } catch {
+      omniEmptyUrl = true;
+    }
+    check('omniroute with an empty URL throws', omniEmptyUrl);
+    check(
+      'omniroute accepts a public https URL',
+      validateProviderBaseUrl('omniroute', 'https://omni.example.com/v1') === 'https://omni.example.com/v1',
+    );
+    check(
+      'omniroute strips a trailing slash',
+      validateProviderBaseUrl('omniroute', 'https://omni.example.com/v1/') === 'https://omni.example.com/v1',
+    );
+    let omniHttp = false;
+    try {
+      validateProviderBaseUrl('omniroute', 'http://omni.example.com/v1');
+    } catch {
+      omniHttp = true;
+    }
+    check('omniroute rejects http', omniHttp);
 
     // 3. Pool fails over A (429) -> B, respects cooldowns
     let now = 1_000_000;
@@ -567,6 +625,35 @@ async function main() {
     check('pool openai key serves reasoning as gpt-6.2-astra', openaiReasoning.model === 'gpt-6.2-astra', openaiReasoning.model);
     const openaiWorker = await openaiPool!.completeTier('worker', [{ role: 'user', content: 'w' }]);
     check('pool openai key serves worker as gpt-6-luna', openaiWorker.model === 'gpt-6-luna', openaiWorker.model);
+
+    // 22. OmniRoute registry entry, adapter models, pool with a stored URL.
+    const omniModels: string[] = [];
+    const omniUrls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      omniUrls.push(String(input));
+      const body = JSON.parse(String(init?.body ?? '{}')) as { model?: string };
+      omniModels.push(body.model ?? '');
+      return chatOk('omni ok');
+    }) as typeof fetch;
+    const omniCompat = new OpenAiCompatProvider('omniroute', 'sk-omniroute-test-key-1234567890', 'https://omni.example.com/v1');
+    await omniCompat.complete({ messages: [{ role: 'user', content: 'w' }], tier: 'routine' });
+    await omniCompat.complete({ messages: [{ role: 'user', content: 'r' }], tier: 'reasoning' });
+    check('adapter sends auto for the worker tier', omniModels[0] === 'auto', omniModels);
+    check('adapter sends auto/coding for the reasoning tier', omniModels[1] === 'auto/coding', omniModels);
+    check(
+      'adapter calls the stored gateway chat completions URL',
+      omniUrls.every((u) => u === 'https://omni.example.com/v1/chat/completions'),
+      omniUrls,
+    );
+    const omniPool = buildPoolFromKeys(
+      [{ providerId: 'omniroute', apiKey: 'sk-omniroute-test-key-1234567890', baseUrl: 'https://omni.example.com/v1' }],
+      { workerProvider: 'gemini', reasoningProvider: 'gemini' },
+    );
+    check('buildPoolFromKeys builds a pool from a single omniroute key', omniPool !== null);
+    const omniReasoning = await omniPool!.completeTier('reasoning', [{ role: 'user', content: 'r' }]);
+    check('pool omniroute key serves reasoning as auto/coding', omniReasoning.model === 'auto/coding', omniReasoning.model);
+    const omniWorker = await omniPool!.completeTier('worker', [{ role: 'user', content: 'w' }]);
+    check('pool omniroute key serves worker as auto', omniWorker.model === 'auto', omniWorker.model);
   } finally {
     globalThis.fetch = originalFetch;
   }

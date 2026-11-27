@@ -1,4 +1,5 @@
 import process from 'node:process';
+import dns from 'node:dns/promises';
 
 process.env['RENDER'] = 'true';
 process.env['ALLOW_PRIVATE_TARGETS'] = '1';
@@ -22,6 +23,8 @@ const QWEN_KEY = 'test-' + 'q'.repeat(20);
 const DEEPSEEK_KEY = 'sk-deepseek-test-key-123456';
 const GLM_KEY = 'test-' + 'z'.repeat(20);
 const OPENAI_KEY = 'sk-proj-test-key-1234567890';
+const OMNIROUTE_KEY = 'sk-omniroute-test-key-1234567890';
+const OMNIROUTE_URL = 'https://omni.example.com/v1';
 
 // Mutable so the refresh test can change what the provider returns.
 const modelLists: Record<string, unknown> = {
@@ -46,6 +49,9 @@ const modelLists: Record<string, unknown> = {
   'https://open.bigmodel.cn/api/paas/v4/models': { data: [] },
   'https://api.openai.com/v1/models': {
     data: [{ id: 'gpt-6-luna' }, { id: 'gpt-6.2-astra' }, { id: 'gpt-6-luna' }],
+  },
+  'https://omni.example.com/v1/models': {
+    data: [{ id: 'auto' }, { id: 'auto/coding' }, { id: 'openai/gpt-6-luna' }, { id: 'auto' }],
   },
 };
 let kimiRejectAll = false;
@@ -88,6 +94,9 @@ async function main() {
     if (url === 'https://api.openai.com/v1/models') {
       return new Response(JSON.stringify(modelLists[url]), { status: 200 });
     }
+    if (url === 'https://omni.example.com/v1/models') {
+      return new Response(JSON.stringify(modelLists[url]), { status: 200 });
+    }
     if (url === 'https://api.anthropic.com/v1/messages' && method === 'POST') {
       const body = JSON.parse(String(init?.body ?? '{}')) as { max_tokens?: number };
       if (body.max_tokens === 1) {
@@ -102,6 +111,16 @@ async function main() {
     }
     return realFetch(input as never, init);
   }) as typeof fetch;
+
+  // The OmniRoute save route resolves the gateway host: answer it
+  // in-process so no real DNS runs. omni.example.com is public,
+  // internal.example.com resolves to a private address.
+  const originalLookup = dns.lookup;
+  dns.lookup = (async (hostname: string, options?: unknown) => {
+    if (hostname === 'omni.example.com') return [{ address: '203.0.113.10', family: 4 }];
+    if (hostname === 'internal.example.com') return [{ address: '10.0.0.5', family: 4 }];
+    return (originalLookup as (h: string, o?: unknown) => unknown)(hostname, options);
+  }) as typeof dns.lookup;
 
   try {
     const db = new MemoryDatabase();
@@ -310,9 +329,79 @@ async function main() {
     });
     check('POST openai with a non-allowlisted base URL → 400', badBasePost.statusCode === 400, badBasePost.body);
 
+    // 15. OmniRoute verify goes through the generic OpenAI-compatible
+    // branch and returns the gateway model list, deduped.
+    const omniCheck = await verifyProviderKey('omniroute', OMNIROUTE_KEY, OMNIROUTE_URL);
+    check('verifyProviderKey omniroute returns deduped gateway model ids', omniCheck.ok === true
+      && JSON.stringify(omniCheck.models) === JSON.stringify(['auto', 'auto/coding', 'openai/gpt-6-luna']), omniCheck);
+
+    // 16. OmniRoute save rejects every non-public base URL, before any
+    // key verification, and stores nothing.
+    const omniBadUrls: Array<{ label: string; payload: Record<string, string> }> = [
+      { label: 'missing URL', payload: { providerId: 'omniroute', apiKey: OMNIROUTE_KEY } },
+      { label: 'empty URL', payload: { providerId: 'omniroute', apiKey: OMNIROUTE_KEY, baseUrl: '' } },
+      { label: 'http scheme', payload: { providerId: 'omniroute', apiKey: OMNIROUTE_KEY, baseUrl: 'http://omni.example.com/v1' } },
+      { label: 'localhost', payload: { providerId: 'omniroute', apiKey: OMNIROUTE_KEY, baseUrl: 'https://localhost:20128/v1' } },
+      { label: 'loopback IP', payload: { providerId: 'omniroute', apiKey: OMNIROUTE_KEY, baseUrl: 'https://127.0.0.1:20128/v1' } },
+      { label: 'private IP', payload: { providerId: 'omniroute', apiKey: OMNIROUTE_KEY, baseUrl: 'https://10.0.0.5:20128/v1' } },
+      { label: 'host resolving to a private IP', payload: { providerId: 'omniroute', apiKey: OMNIROUTE_KEY, baseUrl: 'https://internal.example.com/v1' } },
+    ];
+    for (const bad of omniBadUrls) {
+      const res = await app.inject({
+        method: 'POST', url: '/api/v1/ai-keys',
+        headers: { cookie }, payload: bad.payload,
+      });
+      check(`POST omniroute with ${bad.label} → 400`, res.statusCode === 400, res.body);
+    }
+    const omniRowsAfterBad = (await db.listUserAiKeys(user.id)).filter((r) => r.providerId === 'omniroute');
+    check('rejected omniroute saves store nothing', omniRowsAfterBad.length === 0, omniRowsAfterBad.length);
+
+    // 17. OmniRoute end to end on a fresh user: public gateway URL saves,
+    // the gateway list persists, and the first-key auto-route points both
+    // tiers at the gateway defaults.
+    const omniUser = await db.createUser('omniroute-user@example.com', 'unused-hash');
+    const omniToken = generateSessionToken();
+    await db.createSession(omniUser.id, hashSessionToken(omniToken), new Date(Date.now() + 3600_000).toISOString());
+    const omniCookie = `bs_session=${omniToken}`;
+    const omniPost = await app.inject({
+      method: 'POST', url: '/api/v1/ai-keys',
+      headers: { cookie: omniCookie },
+      payload: { providerId: 'omniroute', apiKey: OMNIROUTE_KEY, baseUrl: OMNIROUTE_URL },
+    });
+    check('POST omniroute key → 200', omniPost.statusCode === 200, omniPost.body);
+    const omniBody = JSON.parse(omniPost.body) as KeyOut & {
+      routingAutoSet: boolean;
+      routing: { workerProvider: string; workerModel: string; reasoningProvider: string; reasoningModel: string };
+    };
+    check('POST omniroute response carries discoveredModels', JSON.stringify(omniBody.discoveredModels) === JSON.stringify(['auto', 'auto/coding', 'openai/gpt-6-luna']), omniBody);
+    check('POST omniroute response never contains the plaintext key', !omniPost.body.includes(OMNIROUTE_KEY));
+    check('POST omniroute saves against the gateway base URL', omniBody.baseUrl === OMNIROUTE_URL, omniBody);
+    check('first omniroute key auto-routes both tiers to omniroute', omniBody.routingAutoSet === true
+      && omniBody.routing.workerProvider === 'omniroute' && omniBody.routing.reasoningProvider === 'omniroute', omniBody.routing);
+    check('omniroute auto-route worker model is auto', omniBody.routing.workerModel === 'auto', omniBody.routing);
+    check('omniroute auto-route reasoning model is auto/coding', omniBody.routing.reasoningModel === 'auto/coding', omniBody.routing);
+    const omniStored = (await db.listUserAiKeys(omniUser.id)).find((r) => r.providerId === 'omniroute');
+    check('stored omniroute row holds the model list', JSON.stringify(omniStored?.discoveredModels) === JSON.stringify(['auto', 'auto/coding', 'openai/gpt-6-luna']), omniStored);
+    check('stored omniroute row keeps only the key hint', omniStored?.keyHint === '****7890', omniStored);
+
+    // 18. OmniRoute refresh re-verifies against the stored URL and
+    // updates the list; it needs no new host check.
+    modelLists['https://omni.example.com/v1/models'] = {
+      data: [{ id: 'auto' }, { id: 'auto/coding' }, { id: 'openai/gpt-6-luna' }, { id: 'anthropic/claude-sonnet-4-5' }],
+    };
+    const omniRefresh = await app.inject({
+      method: 'POST', url: '/api/v1/ai-keys/omniroute/refresh', headers: { cookie: omniCookie },
+    });
+    check('POST refresh omniroute → 200', omniRefresh.statusCode === 200, omniRefresh.body);
+    const omniRefreshBody = JSON.parse(omniRefresh.body) as { discoveredModels: string[] | null };
+    check('refresh returns the new gateway list', JSON.stringify(omniRefreshBody.discoveredModels) === JSON.stringify(['auto', 'auto/coding', 'openai/gpt-6-luna', 'anthropic/claude-sonnet-4-5']), omniRefreshBody);
+    const omniAfterRefresh = (await db.listUserAiKeys(omniUser.id)).find((r) => r.providerId === 'omniroute');
+    check('refresh persists the new gateway list', JSON.stringify(omniAfterRefresh?.discoveredModels) === JSON.stringify(['auto', 'auto/coding', 'openai/gpt-6-luna', 'anthropic/claude-sonnet-4-5']), omniAfterRefresh);
+
     await app.close();
   } finally {
     globalThis.fetch = realFetch;
+    dns.lookup = originalLookup;
   }
 
   if (failures > 0) {
