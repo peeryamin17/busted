@@ -7,6 +7,7 @@ export type ProviderId =
   | 'deepseek'
   | 'openrouter'
   | 'openai'
+  | 'omniroute'
   | 'ollama';
 
 export interface SavedAiKey {
@@ -28,6 +29,7 @@ export type ApiResult<T> =
 
 function providerLabel(providerId: ProviderId): string {
   if (providerId === 'openai') return 'OpenAI';
+  if (providerId === 'omniroute') return 'OmniRoute';
   return providerId.charAt(0).toUpperCase() + providerId.slice(1);
 }
 

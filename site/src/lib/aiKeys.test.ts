@@ -91,6 +91,30 @@ test('listAiKeys returns a saved OpenAI key', async () => {
   }
 });
 
+test('formatKeyStatus names an OmniRoute key with a capital R', () => {
+  assert.equal(
+    formatKeyStatus([savedKey('omniroute')]),
+    'AI keys live in your extension — OmniRoute key saved · refresh the key in the extension to see its models',
+  );
+});
+
+test('formatKeyStatus names the auto routes an OmniRoute key can use', () => {
+  assert.equal(
+    formatKeyStatus([savedKey('omniroute', ['auto', 'openai/gpt-6-luna'])]),
+    'AI keys live in your extension — OmniRoute key saved · can use: auto, openai/gpt-6-luna',
+  );
+});
+
+test('listAiKeys returns a saved OmniRoute key', async () => {
+  const body = { keys: [savedKey('omniroute', ['auto'])], hasByok: true };
+  const result = await listAiKeys(stubFetch(200, body));
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.data.keys[0]?.providerId, 'omniroute');
+    assert.deepEqual(result.data.keys[0]?.discoveredModels, ['auto']);
+  }
+});
+
 test('formatKeyStatus joins several saved providers', () => {
   assert.equal(
     formatKeyStatus([savedKey('qwen'), savedKey('gemini')]),
