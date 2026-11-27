@@ -24,6 +24,8 @@ export interface UserAiKeyRow {
   keyHint: string;
   baseUrl: string;
   verifiedAt: string;
+  /** Model IDs from the provider's /models list at verify time; null when unknown. */
+  discoveredModels: string[] | null;
 }
 
 export interface UserLlmRouting {
@@ -123,8 +125,16 @@ export interface Database {
       keyHint: string;
       baseUrl: string;
       verifiedAt: string;
+      discoveredModels: string[] | null;
     },
   ): Promise<void>;
+  /** Refresh the stored model list and verified time; false when no row exists. */
+  updateUserAiKeyModels(
+    userId: string,
+    providerId: string,
+    models: string[] | null,
+    verifiedAt: string,
+  ): Promise<boolean>;
   /** True when a row existed and was removed. */
   deleteUserAiKey(userId: string, providerId: string): Promise<boolean>;
   /** Worker/reasoning tier routing (migration 034); null when never set. */
@@ -535,6 +545,7 @@ export class MemoryDatabase implements Database {
       keyHint: string;
       baseUrl: string;
       verifiedAt: string;
+      discoveredModels: string[] | null;
     },
   ): Promise<void> {
     let byProvider = this.userAiKeys.get(userId);
@@ -543,6 +554,19 @@ export class MemoryDatabase implements Database {
       this.userAiKeys.set(userId, byProvider);
     }
     byProvider.set(row.providerId, { ...row });
+  }
+
+  async updateUserAiKeyModels(
+    userId: string,
+    providerId: string,
+    models: string[] | null,
+    verifiedAt: string,
+  ): Promise<boolean> {
+    const row = this.userAiKeys.get(userId)?.get(providerId);
+    if (!row) return false;
+    row.discoveredModels = models;
+    row.verifiedAt = verifiedAt;
+    return true;
   }
 
   async deleteUserAiKey(userId: string, providerId: string): Promise<boolean> {
@@ -1247,7 +1271,7 @@ export class PostgresDatabase implements Database {
 
   async listUserAiKeys(userId: string): Promise<UserAiKeyRow[]> {
     const { rows } = await this.pool.query(
-      `SELECT provider_id, encrypted_key, key_hint, base_url, verified_at
+      `SELECT provider_id, encrypted_key, key_hint, base_url, verified_at, discovered_models
        FROM user_ai_keys WHERE user_id = $1 ORDER BY provider_id`,
       [userId]
     );
@@ -1257,6 +1281,7 @@ export class PostgresDatabase implements Database {
       keyHint: row['key_hint'] as string,
       baseUrl: row['base_url'] as string,
       verifiedAt: (row['verified_at'] as Date).toISOString(),
+      discoveredModels: (row['discovered_models'] as string[] | null) ?? null,
     }));
   }
 
@@ -1268,19 +1293,37 @@ export class PostgresDatabase implements Database {
       keyHint: string;
       baseUrl: string;
       verifiedAt: string;
+      discoveredModels: string[] | null;
     },
   ): Promise<void> {
     await this.pool.query(
-      `INSERT INTO user_ai_keys (user_id, provider_id, encrypted_key, key_hint, base_url, verified_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO user_ai_keys (user_id, provider_id, encrypted_key, key_hint, base_url, verified_at, discovered_models)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (user_id, provider_id) DO UPDATE
        SET encrypted_key = EXCLUDED.encrypted_key,
            key_hint = EXCLUDED.key_hint,
            base_url = EXCLUDED.base_url,
            verified_at = EXCLUDED.verified_at,
+           discovered_models = EXCLUDED.discovered_models,
            updated_at = NOW()`,
-      [userId, row.providerId, row.encryptedKey, row.keyHint, row.baseUrl, row.verifiedAt]
+      [userId, row.providerId, row.encryptedKey, row.keyHint, row.baseUrl, row.verifiedAt,
+       row.discoveredModels === null ? null : JSON.stringify(row.discoveredModels)]
     );
+  }
+
+  async updateUserAiKeyModels(
+    userId: string,
+    providerId: string,
+    models: string[] | null,
+    verifiedAt: string,
+  ): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE user_ai_keys
+       SET discovered_models = $3, verified_at = $4, updated_at = NOW()
+       WHERE user_id = $1 AND provider_id = $2`,
+      [userId, providerId, models === null ? null : JSON.stringify(models), verifiedAt]
+    );
+    return (rowCount ?? 0) > 0;
   }
 
   async deleteUserAiKey(userId: string, providerId: string): Promise<boolean> {

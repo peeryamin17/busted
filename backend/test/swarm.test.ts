@@ -261,6 +261,7 @@ async function main() {
       keyHint: '****xxxx',
       baseUrl: 'https://example.com/v1',
       verifiedAt: new Date().toISOString(),
+      discoveredModels: null,
     }];
     db.getUserLlmRouting = async () => null;
     const app = await buildApp(db);
@@ -377,6 +378,7 @@ async function main() {
       keyHint: '****kkkk',
       baseUrl: 'https://api.moonshot.ai/v1',
       verifiedAt: new Date().toISOString(),
+      discoveredModels: null,
     }];
     const missingRouting = new Error('relation "user_llm_routing" does not exist') as Error & { code?: string };
     missingRouting.code = '42P01';

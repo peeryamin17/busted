@@ -74,14 +74,52 @@ export function regionForQwenBaseUrl(baseUrl: string | null | undefined): QwenRe
   return known ? known[0] : 'custom';
 }
 
-export async function verifyGeminiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
+export interface VerifyResult {
+  ok: boolean;
+  error?: string;
+  /** Model IDs from the provider's /models list; null when the provider has none or the list was unusable. */
+  models?: string[] | null;
+}
+
+// Model IDs from an OpenAI-compatible /models body. Strings only,
+// deduped, order preserved. Null when the body has no usable list.
+function openAiModelIds(body: unknown): string[] | null {
+  const data = (body as { data?: unknown } | null)?.data;
+  if (!Array.isArray(data)) return null;
+  const ids: string[] = [];
+  for (const item of data) {
+    const id = (item as { id?: unknown } | null)?.id;
+    if (typeof id === 'string' && id && !ids.includes(id)) ids.push(id);
+  }
+  return ids.length > 0 ? ids : null;
+}
+
+// Model names from a Gemini /models body, with the 'models/' prefix stripped.
+function geminiModelNames(body: unknown): string[] | null {
+  const models = (body as { models?: unknown } | null)?.models;
+  if (!Array.isArray(models)) return null;
+  const names: string[] = [];
+  for (const item of models) {
+    const name = (item as { name?: unknown } | null)?.name;
+    if (typeof name === 'string' && name) {
+      const stripped = name.startsWith('models/') ? name.slice('models/'.length) : name;
+      if (stripped && !names.includes(stripped)) names.push(stripped);
+    }
+  }
+  return names.length > 0 ? names : null;
+}
+
+export async function verifyGeminiKey(apiKey: string): Promise<VerifyResult> {
   try {
     const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
       method: 'GET',
       headers: { 'x-goog-api-key': apiKey },
       signal: AbortSignal.timeout(8000),
     });
-    if (res.ok) return { ok: true };
+    if (res.ok) {
+      const body = await res.json().catch(() => null);
+      return { ok: true, models: geminiModelNames(body) };
+    }
     const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
     return {
       ok: false,
@@ -98,14 +136,17 @@ export async function verifyGeminiKey(apiKey: string): Promise<{ ok: boolean; er
 export async function verifyQwenKey(
   apiKey: string,
   baseUrl: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<VerifyResult> {
   try {
     const res = await fetch(`${baseUrl}/models`, {
       method: 'GET',
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(8000),
     });
-    if (res.ok) return { ok: true };
+    if (res.ok) {
+      const body = await res.json().catch(() => null);
+      return { ok: true, models: openAiModelIds(body) };
+    }
     const body = (await res.json().catch(() => ({}))) as {
       error?: { message?: string } | string;
     };
@@ -169,7 +210,7 @@ export async function verifyProviderKey(
   providerId: ProviderId,
   apiKey: string,
   baseUrl: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<VerifyResult> {
   try {
     if (providerId === 'gemini') {
       const res = await fetch(`${baseUrl}/models`, {
@@ -177,7 +218,10 @@ export async function verifyProviderKey(
         headers: { 'x-goog-api-key': apiKey },
         signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
       });
-      if (res.ok) return { ok: true };
+      if (res.ok) {
+        const body = await res.json().catch(() => null);
+        return { ok: true, models: geminiModelNames(body) };
+      }
       return { ok: false, error: providerErrorDetail(await res.text().catch(() => ''), res.status) };
     }
     if (providerId === 'claude') {
@@ -195,7 +239,8 @@ export async function verifyProviderKey(
         }),
         signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
       });
-      if (res.ok) return { ok: true };
+      // No list endpoint for Claude, so there is nothing to discover.
+      if (res.ok) return { ok: true, models: null };
       return { ok: false, error: providerErrorDetail(await res.text().catch(() => ''), res.status) };
     }
     const headers: Record<string, string> = {};
@@ -205,7 +250,10 @@ export async function verifyProviderKey(
       headers,
       signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
     });
-    if (res.ok) return { ok: true };
+    if (res.ok) {
+      const body = await res.json().catch(() => null);
+      return { ok: true, models: openAiModelIds(body) };
+    }
     return { ok: false, error: providerErrorDetail(await res.text().catch(() => ''), res.status) };
   } catch (err) {
     return {
@@ -402,6 +450,7 @@ export async function aiKeyRoutes(app: FastifyInstance, deps: RouteDeps): Promis
         keyHint: r.keyHint,
         baseUrl: r.baseUrl,
         verifiedAt: r.verifiedAt,
+        discoveredModels: r.discoveredModels ?? null,
       })),
       routing: {
         workerProvider: routing.workerProvider,
@@ -472,6 +521,7 @@ export async function aiKeyRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       keyHint: hint,
       baseUrl,
       verifiedAt,
+      discoveredModels: check.models ?? null,
     });
     // Keep the legacy single-key row on the latest saved key so older
     // clients (extension popup, /api/me/ai-key) keep working.
@@ -531,10 +581,36 @@ export async function aiKeyRoutes(app: FastifyInstance, deps: RouteDeps): Promis
       keyHint: hint,
       baseUrl,
       verifiedAt,
+      discoveredModels: check.models ?? null,
       hasByok: remaining.length > 0,
       routingAutoSet,
       routing: routingOut,
     };
+  });
+
+  app.post('/api/v1/ai-keys/:providerId/refresh', { preHandler: [authenticate] }, async (req, reply) => {
+    const user = requireUser(req);
+    const providerIdRaw = (req.params as { providerId?: string }).providerId ?? '';
+    const providerId = providerIdRaw.trim().toLowerCase();
+    if (!isProviderId(providerId)) {
+      return reply.code(400).send({ error: `Unknown AI provider "${providerIdRaw}".` });
+    }
+    if (providerId === 'ollama') {
+      return reply.code(400).send({ error: 'Ollama is local-only; its model list cannot be refreshed from the hosted backend.' });
+    }
+    const saved = await getUserAiKeysDecrypted(db, user.id);
+    const row = saved.find((k) => k.providerId === providerId);
+    if (!row) {
+      return reply.code(404).send({ error: `No saved key for provider ${providerId}.` });
+    }
+    const check = await verifyProviderKey(providerId, row.apiKey, row.baseUrl);
+    if (!check.ok) {
+      return reply.code(400).send({ error: check.error || 'Provider rejected the key.' });
+    }
+    const verifiedAt = new Date().toISOString();
+    const models = check.models ?? null;
+    await db.updateUserAiKeyModels(user.id, providerId, models, verifiedAt);
+    return { providerId, discoveredModels: models, verifiedAt };
   });
 
   app.delete('/api/v1/ai-keys/:providerId', { preHandler: [authenticate] }, async (req, reply) => {
